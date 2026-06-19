@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { ChevronRight, Image as ImageIcon, Music2, RefreshCw, Star, Video } from "lucide-react";
+import { ChevronRight, DownloadCloud, Image as ImageIcon, Music2, RefreshCw, Star, Video } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes } from "@/lib/image-utils";
@@ -44,6 +44,7 @@ type CanvasNodeProps = {
     onToggleBatch?: (nodeId: string) => void;
     onSetBatchPrimary?: (node: CanvasNodeData) => void;
     onRetry?: (node: CanvasNodeData) => void;
+    onPullVideoTask?: (node: CanvasNodeData) => void;
     onGenerateImage?: (node: CanvasNodeData) => void;
     onViewImage?: (node: CanvasNodeData) => void;
     onContextMenu: (event: React.MouseEvent, nodeId: string) => void;
@@ -64,6 +65,7 @@ type NodeContentRendererProps = {
     onStopEditing: () => void;
     mentionReferences: CanvasResourceReference[];
     onRetry?: (node: CanvasNodeData) => void;
+    onPullVideoTask?: (node: CanvasNodeData) => void;
     onGenerateImage?: (node: CanvasNodeData) => void;
     onToggleBatch?: () => void;
     onSetBatchPrimary?: () => void;
@@ -99,6 +101,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     onToggleBatch,
     onSetBatchPrimary,
     onRetry,
+    onPullVideoTask,
     onGenerateImage,
     onViewImage,
     onContextMenu,
@@ -309,6 +312,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                         onContentChange={onContentChange}
                         onStopEditing={() => setIsEditingContent(false)}
                         onRetry={onRetry}
+                        onPullVideoTask={onPullVideoTask}
                         onGenerateImage={onGenerateImage}
                         onToggleBatch={() => onToggleBatch?.(data.id)}
                         onSetBatchPrimary={() => onSetBatchPrimary?.(data)}
@@ -338,7 +342,7 @@ function NodeContent(props: NodeContentRendererProps) {
     if (props.node.type === CanvasNodeType.Config && props.renderNodeContent) return props.renderNodeContent(props.node);
     if (props.isBatchRoot) return <ImageNodeContent {...props} />;
     if (props.node.metadata?.status === "loading") return <LoadingContent theme={props.theme} />;
-    if (props.node.metadata?.status === "error") return <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} />;
+    if (props.node.metadata?.status === "error") return <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} onPullVideoTask={props.onPullVideoTask} />;
 
     const Renderer = nodeContentRenderers[props.node.type];
     return Renderer ? <Renderer {...props} /> : <UnknownNodeContent theme={props.theme} />;
@@ -361,23 +365,41 @@ function LoadingContent({ theme }: Pick<NodeContentRendererProps, "theme">) {
     );
 }
 
-function ErrorContent({ node, theme, onRetry }: Pick<NodeContentRendererProps, "node" | "theme" | "onRetry">) {
+function ErrorContent({ node, theme, onRetry, onPullVideoTask }: Pick<NodeContentRendererProps, "node" | "theme" | "onRetry" | "onPullVideoTask">) {
+    const canPullVideoTask = node.type === CanvasNodeType.Video && Boolean(node.metadata?.videoTaskId);
     return (
         <div className="flex max-w-[260px] flex-col items-center gap-3 px-5 text-center">
             <div className="text-xs leading-5 text-red-300">{node.metadata?.errorDetails || "生成失败"}</div>
-            <button
-                type="button"
-                className="inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition hover:scale-[1.02]"
-                style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
-                onClick={(event) => {
-                    event.stopPropagation();
-                    onRetry?.(node);
-                }}
-                onMouseDown={(event) => event.stopPropagation()}
-            >
-                <RefreshCw className="size-3.5" />
-                重试
-            </button>
+            <div className="flex flex-wrap justify-center gap-2">
+                {canPullVideoTask ? (
+                    <button
+                        type="button"
+                        className="inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition hover:scale-[1.02]"
+                        style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            onPullVideoTask?.(node);
+                        }}
+                        onMouseDown={(event) => event.stopPropagation()}
+                    >
+                        <DownloadCloud className="size-3.5" />
+                        拉取结果
+                    </button>
+                ) : null}
+                <button
+                    type="button"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition hover:scale-[1.02]"
+                    style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        onRetry?.(node);
+                    }}
+                    onMouseDown={(event) => event.stopPropagation()}
+                >
+                    <RefreshCw className="size-3.5" />
+                    重试
+                </button>
+            </div>
         </div>
     );
 }
@@ -456,7 +478,7 @@ function ImageNodeContent(props: NodeContentRendererProps) {
             props.node.metadata?.status === "loading" ? (
                 <LoadingContent theme={props.theme} />
             ) : props.node.metadata?.status === "error" ? (
-                <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} />
+                <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} onPullVideoTask={props.onPullVideoTask} />
             ) : (
                 <EmptyImageContent {...props} isBatchRoot={false} />
             );
@@ -508,7 +530,14 @@ function VideoNodeContent({ node, theme }: NodeContentRendererProps) {
                 <span className="text-sm">空视频节点</span>
             </div>
         );
-    return <video src={node.metadata.content} controls className="h-full w-full rounded-[18px] bg-black object-contain" data-canvas-no-zoom />;
+    return (
+        <div className="relative h-full w-full">
+            <video src={node.metadata.content} controls draggable={false} className="h-full w-full rounded-[18px] bg-black object-contain" data-canvas-no-zoom onMouseDown={(event) => event.stopPropagation()} />
+            <div className="absolute inset-x-10 top-2 z-30 h-7 cursor-move rounded-full border text-center text-[10px] font-medium leading-7 opacity-70 backdrop-blur transition hover:opacity-100" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }} data-canvas-drag-handle>
+                拖动视频
+            </div>
+        </div>
+    );
 }
 
 function AudioNodeContent({ node, theme }: NodeContentRendererProps) {

@@ -46,4 +46,3 @@ export function fetchCloudChannels() {
 export function createCloudChannel(input: { name: string; baseUrl: string; apiKey: string; apiFormat: ApiCallFormat; models: string[] }) {
     return requestAccount<{ channel: CloudModelChannel }>("/channels", { method: "POST", body: JSON.stringify(input) });
 }
-

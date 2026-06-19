@@ -1,6 +1,6 @@
 import axios from "axios";
 
-import { buildApiUrl, resolveModelRequestConfig, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
+import { buildAiApiUrl, buildApiUrl, buildForcedProxiedUrl, buildProxiedUrl, resolveModelRequestConfig, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { buildImageReferencePromptText } from "@/lib/image-reference-prompt";
@@ -229,7 +229,7 @@ function withSystemPrompt(config: AiConfig, prompt: string) {
 }
 
 function aiApiUrl(config: AiConfig, path: string) {
-    return buildApiUrl(config.baseUrl, path);
+    return buildAiApiUrl(config.baseUrl, path);
 }
 
 function aiHeaders(config: AiConfig, contentType?: string) {
@@ -251,8 +251,8 @@ function geminiModelName(model: string) {
 
 function geminiApiUrl(config: Pick<AiConfig, "baseUrl" | "model">, action?: "generateContent" | "streamGenerateContent") {
     const baseUrl = geminiBaseUrl(config);
-    if (!action) return `${baseUrl}/models`;
-    return `${baseUrl}/models/${encodeURIComponent(geminiModelName(config.model))}:${action}`;
+    const targetUrl = !action ? `${baseUrl}/models` : `${baseUrl}/models/${encodeURIComponent(geminiModelName(config.model))}:${action}`;
+    return buildProxiedUrl(targetUrl);
 }
 
 function geminiHeaders(config: Pick<AiConfig, "apiKey">) {
@@ -620,8 +620,9 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
     const quality = normalizeQuality(config.quality);
     const requestSize = resolveRequestSize(quality, config.size);
     try {
-        const response = await axios.post<ImageApiResponse>(
-            aiApiUrl(requestConfig, "/images/generations"),
+        const response = await postWithProxyFallback<ImageApiResponse>(
+            requestConfig,
+            "/images/generations",
             {
                 model: requestConfig.model,
                 prompt: withSystemPrompt(requestConfig, prompt),
@@ -631,10 +632,8 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
                 response_format: "b64_json",
                 output_format: IMAGE_OUTPUT_FORMAT,
             },
-            {
-                headers: aiHeaders(requestConfig, "application/json"),
-                signal: options?.signal,
-            },
+            "application/json",
+            options,
         );
         const images = parseImagePayload(response.data);
         return images;
@@ -674,7 +673,7 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     if (mask) formData.set("mask", dataUrlToFile(mask));
 
     try {
-        const response = await axios.post<ImageApiResponse>(aiApiUrl(requestConfig, "/images/edits"), formData, { headers: aiHeaders(requestConfig), signal: options?.signal });
+        const response = await postWithProxyFallback<ImageApiResponse>(requestConfig, "/images/edits", formData, undefined, options);
         const images = parseImagePayload(response.data);
         return images;
     } catch (error) {
@@ -729,11 +728,7 @@ export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKe
                 .filter((id): id is string => Boolean(id))
                 .sort((a, b) => a.localeCompare(b));
         }
-        const response = await axios.get<{ data?: Array<{ id?: string }>; error?: { message?: string } }>(buildApiUrl(config.baseUrl, "/models"), {
-            headers: {
-                Authorization: `Bearer ${config.apiKey}`,
-            },
-        });
+        const response = await getModelsWithProxyFallback(config.baseUrl, config.apiKey);
         return (response.data.data || [])
             .map((model) => model.id)
             .filter((id): id is string => Boolean(id))
@@ -745,6 +740,28 @@ export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKe
 
 export async function fetchChannelModels(channel: ModelChannel) {
     return fetchImageModels({ baseUrl: channel.baseUrl, apiKey: channel.apiKey, apiFormat: channel.apiFormat });
+}
+
+async function getModelsWithProxyFallback(baseUrl: string, apiKey: string) {
+    const url = buildApiUrl(baseUrl, "/models");
+    const headers = { Authorization: `Bearer ${apiKey}` };
+    try {
+        return await axios.get<{ data?: Array<{ id?: string }>; error?: { message?: string } }>(buildAiApiUrl(baseUrl, "/models"), { headers });
+    } catch (error) {
+        if (!axios.isAxiosError(error) || error.response || buildAiApiUrl(baseUrl, "/models") !== url) throw error;
+        return await axios.get<{ data?: Array<{ id?: string }>; error?: { message?: string } }>(buildForcedProxiedUrl(url), { headers });
+    }
+}
+
+async function postWithProxyFallback<T>(config: AiConfig, path: string, body: unknown, contentType?: string, options?: RequestOptions) {
+    const directUrl = buildApiUrl(config.baseUrl, path);
+    const request = (url: string) => axios.post<T>(url, body, { headers: aiHeaders(config, contentType), signal: options?.signal });
+    try {
+        return await request(aiApiUrl(config, path));
+    } catch (error) {
+        if (!axios.isAxiosError(error) || error.response || aiApiUrl(config, path) !== directUrl) throw error;
+        return await request(buildForcedProxiedUrl(directUrl));
+    }
 }
 
 const defaultGeminiConfig: Pick<AiConfig, "baseUrl" | "apiKey" | "apiFormat" | "model" | "systemPrompt"> = {

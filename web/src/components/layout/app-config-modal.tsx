@@ -1,6 +1,6 @@
 "use client";
 
-import { App, Button, Form, Input, Modal, Progress, Segmented, Select, Tabs } from "antd";
+import { Button, Form, Input, message, Modal, Progress, Segmented, Select, Tabs } from "antd";
 import { CircleAlert, Cloud, Plus, RefreshCw, Trash2, Wifi } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -37,7 +37,7 @@ const modelGroups: ModelGroup[] = [
 
 const apiFormatOptions: Array<{ label: string; value: ApiCallFormat }> = [
     { label: "OpenAI", value: "openai" },
-    { label: "OpenAI (JSON)", value: "openai-json" },
+    { label: "Cai 专用接口", value: "openai-json" },
     { label: "Gemini", value: "gemini" },
     { label: "火山方舟 (Seedance)", value: "volcengine" },
 ];
@@ -61,7 +61,6 @@ function createWebdavDomainProgress(): Record<AppSyncDomainKey, WebdavDomainProg
 }
 
 export function AppConfigModal() {
-    const { message } = App.useApp();
     const [loadingChannelId, setLoadingChannelId] = useState("");
     const [testingWebdav, setTestingWebdav] = useState(false);
     const [syncingWebdav, setSyncingWebdav] = useState(false);
@@ -480,6 +479,17 @@ export function AppConfigModal() {
                         children: (
                             <Form layout="vertical" requiredMark={false}>
                                 <div className="grid gap-4 md:grid-cols-4">
+                                    <Form.Item label="AI 请求代理" extra="如果你的中转渠道没有配置 CORS 跨域（表现为“读取模型失败”或无法生成），请开启此选项通过 Next.js 服务端进行请求转发。" className="mb-4 md:col-span-4">
+                                        <Segmented
+                                            block
+                                            value={config.aiProxyEnabled ? "proxy" : "direct"}
+                                            onChange={(value) => updateConfig("aiProxyEnabled", value === "proxy")}
+                                            options={[
+                                                { label: "浏览器直连 (需要渠道支持 CORS 跨域)", value: "direct" },
+                                                { label: "Next.js 服务端转发 (解决跨域/403错误)", value: "proxy" },
+                                            ]}
+                                        />
+                                    </Form.Item>
                                     <Form.Item label="画布默认生图张数" extra="新建画布生图和配置节点默认使用，单个节点仍可单独覆盖。" className="mb-4">
                                         <Input
                                             type="number"
@@ -624,7 +634,7 @@ function uniqueModels(models: string[]) {
 function apiFormatLabel(apiFormat: ApiCallFormat) {
     if (apiFormat === "gemini") return "Gemini";
     if (apiFormat === "volcengine") return "火山方舟";
-    if (apiFormat === "openai-json") return "OpenAI (JSON)";
+    if (apiFormat === "openai-json") return "Cai 专用接口";
     return "OpenAI";
 }
 

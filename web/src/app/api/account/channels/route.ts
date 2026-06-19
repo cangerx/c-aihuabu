@@ -108,4 +108,3 @@ function normalizeApiFormat(value: unknown): ApiCallFormat {
 function normalizeModels(models: unknown) {
     return Array.from(new Set((Array.isArray(models) ? models : []).map((item) => String(item).trim()).filter(Boolean)));
 }
-

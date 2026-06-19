@@ -57,4 +57,3 @@ export async function writeAccountDb(db: AccountDb) {
     await writeFile(tmpFile, JSON.stringify(db, null, 2));
     await rename(tmpFile, dbFile);
 }
-

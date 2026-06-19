@@ -45,6 +45,7 @@ export type AiConfig = {
     size: string;
     count: string;
     canvasImageCount: string;
+    aiProxyEnabled: boolean;
 };
 
 export type WebdavSyncConfig = {
@@ -101,6 +102,7 @@ export const defaultConfig: AiConfig = {
     size: "1:1",
     count: "1",
     canvasImageCount: "1",
+    aiProxyEnabled: false,
 };
 
 export const defaultWebdavSyncConfig: WebdavSyncConfig = {
@@ -244,6 +246,7 @@ export const useConfigStore = create<ConfigStore>()(
                         videoGenerateAudio: config.videoGenerateAudio || "true",
                         videoWatermark: config.videoWatermark || "false",
                         canvasImageCount: config.canvasImageCount || "1",
+                        aiProxyEnabled: persistedConfig.aiProxyEnabled ?? false,
                         imageModels: Array.isArray(persistedConfig.imageModels) ? normalizeModelList(config.imageModels, channels) : filterModelsByCapability(models, "image"),
                         videoModels: Array.isArray(persistedConfig.videoModels) ? normalizeModelList(config.videoModels, channels) : filterModelsByCapability(models, "video"),
                         textModels: Array.isArray(persistedConfig.textModels) ? normalizeModelList(config.textModels, channels) : filterModelsByCapability(models, "text"),
@@ -420,4 +423,24 @@ function normalizeArkPlanBaseUrl(baseUrl: string) {
     } catch {
         return baseUrl;
     }
+}
+
+export function buildProxiedUrl(targetUrl: string) {
+    try {
+        const aiProxyEnabled = useConfigStore.getState().config.aiProxyEnabled;
+        if (aiProxyEnabled) {
+            return buildForcedProxiedUrl(targetUrl);
+        }
+    } catch {
+        // Fallback
+    }
+    return targetUrl;
+}
+
+export function buildForcedProxiedUrl(targetUrl: string) {
+    return `/api/ai-proxy?url=${encodeURIComponent(targetUrl)}`;
+}
+
+export function buildAiApiUrl(baseUrl: string, path: string) {
+    return buildProxiedUrl(buildApiUrl(baseUrl, path));
 }

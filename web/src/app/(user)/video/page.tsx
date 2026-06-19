@@ -67,7 +67,7 @@ type GenerationLogConfig = Pick<AiConfig, "model" | "videoModel" | "size" | "vqu
 type UpdateAiConfig = <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
 
 const LOG_STORE_KEY = "infinite-canvas:video_generation_logs";
-const MAX_VIDEO_POLL_ATTEMPTS = 120;
+const VIDEO_POLL_TIMEOUT_MS = 30 * 60 * 1000;
 const MAX_CONSECUTIVE_POLL_ERRORS = 6;
 const logStore = localforage.createInstance({ name: "infinite-canvas", storeName: "video_generation_logs" });
 
@@ -309,8 +309,9 @@ export default function VideoPage() {
         let latestLog = log;
         let consecutiveErrors = 0;
         const baseDelay = log.task.provider === "seedance" ? 5000 : 2500;
+        const maxAttempts = Math.ceil(VIDEO_POLL_TIMEOUT_MS / baseDelay);
         try {
-            for (let attempt = 0; attempt < MAX_VIDEO_POLL_ATTEMPTS; attempt += 1) {
+            for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
                 let state: Awaited<ReturnType<typeof pollVideoGenerationTask>>;
                 try {
                     state = await pollVideoGenerationTask(configOverride || taskConfig, log.task);
@@ -346,7 +347,7 @@ export default function VideoPage() {
                     return;
                 }
                 if (state.status === "failed") throw new Error(state.error);
-                if (attempt === MAX_VIDEO_POLL_ATTEMPTS - 1) {
+                if (attempt === maxAttempts - 1) {
                     latestLog = { ...latestLog, status: "生成中", durationMs: Date.now() - latestLog.createdAt, error: "任务仍在生成中，稍后打开页面会继续查询" };
                     setResults([{ id: latestLog.id, status: "pending", error: latestLog.error }]);
                     await saveLog(latestLog);
