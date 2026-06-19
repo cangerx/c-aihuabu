@@ -155,11 +155,6 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
                             return;
                         }
                     }
-                    if (event.key === "Enter" && onSubmit && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
-                        event.preventDefault();
-                        onSubmit();
-                        return;
-                    }
                     onKeyDown?.(event);
                 }}
                 onScroll={(event) => {
