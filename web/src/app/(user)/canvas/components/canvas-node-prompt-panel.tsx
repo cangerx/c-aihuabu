@@ -5,9 +5,10 @@ import { ArrowUp, Camera, LoaderCircle, Zap, Wand2, Plus, ChevronDown, Palette }
 import { Button, Tooltip, Dropdown, message } from "antd";
 
 import { ModelPicker } from "@/components/model-picker";
-import { defaultConfig, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { defaultConfig, modelOptionName, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { requestCreditCost } from "@/constant/credits";
 import { canvasThemes } from "@/lib/canvas-theme";
+import { isSeedanceVideoModel } from "@/lib/seedance-video";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
 import { PromptSelectDialog } from "@/components/prompts/prompt-select-dialog";
@@ -49,12 +50,13 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
 
     const imageRefs = mentionReferences.filter((r) => r.kind === "image");
     const videoRefs = mentionReferences.filter((r) => r.kind === "video");
-    const totalRefs = imageRefs.length + videoRefs.length;
-    const activeRefs = mentionReferences.filter((r) => r.active);
+    const isSeedanceVideo = mode === "video" && isSeedanceVideoModel(modelOptionName(config.model || config.videoModel));
+    const totalRefs = imageRefs.length + (isSeedanceVideo ? videoRefs.length : 0);
+    const activeRefs = mentionReferences.filter((r) => r.active && (isSeedanceVideo || r.kind === "image"));
 
     const videoTabs = [
         { id: "text-to-video", label: "文生视频", enabled: true, tooltip: "" },
-        { id: "all-around", label: "全能参考", enabled: totalRefs >= 1, tooltip: "需要连接图片/视频节点 (1~15个)" },
+        ...(isSeedanceVideo ? [{ id: "all-around", label: "全能参考", enabled: totalRefs >= 1, tooltip: "Seedance 支持图片/视频/音频多参考，需要先连接素材节点" }] : []),
         { id: "image-to-video", label: "图生视频", enabled: imageRefs.length >= 1, tooltip: "需要连接图片节点 (1~15个)" },
         { id: "first-last", label: "首尾帧", enabled: imageRefs.length >= 2, tooltip: "需要连接2个图片节点" },
         { id: "image-ref", label: "图片参考", enabled: imageRefs.length >= 1, tooltip: "需要连接图片节点 (1~15个)" },
@@ -67,14 +69,18 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
 
     useEffect(() => {
         if (mode !== "video") return;
+        if (!videoTabs.find((tab) => tab.id === activeVideoTab)) {
+            updateVideoMode("text-to-video");
+            return;
+        }
         if (activeVideoTab === "text-to-video") {
-            if (videoRefs.length > 0) updateVideoMode("all-around");
+            if (isSeedanceVideo && videoRefs.length > 0) updateVideoMode("all-around");
             else if (imageRefs.length >= 2) updateVideoMode("first-last");
             else if (imageRefs.length >= 1) updateVideoMode("image-to-video");
         } else if (!videoTabs.find((tab) => tab.id === activeVideoTab)?.enabled) {
             updateVideoMode("text-to-video");
         }
-    }, [activeVideoTab, imageRefs.length, mode, videoRefs.length]);
+    }, [activeVideoTab, imageRefs.length, isSeedanceVideo, mode, videoRefs.length]);
 
     useEffect(() => {
         if (mode !== "video") return;
@@ -263,7 +269,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
             </div>
 
             <div className="mt-4 flex min-w-0 items-center justify-between gap-3 border-t pt-3" style={{ borderColor: themeKey === "light" ? "#f2f0ea" : theme.toolbar.border }}>
-                <div className="flex min-w-0 flex-1 items-center gap-2 flex-wrap">
+                <div className="no-scrollbar flex min-w-0 flex-1 items-center gap-2 overflow-x-auto whitespace-nowrap">
                     {/* flat + 按钮 */}
                     <Tooltip title="提示词库">
                         <button
@@ -319,19 +325,14 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                         </>
                     ) : mode === "video" ? (
                         <>
-                            <div className="relative">
-                                <ModelPicker
-                                    config={config}
-                                    value={config.model}
-                                    onChange={(model) => onConfigChange(node.id, { model })}
-                                    capability="video"
-                                    className="!h-7 !border-gray-200/60 !bg-transparent !px-2.5 !text-[11px] !shadow-none !text-gray-700 hover:!bg-gray-50 dark:!border-zinc-700 dark:!text-zinc-300 dark:hover:!bg-zinc-800"
-                                    onMissingConfig={() => openConfigDialog(true)}
-                                />
-                                <span className="pointer-events-none absolute -right-2 -top-2 scale-75 select-none rounded-full bg-gradient-to-r from-amber-400 to-yellow-500 px-1 text-[8px] font-bold text-black shadow-sm z-10">
-                                    PRO
-                                </span>
-                            </div>
+                            <ModelPicker
+                                config={config}
+                                value={config.model}
+                                onChange={(model) => onConfigChange(node.id, { model })}
+                                capability="video"
+                                className="!h-7 !max-w-[190px] shrink-0 !border-gray-200/60 !bg-transparent !px-2.5 !text-[11px] !shadow-none !text-gray-700 hover:!bg-gray-50 dark:!border-zinc-700 dark:!text-zinc-300 dark:hover:!bg-zinc-800"
+                                onMissingConfig={() => openConfigDialog(true)}
+                            />
                             <Dropdown menu={cameraMenu} placement="topLeft" trigger={["click"]} overlayClassName="z-[1300]">
                                 <button
                                     type="button"
