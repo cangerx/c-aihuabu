@@ -4,4 +4,6 @@ services:
     container_name: infinite-canvas
     ports:
       - "3000:3000"
+    volumes:
+      - ./data/uploads:/app/web/data/uploads
     restart: unless-stopped

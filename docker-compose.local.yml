@@ -6,4 +6,6 @@ services:
       dockerfile: Dockerfile
     ports:
       - "3000:3000"
+    volumes:
+      - ./data/uploads:/app/web/data/uploads
     restart: unless-stopped

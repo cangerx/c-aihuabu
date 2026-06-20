@@ -101,7 +101,7 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
 }
 
 async function createCaiStandardVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
-    const imageUrls = references.map((image) => resolveCaiPublicUrl(image.url || image.dataUrl, "参考图片"));
+    const imageUrls = await Promise.all(references.map((image) => resolveCaiImageUrl(image, options)));
     const videoUrls = videoReferences.map((video) => resolveCaiPublicUrl(video.url, "参考视频"));
     const audioUrls = audioReferences.map((audio) => resolveCaiPublicUrl(audio.url, "参考音频"));
     const ratio = normalizeSeedanceRatio(config.size);
@@ -129,7 +129,7 @@ async function createCaiStandardVideoTask(config: AiConfig, model: string, promp
 }
 
 async function createCaiSdVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
-    const imageUrls = references.map((image) => resolveCaiPublicUrl(image.url || image.dataUrl, "参考图片"));
+    const imageUrls = await Promise.all(references.map((image) => resolveCaiImageUrl(image, options)));
     const videoUrls = videoReferences.map((video) => resolveCaiPublicUrl(video.url, "参考视频"));
     const audioUrls = audioReferences.map((audio) => resolveCaiPublicUrl(audio.url, "参考音频"));
     
@@ -449,6 +449,18 @@ function resolveCaiPublicUrl(value: string | undefined, label: string) {
     const url = String(value || "").trim();
     if (/^https?:\/\//i.test(url)) return url;
     throw new Error(`Cai 专用接口要求${label}必须是服务器可访问的公网 URL，当前本地素材不能直接提交。请先上传到对象存储或使用公网链接。`);
+}
+
+async function resolveCaiImageUrl(image: ReferenceImage, options?: RequestOptions) {
+    const directUrl = String(image.url || image.dataUrl || "").trim();
+    if (/^https?:\/\//i.test(directUrl)) return directUrl;
+    const file = await dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) });
+    const form = new FormData();
+    form.append("file", file);
+    const response = await axios.post<{ code?: number; data?: { url?: string }; msg?: string }>("/api/uploads/references", form, { signal: options?.signal });
+    const url = response.data?.data?.url;
+    if (!url) throw new Error(response.data?.msg || "参考图片上传失败");
+    return url;
 }
 
 function isCaiSdModel(model: string) {
