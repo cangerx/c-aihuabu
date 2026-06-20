@@ -4,6 +4,9 @@ services:
     container_name: infinite-canvas
     ports:
       - "3000:3000"
+    environment:
+      # 参考图片上传后返回给视频上游的公网地址；上游通常要求 https://
+      # C_AI_PUBLIC_BASE_URL: "https://your-domain.com"
     volumes:
       - ./data/uploads:/app/web/data/uploads
     restart: unless-stopped

@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
 const MAX_DIR_BYTES = 2 * 1024 * 1024 * 1024;
 const uploadDir = process.env.C_AI_UPLOAD_DIR || path.join(process.cwd(), "data", "uploads", "references");
+const publicBaseUrl = process.env.C_AI_PUBLIC_BASE_URL?.replace(/\/+$/, "");
 
 export async function POST(request: NextRequest) {
     const form = await request.formData();
@@ -21,7 +22,7 @@ export async function POST(request: NextRequest) {
     await writeFile(target, Buffer.from(await file.arrayBuffer()));
     await cleanupUploadDir();
 
-    return NextResponse.json({ code: 0, data: { url: `${request.nextUrl.origin}/api/uploads/references/${name}`, name }, msg: "ok" });
+    return NextResponse.json({ code: 0, data: { url: `${publicBaseUrl || request.nextUrl.origin}/api/uploads/references/${name}`, name }, msg: "ok" });
 }
 
 async function cleanupUploadDir() {
