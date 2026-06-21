@@ -122,8 +122,8 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
 
 async function createNewTokenVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
     const imageUrls = await Promise.all(references.map((image) => resolveCaiImageUrl(image, options)));
-    const videoUrls = videoReferences.map((video) => resolveCaiPublicUrl(video.url, "参考视频"));
-    const audioUrls = audioReferences.map((audio) => resolveCaiPublicUrl(audio.url, "参考音频"));
+    const videoUrls = await Promise.all(videoReferences.map((video) => resolveCaiMediaUrl(video, "参考视频", options)));
+    const audioUrls = await Promise.all(audioReferences.map((audio) => resolveCaiMediaUrl(audio, "参考音频", options)));
     const payload = buildNewTokenVideoPayload(config, model, prompt, imageUrls, videoUrls, audioUrls, options?.videoMode);
 
     try {
@@ -139,8 +139,8 @@ async function createNewTokenVideoTask(config: AiConfig, model: string, prompt: 
 async function createDuomiVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
     const modelName = modelOptionName(model);
     const imageUrls = await Promise.all(references.map((image) => resolveCaiImageUrl(image, options)));
-    const videoUrls = videoReferences.map((video) => resolveCaiPublicUrl(video.url, "参考视频"));
-    const audioUrls = audioReferences.map((audio) => resolveCaiPublicUrl(audio.url, "参考音频"));
+    const videoUrls = await Promise.all(videoReferences.map((video) => resolveCaiMediaUrl(video, "参考视频", options)));
+    const audioUrls = await Promise.all(audioReferences.map((audio) => resolveCaiMediaUrl(audio, "参考音频", options)));
     const isGrok = modelName.toLowerCase().includes("grok");
     const payload = isGrok ? buildDuomiGrokPayload(config, modelName, prompt, imageUrls) : buildDuomiSeedancePayload(config, modelName, prompt, imageUrls, videoUrls, audioUrls);
     const path = isGrok ? "/videos/generations" : "/contents/generations/tasks";
@@ -157,8 +157,8 @@ async function createDuomiVideoTask(config: AiConfig, model: string, prompt: str
 
 async function createCaiStandardVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
     const imageUrls = await Promise.all(references.map((image) => resolveCaiImageUrl(image, options)));
-    const videoUrls = videoReferences.map((video) => resolveCaiPublicUrl(video.url, "参考视频"));
-    const audioUrls = audioReferences.map((audio) => resolveCaiPublicUrl(audio.url, "参考音频"));
+    const videoUrls = await Promise.all(videoReferences.map((video) => resolveCaiMediaUrl(video, "参考视频", options)));
+    const audioUrls = await Promise.all(audioReferences.map((audio) => resolveCaiMediaUrl(audio, "参考音频", options)));
     assertCaiVideoMode(model, imageUrls, videoUrls, audioUrls, options?.videoMode);
     const ratio = normalizeSeedanceRatio(config.size);
     const payload: Record<string, any> = {
@@ -186,8 +186,8 @@ async function createCaiStandardVideoTask(config: AiConfig, model: string, promp
 
 async function createCaiSdVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
     const imageUrls = await Promise.all(references.map((image) => resolveCaiImageUrl(image, options)));
-    const videoUrls = videoReferences.map((video) => resolveCaiPublicUrl(video.url, "参考视频"));
-    const audioUrls = audioReferences.map((audio) => resolveCaiPublicUrl(audio.url, "参考音频"));
+    const videoUrls = await Promise.all(videoReferences.map((video) => resolveCaiMediaUrl(video, "参考视频", options)));
+    const audioUrls = await Promise.all(audioReferences.map((audio) => resolveCaiMediaUrl(audio, "参考音频", options)));
     assertCaiVideoMode(model, imageUrls, videoUrls, audioUrls, options?.videoMode);
     
     const duration = normalizeSeedanceDuration(config.videoSeconds);
@@ -657,20 +657,47 @@ function statusMessage(status: number | undefined, fallback: string) {
 
 function resolveCaiPublicUrl(value: string | undefined, label: string) {
     const url = String(value || "").trim();
-    if (/^https?:\/\//i.test(url)) return url;
+    if (isCaiReachableUrl(url)) return url;
+    if (/^https?:\/\//i.test(url)) throw new Error(`${label}地址不是上游可访问的公网 HTTPS URL，请配置 C_AI_PUBLIC_BASE_URL 为当前站点的公网 HTTPS 地址。`);
     throw new Error(`Cai 专用接口要求${label}必须是服务器可访问的公网 URL，当前本地素材不能直接提交。请先上传到对象存储或使用公网链接。`);
 }
 
 async function resolveCaiImageUrl(image: ReferenceImage, options?: RequestOptions) {
     const directUrl = String(image.url || image.dataUrl || "").trim();
-    if (/^https?:\/\//i.test(directUrl)) return directUrl;
+    if (isCaiReachableUrl(directUrl)) return directUrl;
     const file = await dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) });
+    return uploadCaiReferenceFile(file, options);
+}
+
+async function resolveCaiMediaUrl(media: ReferenceVideo | ReferenceAudio, label: string, options?: RequestOptions) {
+    const directUrl = String(media.url || "").trim();
+    if (isCaiReachableUrl(directUrl)) return directUrl;
+    let blob: Blob | null = null;
+    if (media.storageKey) blob = await getMediaBlob(media.storageKey);
+    if (!blob && directUrl.startsWith("blob:")) blob = await (await fetch(directUrl)).blob();
+    if (!blob) return resolveCaiPublicUrl(directUrl, label);
+    const file = new File([blob], media.name || `${label}.${media.type.includes("audio") ? "mp3" : "mp4"}`, { type: media.type || blob.type || "application/octet-stream" });
+    return uploadCaiReferenceFile(file, options);
+}
+
+async function uploadCaiReferenceFile(file: File, options?: RequestOptions) {
     const form = new FormData();
     form.append("file", file);
     const response = await axios.post<{ code?: number; data?: { url?: string }; msg?: string }>("/api/uploads/references", form, { signal: options?.signal });
     const url = response.data?.data?.url;
     if (!url) throw new Error(response.data?.msg || "参考图片上传失败");
+    if (!isCaiReachableUrl(url)) throw new Error("参考素材已上传到本地服务，但返回地址不是公网 HTTPS URL。请在 Docker/部署环境配置 C_AI_PUBLIC_BASE_URL=https://你的域名，并确保外网可访问。");
     return url;
+}
+
+function isCaiReachableUrl(value: string) {
+    if (!/^https:\/\//i.test(value || "")) return false;
+    try {
+        const host = new URL(value).hostname.toLowerCase();
+        return host !== "localhost" && host !== "127.0.0.1" && !host.endsWith(".local");
+    } catch {
+        return false;
+    }
 }
 
 function isCaiSdModel(model: string) {

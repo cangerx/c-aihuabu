@@ -6,7 +6,7 @@ const uploadDir = process.env.C_AI_UPLOAD_DIR || path.join(process.cwd(), "data"
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ name: string }> }) {
     const { name } = await params;
-    if (!/^[a-zA-Z0-9_-]+\.(png|jpg|jpeg|webp|gif)$/i.test(name)) return new NextResponse("Not found", { status: 404 });
+    if (!/^[a-zA-Z0-9_-]+\.(png|jpg|jpeg|webp|gif|mp4|mov|mp3|wav)$/i.test(name)) return new NextResponse("Not found", { status: 404 });
     const filePath = path.join(uploadDir, name);
     const data = await readFile(filePath).catch(() => null);
     if (!data) return new NextResponse("Not found", { status: 404 });
@@ -23,5 +23,9 @@ function contentType(name: string) {
     if (value.endsWith(".jpg") || value.endsWith(".jpeg")) return "image/jpeg";
     if (value.endsWith(".webp")) return "image/webp";
     if (value.endsWith(".gif")) return "image/gif";
+    if (value.endsWith(".mp4")) return "video/mp4";
+    if (value.endsWith(".mov")) return "video/quicktime";
+    if (value.endsWith(".mp3")) return "audio/mpeg";
+    if (value.endsWith(".wav")) return "audio/wav";
     return "image/png";
 }
