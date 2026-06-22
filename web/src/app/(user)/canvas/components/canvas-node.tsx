@@ -2,13 +2,13 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { ChevronRight, DownloadCloud, Film, Image as ImageIcon, Music2, RefreshCw, Star, Video } from "lucide-react";
+import { ChevronRight, DownloadCloud, Film, FileText, Image as ImageIcon, Music2, RefreshCw, SplitSquareHorizontal, Star, Video, Wand2 } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes } from "@/lib/image-utils";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
-import { CanvasNodeType, type CanvasNodeData, type Position } from "../types";
+import { CanvasNodeType, type CanvasNodeData, type CanvasScriptScene, type Position } from "../types";
 import type { CanvasResourceReference } from "../utils/canvas-resource-references";
 
 type ResizeCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
@@ -46,6 +46,8 @@ type CanvasNodeProps = {
     onRetry?: (node: CanvasNodeData) => void;
     onPullVideoTask?: (node: CanvasNodeData) => void;
     onGenerateImage?: (node: CanvasNodeData) => void;
+    onGenerateScript?: (node: CanvasNodeData) => void;
+    onExpandScript?: (node: CanvasNodeData) => void;
     onViewImage?: (node: CanvasNodeData) => void;
     onContextMenu: (event: React.MouseEvent, nodeId: string) => void;
 };
@@ -67,6 +69,8 @@ type NodeContentRendererProps = {
     onRetry?: (node: CanvasNodeData) => void;
     onPullVideoTask?: (node: CanvasNodeData) => void;
     onGenerateImage?: (node: CanvasNodeData) => void;
+    onGenerateScript?: (node: CanvasNodeData) => void;
+    onExpandScript?: (node: CanvasNodeData) => void;
     onToggleBatch?: () => void;
     onSetBatchPrimary?: () => void;
 };
@@ -103,6 +107,8 @@ export const CanvasNode = React.memo(function CanvasNode({
     onRetry,
     onPullVideoTask,
     onGenerateImage,
+    onGenerateScript,
+    onExpandScript,
     onViewImage,
     onContextMenu,
 }: CanvasNodeProps) {
@@ -316,6 +322,8 @@ export const CanvasNode = React.memo(function CanvasNode({
                         onRetry={onRetry}
                         onPullVideoTask={onPullVideoTask}
                         onGenerateImage={onGenerateImage}
+                        onGenerateScript={onGenerateScript}
+                        onExpandScript={onExpandScript}
                         onToggleBatch={() => onToggleBatch?.(data.id)}
                         onSetBatchPrimary={() => onSetBatchPrimary?.(data)}
                     />
@@ -486,7 +494,12 @@ function UnknownNodeContent({ theme }: Pick<NodeContentRendererProps, "theme">) 
     );
 }
 
-function TextContent({ node, theme, isEditingContent, textareaRef, mentionReferences, onContentChange, onStopEditing, onGenerateImage }: NodeContentRendererProps) {
+function TextContent(props: NodeContentRendererProps) {
+    if (props.node.metadata?.textKind === "script") return <ScriptContent {...props} />;
+    return <NoteTextContent {...props} />;
+}
+
+function NoteTextContent({ node, theme, isEditingContent, textareaRef, mentionReferences, onContentChange, onStopEditing, onGenerateImage }: NodeContentRendererProps) {
     const fontSize = node.metadata?.fontSize || 14;
     const textStyle = { fontSize: `${fontSize}px`, lineHeight: `${Math.round(fontSize * 1.65)}px`, color: theme.node.text, boxSizing: "border-box" } as React.CSSProperties;
 
@@ -534,6 +547,99 @@ function TextContent({ node, theme, isEditingContent, textareaRef, mentionRefere
                     {node.metadata?.content || <span style={{ color: theme.node.placeholder }}>双击编辑文字</span>}
                 </div>
             )}
+        </div>
+    );
+}
+
+function ScriptContent({ node, theme, onGenerateScript, onExpandScript }: NodeContentRendererProps) {
+    const scenes = node.metadata?.scriptScenes || [];
+    const hasScenes = scenes.length > 0;
+    const summary = hasScenes ? `${scenes.length} 个镜头` : "等待生成分镜";
+
+    return (
+        <div className="flex h-full w-full flex-col overflow-hidden p-4" style={{ color: theme.node.text }}>
+            <div className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-3">
+                    <div className="grid size-10 shrink-0 place-items-center rounded-2xl" style={{ background: theme.toolbar.activeBg, color: theme.node.activeStroke }}>
+                        <FileText className="size-5" />
+                    </div>
+                    <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold">脚本生成器</div>
+                        <div className="mt-0.5 truncate text-[11px]" style={{ color: theme.node.muted }}>
+                            {summary}
+                        </div>
+                    </div>
+                </div>
+                <div className="flex shrink-0 gap-1.5">
+                    <ScriptActionButton title="生成分镜" theme={theme} onClick={() => onGenerateScript?.(node)}>
+                        <Wand2 className="size-3.5" />
+                    </ScriptActionButton>
+                    <ScriptActionButton title="拆分镜头" disabled={!hasScenes} theme={theme} onClick={() => onExpandScript?.(node)}>
+                        <SplitSquareHorizontal className="size-3.5" />
+                    </ScriptActionButton>
+                </div>
+            </div>
+            <div className="thin-scrollbar mt-4 flex-1 space-y-2 overflow-y-auto pr-1">
+                {hasScenes ? scenes.map((scene, index) => <ScriptSceneCard key={scene.id || index} scene={scene} index={index} theme={theme} />) : <ScriptEmptyState node={node} theme={theme} />}
+            </div>
+        </div>
+    );
+}
+
+function ScriptActionButton({ title, disabled, theme, onClick, children }: { title: string; disabled?: boolean; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onClick?: () => void; children: ReactNode }) {
+    return (
+        <button
+            type="button"
+            className="grid size-8 place-items-center rounded-xl border transition hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-35"
+            style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
+            title={title}
+            aria-label={title}
+            disabled={disabled}
+            onClick={(event) => {
+                event.stopPropagation();
+                onClick?.();
+            }}
+            onMouseDown={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+        >
+            {children}
+        </button>
+    );
+}
+
+function ScriptEmptyState({ node, theme }: { node: CanvasNodeData; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
+    return (
+        <div className="flex h-full min-h-[220px] flex-col justify-center rounded-2xl border border-dashed px-4 text-sm leading-6" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>
+            <div className="mb-2 text-xs font-semibold" style={{ color: theme.node.text }}>
+                输入脚本需求后生成分镜
+            </div>
+            <div className="line-clamp-5 whitespace-pre-wrap">{node.metadata?.prompt || "根据上游文本生成短视频分镜脚本。"}</div>
+        </div>
+    );
+}
+
+function ScriptSceneCard({ scene, index, theme }: { scene: CanvasScriptScene; index: number; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
+    const meta = [scene.ratio, scene.duration, scene.camera].filter(Boolean).join(" · ");
+    return (
+        <div className="rounded-2xl border p-3" style={{ background: `${theme.toolbar.panel}99`, borderColor: theme.toolbar.border }}>
+            <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                    <div className="truncate text-xs font-semibold">
+                        {index + 1}. {scene.title || "未命名镜头"}
+                    </div>
+                    {meta ? (
+                        <div className="mt-1 truncate text-[10px]" style={{ color: theme.node.muted }}>
+                            {meta}
+                        </div>
+                    ) : null}
+                </div>
+                <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px]" style={{ background: theme.toolbar.activeBg, color: theme.node.activeStroke }}>
+                    镜头
+                </span>
+            </div>
+            <div className="mt-2 line-clamp-2 text-[11px] leading-5" style={{ color: theme.node.muted }}>
+                {scene.visual || scene.imagePrompt || scene.videoPrompt}
+            </div>
         </div>
     );
 }

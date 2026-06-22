@@ -20,6 +20,18 @@ export enum CanvasNodeType {
 export type CanvasNodeStatus = "idle" | "success" | "loading" | "error";
 export type CanvasGenerationMode = "text" | "image" | "video" | "audio";
 export type CanvasImageGenerationType = "generation" | "edit";
+export type CanvasTextNodeKind = "note" | "script";
+
+export type CanvasScriptScene = {
+    id: string;
+    title: string;
+    visual: string;
+    imagePrompt: string;
+    videoPrompt: string;
+    camera?: string;
+    duration?: string;
+    ratio?: string;
+};
 
 export type CanvasNodeMetadata = {
     content?: string;
@@ -28,6 +40,8 @@ export type CanvasNodeMetadata = {
     status?: CanvasNodeStatus;
     errorDetails?: string;
     fontSize?: number;
+    textKind?: CanvasTextNodeKind;
+    scriptScenes?: CanvasScriptScene[];
     generationMode?: CanvasGenerationMode;
     generationType?: CanvasImageGenerationType;
     model?: string;

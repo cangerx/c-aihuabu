@@ -56,6 +56,7 @@ import {
     type CanvasImageGenerationType,
     type CanvasNodeData,
     type CanvasNodeMetadata,
+    type CanvasScriptScene,
     type ConnectionHandle,
     type ContextMenuState,
     type Position,
@@ -789,6 +790,154 @@ function InfiniteCanvasPage() {
             if (type !== CanvasNodeType.Text && type !== CanvasNodeType.Audio) setDialogNodeId(newNode.id);
         },
         [effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.model, effectiveConfig.size, getCanvasCenter],
+    );
+
+    const createScriptNode = useCallback(
+        (position?: Position) => {
+            const targetPosition = position || getCanvasCenter();
+            const node = {
+                ...createCanvasNode(CanvasNodeType.Text, targetPosition, {
+                    content: "",
+                    prompt: "根据上游文本或我输入的主题，生成 8 个镜头的短视频分镜脚本。",
+                    status: NODE_STATUS_IDLE,
+                    fontSize: 13,
+                    textKind: "script",
+                    scriptScenes: [],
+                }),
+                title: "脚本生成器",
+                width: 420,
+                height: 360,
+            };
+            setNodes((prev) => [...prev, node]);
+            setSelectedNodeIds(new Set([node.id]));
+            setSelectedConnectionId(null);
+            setDialogNodeId(node.id);
+        },
+        [getCanvasCenter],
+    );
+
+    const generateScriptScenes = useCallback(
+        async (node: CanvasNodeData) => {
+            if (node.type !== CanvasNodeType.Text || node.metadata?.textKind !== "script") return;
+            const generationConfig = buildGenerationConfig(effectiveConfig, node, "text");
+            if (!isAiConfigReady(generationConfig, generationConfig.model)) {
+                openConfigDialog(true);
+                return;
+            }
+            const userPrompt = (node.metadata?.prompt || node.metadata?.content || "").trim();
+            if (!userPrompt) {
+                message.warning("请输入脚本生成需求");
+                setDialogNodeId(node.id);
+                return;
+            }
+
+            setRunningNodeId(node.id);
+            const controller = startGenerationRequest(node.id, node.id, node.id);
+            setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_LOADING, errorDetails: undefined } } : item)));
+            try {
+                const context = await hydrateNodeGenerationContext(buildNodeGenerationContext(node.id, nodesRef.current, connectionsRef.current, buildScriptGeneratorPrompt(userPrompt)));
+                const answer = await requestImageQuestion(generationConfig, buildNodeResponseMessages(context), () => undefined, { signal: controller.signal });
+                if (controller.signal.aborted) return;
+                const scenes = parseScriptScenes(answer);
+                if (!scenes.length) throw new Error("脚本生成器没有返回有效分镜，请重试");
+                setNodes((prev) =>
+                    prev.map((item) =>
+                        item.id === node.id
+                            ? {
+                                  ...item,
+                                  title: "脚本生成器",
+                                  metadata: {
+                                      ...item.metadata,
+                                      content: formatScriptScenes(scenes),
+                                      scriptScenes: scenes,
+                                      status: NODE_STATUS_SUCCESS,
+                                      errorDetails: undefined,
+                                  },
+                              }
+                            : item,
+                    ),
+                );
+                message.success(`已生成 ${scenes.length} 个镜头`);
+            } catch (error) {
+                if (isGenerationCanceled(error)) return;
+                const errorDetails = error instanceof Error ? error.message : "脚本生成失败";
+                message.error(errorDetails);
+                setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails } } : item)));
+            } finally {
+                finishGenerationRequest(node.id, controller);
+                setRunningNodeId(null);
+            }
+        },
+        [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest],
+    );
+
+    const expandScriptScenes = useCallback(
+        (node: CanvasNodeData) => {
+            const scenes = node.metadata?.scriptScenes || [];
+            if (!scenes.length) {
+                message.warning("请先生成分镜脚本");
+                return;
+            }
+            const gapX = 96;
+            const rowGap = 52;
+            const textSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Text];
+            const imageSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
+            const videoSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Video];
+            const startX = node.position.x + node.width + gapX;
+            const startY = node.position.y;
+            const nextNodes: CanvasNodeData[] = [];
+            const nextConnections: CanvasConnection[] = [];
+
+            scenes.forEach((scene, index) => {
+                const rowY = startY + index * (Math.max(textSpec.height, imageSpec.height, videoSpec.height) + rowGap);
+                const textId = nanoid();
+                const imageId = nanoid();
+                const videoId = nanoid();
+                const title = `${index + 1}. ${scene.title || "镜头"}`;
+                nextNodes.push(
+                    {
+                        id: textId,
+                        type: CanvasNodeType.Text,
+                        title,
+                        position: { x: startX, y: rowY },
+                        width: textSpec.width,
+                        height: textSpec.height,
+                        metadata: { content: formatSceneText(scene, index), prompt: scene.imagePrompt, status: NODE_STATUS_SUCCESS, fontSize: 13 },
+                    },
+                    {
+                        id: imageId,
+                        type: CanvasNodeType.Image,
+                        title: `${title} 图片`,
+                        position: { x: startX + textSpec.width + gapX, y: rowY },
+                        width: imageSpec.width,
+                        height: imageSpec.height,
+                        metadata: { prompt: scene.imagePrompt, status: NODE_STATUS_IDLE, size: scene.ratio || effectiveConfig.size, count: 1 },
+                    },
+                    {
+                        id: videoId,
+                        type: CanvasNodeType.Video,
+                        title: `${title} 视频`,
+                        position: { x: startX + textSpec.width + imageSpec.width + gapX * 2, y: rowY + (imageSpec.height - videoSpec.height) / 2 },
+                        width: videoSpec.width,
+                        height: videoSpec.height,
+                        metadata: { prompt: withCameraPrompt(scene.videoPrompt, scene.camera), status: NODE_STATUS_IDLE, size: scene.ratio || effectiveConfig.size, seconds: scene.duration || effectiveConfig.videoSeconds, videoMode: "image-to-video", cameraMovement: scene.camera || "自适应" },
+                    },
+                );
+                nextConnections.push(
+                    { id: nanoid(), fromNodeId: node.id, toNodeId: textId },
+                    { id: nanoid(), fromNodeId: textId, toNodeId: imageId },
+                    { id: nanoid(), fromNodeId: imageId, toNodeId: videoId },
+                );
+            });
+
+            setNodes((prev) => [...prev, ...nextNodes]);
+            setConnections((prev) => [...prev, ...nextConnections]);
+            setSelectedNodeIds(new Set(nextNodes.map((item) => item.id)));
+            setSelectedConnectionId(null);
+            setDialogNodeId(null);
+            message.success(`已拆分为 ${scenes.length} 组图片/视频工作流`);
+        },
+        [effectiveConfig.size, effectiveConfig.videoSeconds, message],
     );
 
     const deleteNodes = useCallback(
@@ -3051,6 +3200,8 @@ function InfiniteCanvasPage() {
                             onRetry={(node) => void handleRetryNode(node)}
                             onPullVideoTask={(node) => void handlePullVideoTask(node)}
                             onGenerateImage={generateImageFromTextNode}
+                            onGenerateScript={(node) => void generateScriptScenes(node)}
+                            onExpandScript={expandScriptScenes}
                             onViewImage={(node) => setPreviewNodeId(node.id)}
                             onContextMenu={(event, id) => {
                                 event.preventDefault();
@@ -3116,6 +3267,7 @@ function InfiniteCanvasPage() {
                     onAddVideo={() => createNode(CanvasNodeType.Video)}
                     onAddAudio={() => createNode(CanvasNodeType.Audio)}
                     onAddText={() => createNode(CanvasNodeType.Text)}
+                    onAddScript={() => createScriptNode()}
                     onAddConfig={() => createNode(CanvasNodeType.Config)}
                     onUndo={undoCanvas}
                     onRedo={redoCanvas}
@@ -3165,6 +3317,11 @@ function InfiniteCanvasPage() {
                         onCreateNode={(type) => {
                             if (contextMenu.type !== "canvas") return;
                             createNode(type, { x: contextMenu.worldX, y: contextMenu.worldY });
+                            setContextMenu(null);
+                        }}
+                        onCreateScriptNode={() => {
+                            if (contextMenu.type !== "canvas") return;
+                            createScriptNode({ x: contextMenu.worldX, y: contextMenu.worldY });
                             setContextMenu(null);
                         }}
                     />
@@ -3455,6 +3612,123 @@ function videoMetadata(video: UploadedFile): CanvasNodeMetadata {
 
 function audioMetadata(audio: UploadedFile): CanvasNodeMetadata {
     return { content: audio.url, storageKey: audio.storageKey, status: "success", bytes: audio.bytes, mimeType: audio.mimeType || "audio/mpeg", durationMs: audio.durationMs };
+}
+
+function buildScriptGeneratorPrompt(userPrompt: string) {
+    return `你是短视频分镜脚本生成器。请根据用户需求和上游参考内容，生成适合批量生图和生视频的结构化分镜。
+
+只输出 JSON，不要输出 markdown，不要解释。JSON 格式必须是：
+{
+  "scenes": [
+    {
+      "title": "镜头标题",
+      "visual": "画面描述，中文",
+      "imagePrompt": "可直接用于 AI 生图的中文提示词，包含主体、场景、构图、光线、风格和细节",
+      "videoPrompt": "可直接用于图生视频/文生视频的中文提示词，包含动作、镜头运动和氛围",
+      "camera": "自适应/推/拉/左移/右移/向上/向下/旋转/环绕",
+      "duration": "5",
+      "ratio": "9:16"
+    }
+  ]
+}
+
+要求：
+1. 默认生成 8 个镜头，除非用户明确要求其他数量。
+2. 每个镜头必须能独立生成图片，再用图片作为参考生成视频。
+3. imagePrompt 和 videoPrompt 不要为空，不要写“同上”。
+4. ratio 只能使用 1:1、16:9、9:16、4:3、3:4。
+5. duration 使用 3 到 15 的秒数字符串。
+
+用户需求：
+${userPrompt}`;
+}
+
+function parseScriptScenes(value: string): CanvasScriptScene[] {
+    const parsed = parseJsonObject(value);
+    const rawScenes = Array.isArray(parsed?.scenes) ? parsed.scenes : Array.isArray(parsed) ? parsed : [];
+    return rawScenes
+        .map((item, index) => normalizeScriptScene(item, index))
+        .filter((scene): scene is CanvasScriptScene => Boolean(scene?.imagePrompt && scene.videoPrompt))
+        .slice(0, 30);
+}
+
+function parseJsonObject(value: string): any {
+    const text = value.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+    try {
+        return JSON.parse(text);
+    } catch {
+        const start = text.indexOf("{");
+        const end = text.lastIndexOf("}");
+        if (start >= 0 && end > start) {
+            try {
+                return JSON.parse(text.slice(start, end + 1));
+            } catch {
+                return null;
+            }
+        }
+        const arrayStart = text.indexOf("[");
+        const arrayEnd = text.lastIndexOf("]");
+        if (arrayStart >= 0 && arrayEnd > arrayStart) {
+            try {
+                return JSON.parse(text.slice(arrayStart, arrayEnd + 1));
+            } catch {
+                return null;
+            }
+        }
+        return null;
+    }
+}
+
+function normalizeScriptScene(value: any, index: number): CanvasScriptScene | null {
+    if (!value || typeof value !== "object") return null;
+    const title = stringField(value.title) || `镜头 ${index + 1}`;
+    const visual = stringField(value.visual) || stringField(value.description) || stringField(value.scene);
+    const imagePrompt = stringField(value.imagePrompt) || stringField(value.image_prompt) || visual;
+    const videoPrompt = stringField(value.videoPrompt) || stringField(value.video_prompt) || visual;
+    return {
+        id: stringField(value.id) || nanoid(),
+        title,
+        visual,
+        imagePrompt,
+        videoPrompt,
+        camera: normalizeScriptCamera(stringField(value.camera)),
+        duration: normalizeScriptDuration(stringField(value.duration)),
+        ratio: normalizeScriptRatio(stringField(value.ratio) || stringField(value.aspectRatio) || stringField(value.aspect_ratio)),
+    };
+}
+
+function stringField(value: unknown) {
+    return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeScriptCamera(value: string) {
+    return ["推", "拉", "左移", "右移", "向上", "向下", "旋转", "环绕"].includes(value) ? value : "自适应";
+}
+
+function normalizeScriptDuration(value: string) {
+    const seconds = Math.floor(Number(value) || 5);
+    return String(Math.max(3, Math.min(15, seconds)));
+}
+
+function normalizeScriptRatio(value: string) {
+    return ["1:1", "16:9", "9:16", "4:3", "3:4"].includes(value) ? value : "9:16";
+}
+
+function formatScriptScenes(scenes: CanvasScriptScene[]) {
+    return scenes.map((scene, index) => formatSceneText(scene, index)).join("\n\n");
+}
+
+function formatSceneText(scene: CanvasScriptScene, index: number) {
+    return `第 ${index + 1} 镜：${scene.title}
+画面：${scene.visual}
+图片提示词：${scene.imagePrompt}
+视频提示词：${scene.videoPrompt}
+参数：${scene.ratio || "9:16"} · ${scene.duration || "5"}s · ${scene.camera || "自适应"}`;
+}
+
+function withCameraPrompt(prompt: string, camera?: string) {
+    const movement = camera && camera !== "自适应" ? camera : "";
+    return movement && !prompt.includes("[运镜：") ? `${prompt.trim()} [运镜：${movement}]` : prompt;
 }
 
 function buildImageGenerationMetadata(type: CanvasImageGenerationType, config: AiConfig, count: number, references: ReferenceImage[]): CanvasNodeMetadata {

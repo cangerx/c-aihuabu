@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import type { ReactNode } from "react";
-import { Image as ImageIcon, List, Music2, Plus, Settings2, Trash2, Video } from "lucide-react";
+import { FileText, Image as ImageIcon, List, Music2, Plus, Settings2, Trash2, Video } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -14,12 +14,14 @@ export function CanvasNodeContextMenu({
     onDuplicate,
     onDelete,
     onCreateNode,
+    onCreateScriptNode,
 }: {
     menu: ContextMenuState;
     onClose: () => void;
     onDuplicate: () => void;
     onDelete: () => void;
     onCreateNode: (type: CanvasNodeType) => void;
+    onCreateScriptNode: () => void;
 }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
 
@@ -42,6 +44,7 @@ export function CanvasNodeContextMenu({
             {menu.type === "canvas" ? (
                 <>
                     <MenuButton icon={<List className="size-4" />} label="新建文本生成" onClick={() => onCreateNode(CanvasNodeType.Text)} />
+                    <MenuButton icon={<FileText className="size-4" />} label="新建脚本生成器" onClick={onCreateScriptNode} />
                     <MenuButton icon={<ImageIcon className="size-4" />} label="新建图片生成" onClick={() => onCreateNode(CanvasNodeType.Image)} />
                     <MenuButton icon={<Video className="size-4" />} label="新建视频生成" onClick={() => onCreateNode(CanvasNodeType.Video)} />
                     <MenuButton icon={<Music2 className="size-4" />} label="新建音频参考" onClick={() => onCreateNode(CanvasNodeType.Audio)} />
