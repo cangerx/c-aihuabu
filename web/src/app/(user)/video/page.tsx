@@ -184,7 +184,6 @@ export default function VideoPage() {
         const snapshot = buildRequestSnapshot();
         if (!snapshot) return;
         setElapsedMs(0);
-        setRunning(true);
         setPreviewLog(null);
         setResults([{ id: nanoid(), status: "pending" }]);
         const batchStartedAt = performance.now();
@@ -199,7 +198,7 @@ export default function VideoPage() {
             setResults([{ id: nanoid(), status: "failed", error: errorMessage }]);
             await saveLog(buildLog({ prompt: snapshot.text, model, config: snapshot.config, references: snapshot.references, videoReferences: snapshot.videoReferences, audioReferences: snapshot.audioReferences, durationMs: performance.now() - batchStartedAt, status: "失败", error: errorMessage }));
             message.error(errorMessage);
-            setRunning(false);
+            if (!activeLogIdsRef.current.size) setStartedAt(0);
         }
     };
 
