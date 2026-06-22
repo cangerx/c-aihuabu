@@ -53,12 +53,13 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     const videoModelName = modelOptionName(config.model || config.videoModel);
     const videoCapabilities = caiVideoModelCapabilities(videoModelName);
     const isSeedanceVideo = mode === "video" && isSeedanceVideoModel(videoModelName);
-    const totalRefs = imageRefs.length + (isSeedanceVideo ? videoRefs.length : 0);
-    const activeRefs = mentionReferences.filter((r) => r.active && (isSeedanceVideo || r.kind === "image"));
+    const supportsRichVideoRefs = videoCapabilities.allAroundReference || isSeedanceVideo;
+    const totalRefs = imageRefs.length + (supportsRichVideoRefs ? videoRefs.length : 0);
+    const activeRefs = mentionReferences.filter((r) => r.active && (supportsRichVideoRefs || r.kind === "image"));
 
     const videoTabs = [
         { id: "text-to-video", label: "文生视频", enabled: videoCapabilities.textToVideo, tooltip: "当前模型必须连接图片后生成视频" },
-        ...(videoCapabilities.allAroundReference ? [{ id: "all-around", label: "全能参考", enabled: totalRefs >= 1, tooltip: "Seedance 支持图片/视频/音频多参考，需要先连接素材节点" }] : []),
+        ...(videoCapabilities.allAroundReference ? [{ id: "all-around", label: "全能参考", enabled: totalRefs >= 1, tooltip: "当前模型支持图片/视频/音频多参考，需要先连接素材节点" }] : []),
         { id: "image-to-video", label: "图生视频", enabled: imageRefs.length >= 1, tooltip: "需要连接图片节点 (1~15个)" },
         ...(videoCapabilities.firstLastFrame ? [{ id: "first-last", label: "首尾帧", enabled: imageRefs.length >= 2, tooltip: "Seedance 首尾帧需要连接 2 个图片节点" }] : []),
         { id: "image-ref", label: "图片参考", enabled: imageRefs.length >= 1, tooltip: "需要连接图片节点 (1~15个)" },
@@ -77,13 +78,13 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
         }
         if (activeVideoTab === "text-to-video") {
             if (!videoCapabilities.textToVideo && imageRefs.length >= 1) updateVideoMode("image-to-video");
-            else if (isSeedanceVideo && videoRefs.length > 0) updateVideoMode("all-around");
+            else if (videoCapabilities.allAroundReference && videoRefs.length > 0) updateVideoMode("all-around");
             else if (videoCapabilities.firstLastFrame && imageRefs.length >= 2) updateVideoMode("first-last");
             else if (imageRefs.length >= 1) updateVideoMode("image-to-video");
         } else if (!videoTabs.find((tab) => tab.id === activeVideoTab)?.enabled) {
             updateVideoMode(videoCapabilities.textToVideo ? "text-to-video" : "image-to-video");
         }
-    }, [activeVideoTab, imageRefs.length, isSeedanceVideo, mode, videoCapabilities.firstLastFrame, videoCapabilities.textToVideo, videoRefs.length]);
+    }, [activeVideoTab, imageRefs.length, mode, videoCapabilities.allAroundReference, videoCapabilities.firstLastFrame, videoCapabilities.textToVideo, videoRefs.length]);
 
     useEffect(() => {
         if (mode !== "video") return;
