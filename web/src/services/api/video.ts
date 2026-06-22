@@ -756,15 +756,16 @@ function assertCaiVideoMode(model: string, imageUrls: string[], videoUrls: strin
     if (capabilities.requiresImage && !imageUrls.length) throw new Error("grok-imagine-video-1.5-preview 必须连接图片后才能生成视频");
     if (mode === "text-to-video" && !capabilities.textToVideo) throw new Error("当前模型不支持纯文字生成视频，请先连接图片素材");
     if (mode === "first-last") {
-        if (!capabilities.firstLastFrame) throw new Error("当前模型不支持首尾帧模式，请切换 Seedance 模型");
+        if (!capabilities.firstLastFrame) throw new Error("当前模型不支持首尾帧模式，请切换支持首尾帧的模型");
         if (imageUrls.length < 2) throw new Error("首尾帧模式需要连接 2 张图片");
     }
     if (mode === "all-around") {
-        if (!capabilities.allAroundReference) throw new Error("当前模型不支持全能参考，请切换 Seedance 模型");
+        if (!capabilities.allAroundReference) throw new Error("当前模型不支持全能参考，请切换支持全能参考的模型");
         if (!imageUrls.length && !videoUrls.length && !audioUrls.length) throw new Error("全能参考需要先连接图片、视频或音频素材");
-        if (imageUrls.length > 4) throw new Error("Seedance 全能参考图片最多 4 张");
-        if (videoUrls.length > 3) throw new Error("Seedance 全能参考视频最多 3 个");
-        if (imageUrls.length + videoUrls.length > 5) throw new Error("Seedance 全能参考图片和视频合计最多 5 个");
+        if (audioUrls.length && !imageUrls.length && !videoUrls.length) throw new Error("全能参考音频需要配合图片或视频素材使用");
+        if (imageUrls.length > 4) throw new Error("全能参考图片最多 4 张");
+        if (videoUrls.length > 3) throw new Error("全能参考视频最多 3 个");
+        if (imageUrls.length + videoUrls.length > 5) throw new Error("全能参考图片和视频合计最多 5 个");
     }
 }
 
