@@ -663,8 +663,6 @@ function resolveCaiPublicUrl(value: string | undefined, label: string) {
 }
 
 async function resolveCaiImageUrl(image: ReferenceImage, options?: RequestOptions) {
-    const directUrl = String(image.url || image.dataUrl || "").trim();
-    if (isCaiReachableUrl(directUrl)) return directUrl;
     const file = await dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) });
     return uploadCaiReferenceFile(file, options);
 }

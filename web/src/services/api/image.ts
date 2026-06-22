@@ -893,8 +893,6 @@ async function getWithProxyFallback<T>(config: AiConfig, path: string, options?:
 }
 
 async function resolveNewTokenReferenceImageUrl(image: ReferenceImage, options?: RequestOptions) {
-    const directUrl = String(image.url || image.dataUrl || "").trim();
-    if (isReachableHttpsUrl(directUrl)) return directUrl;
     const file = await dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) });
     const form = new FormData();
     form.append("file", file);
