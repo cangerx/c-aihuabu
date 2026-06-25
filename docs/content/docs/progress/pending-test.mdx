@@ -20,6 +20,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 - 引用素材提交语义：生图和视频提交前应把 `@图片1`、`@视频1`、`@音频1` 规范成 `图片1`、`视频1`、`音频1`，并在提示词前追加“参考图片/素材编号”说明；Cai、NewToken、Duomi、OpenAI 兼容视频和 Seedance 格式都应收到编号说明和实际参考素材字段，不能只提交前端 `@` 展示文本。
 - 视频生成记录缩略图：视频创作台生成成功后应自动截取视频首帧作为历史记录缩略图；历史记录卡片应显示视频封面，旧记录或截帧失败时应回退显示视频首帧预览；加入“我的素材”的视频也应带封面并在刷新后继续显示。
 - 视频生成记录时间：视频创作台左侧生成记录卡片应显示生成时间；旧记录若缺少 `time` 字段，应回退使用 `createdAt` 格式化展示。
+- NewToken 参考素材 OSS 上传：NewToken 异步生图参考图、视频生成参考图/参考视频/参考音频应先经由 `/api/uploads/newtoken-references` 上传到 `aimh8` 媒体接口，并把返回的 `oss.aimh8.com` 公网 URL 传给 NewToken 上游；上传 Key 默认由服务端路由内置，也可用 `C_AI_NEWTOKEN_MEDIA_UPLOAD_KEY` 覆盖。
 - 在线 Agent 对话：画布右侧 Agent 使用文本模型聊天并调用工具时，如果上游不兼容 Responses 工具 schema，应自动降级到 Chat Completions 工具格式继续请求，不应再出现 `Bad input` / `tools/0/function` / `enum function not in custom` 这类错误。
 - Docker 本地编译部署：默认 `docker-compose.yml` 应从当前目录 Dockerfile 构建 `c-aihuabu:local` 镜像；线上更新时执行 `git pull` 后直接 `docker compose build --no-cache && docker compose up -d --force-recreate`，不再依赖远端 `latest` 镜像缓存。
 

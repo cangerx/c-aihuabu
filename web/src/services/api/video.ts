@@ -122,9 +122,9 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
 }
 
 async function createNewTokenVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
-    const imageUrls = await Promise.all(references.map((image) => resolveCaiImageUrl(image, options)));
-    const videoUrls = await Promise.all(videoReferences.map((video) => resolveCaiMediaUrl(video, "参考视频", options)));
-    const audioUrls = await Promise.all(audioReferences.map((audio) => resolveCaiMediaUrl(audio, "参考音频", options)));
+    const imageUrls = await Promise.all(references.map((image) => resolveNewTokenImageUrl(image, options)));
+    const videoUrls = await Promise.all(videoReferences.map((video) => resolveNewTokenMediaUrl(video, "参考视频", options)));
+    const audioUrls = await Promise.all(audioReferences.map((audio) => resolveNewTokenMediaUrl(audio, "参考音频", options)));
     const requestPrompt = buildSeedancePromptText(prompt, references, videoReferences, audioReferences);
     assertGrokImagineVideo15Reference(model, imageUrls);
     const payload = buildNewTokenVideoPayload(config, model, requestPrompt, imageUrls, videoUrls, audioUrls, options?.videoMode);
@@ -701,6 +701,42 @@ async function uploadCaiReferenceFile(file: File, options?: RequestOptions) {
     if (!url) throw new Error(response.data?.msg || "参考图片上传失败");
     if (!isCaiReachableUrl(url)) throw new Error("参考素材已上传到本地服务，但返回地址不是公网 HTTPS URL。请在 Docker/部署环境配置 C_AI_PUBLIC_BASE_URL=https://你的域名，并确保外网可访问。");
     return assertPublicReferenceReachable(url, file.type, "参考素材", options);
+}
+
+async function resolveNewTokenImageUrl(image: ReferenceImage, options?: RequestOptions) {
+    const file = await dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) });
+    return uploadNewTokenReferenceFile(file, options);
+}
+
+async function resolveNewTokenMediaUrl(media: ReferenceVideo | ReferenceAudio, label: string, options?: RequestOptions) {
+    const directUrl = String(media.url || "").trim();
+    if (isCaiReachableUrl(directUrl)) return uploadNewTokenReferenceUrl(directUrl, media.type || (label.includes("音频") ? "audio/*" : "video/*"), options);
+    let blob: Blob | null = null;
+    if (media.storageKey) blob = await getMediaBlob(media.storageKey);
+    if (!blob && directUrl.startsWith("blob:")) blob = await (await fetch(directUrl)).blob();
+    if (!blob) return resolveCaiPublicUrl(directUrl, label, media.type || (label.includes("音频") ? "audio/*" : "video/*"), options);
+    const file = new File([blob], media.name || `${label}.${media.type.includes("audio") ? "mp3" : "mp4"}`, { type: media.type || blob.type || "application/octet-stream" });
+    return uploadNewTokenReferenceFile(file, options);
+}
+
+async function uploadNewTokenReferenceUrl(remoteUrl: string, mimeType: string, options?: RequestOptions) {
+    const form = new FormData();
+    form.append("url", remoteUrl);
+    const response = await axios.post<{ code?: number; data?: { url?: string }; msg?: string }>("/api/uploads/newtoken-references", form, { signal: options?.signal });
+    const url = response.data?.data?.url;
+    if (!url) throw new Error(response.data?.msg || "NewToken 参考素材上传失败");
+    if (!isCaiReachableUrl(url)) throw new Error("NewToken 参考素材上传成功，但返回地址不是公网 HTTPS URL");
+    return assertPublicReferenceReachable(url, mimeType, "NewToken 参考素材", options);
+}
+
+async function uploadNewTokenReferenceFile(file: File, options?: RequestOptions) {
+    const form = new FormData();
+    form.append("file", file);
+    const response = await axios.post<{ code?: number; data?: { url?: string }; msg?: string }>("/api/uploads/newtoken-references", form, { signal: options?.signal });
+    const url = response.data?.data?.url;
+    if (!url) throw new Error(response.data?.msg || "NewToken 参考素材上传失败");
+    if (!isCaiReachableUrl(url)) throw new Error("NewToken 参考素材上传成功，但返回地址不是公网 HTTPS URL");
+    return assertPublicReferenceReachable(url, file.type, "NewToken 参考素材", options);
 }
 
 async function assertPublicReferenceReachable(url: string, mimeType: string, label: string, options?: RequestOptions) {

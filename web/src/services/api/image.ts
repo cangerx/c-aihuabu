@@ -992,10 +992,10 @@ async function resolveNewTokenReferenceImageUrl(image: ReferenceImage, options?:
     const file = await dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) });
     const form = new FormData();
     form.append("file", file);
-    const response = await axios.post<{ code?: number; data?: { url?: string }; msg?: string }>("/api/uploads/references", form, { signal: options?.signal });
+    const response = await axios.post<{ code?: number; data?: { url?: string }; msg?: string }>("/api/uploads/newtoken-references", form, { signal: options?.signal });
     const url = response.data?.data?.url;
-    if (!url) throw new Error(response.data?.msg || "参考图片上传失败");
-    if (!isReachableHttpsUrl(url)) throw new Error("参考图片已上传到本地服务，但返回地址不是公网 HTTPS URL。请在 Docker/部署环境配置 C_AI_PUBLIC_BASE_URL=https://你的域名，并确保外网可访问。");
+    if (!url) throw new Error(response.data?.msg || "NewToken 参考图片上传失败");
+    if (!isReachableHttpsUrl(url)) throw new Error("NewToken 参考图片上传成功，但返回地址不是公网 HTTPS URL");
     await assertUploadedReferenceReachable(url, options);
     return url;
 }
