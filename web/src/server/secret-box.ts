@@ -1,11 +1,34 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+
+import { accountDataDir } from "./account-db";
 
 const ALGORITHM = "aes-256-gcm";
+const GENERATED_SECRET_FILE = "secret-key";
 
 function encryptionKey() {
-    const secret = process.env.AI_HUABU_SECRET_KEY || "";
-    if (secret.length < 16) throw new Error("服务端未配置 AI_HUABU_SECRET_KEY，无法保存云端 Key");
+    const secret = configuredSecret() || generatedSecret();
     return createHash("sha256").update(secret).digest();
+}
+
+function configuredSecret() {
+    const secret = process.env.AI_HUABU_SECRET_KEY || "";
+    if (!secret || secret.length >= 16) return secret;
+    throw new Error("服务端 AI_HUABU_SECRET_KEY 至少需要 16 位，无法保存云端 Key");
+}
+
+function generatedSecret() {
+    const dataDir = accountDataDir();
+    const secretFile = path.join(dataDir, GENERATED_SECRET_FILE);
+    mkdirSync(dataDir, { recursive: true });
+    if (existsSync(secretFile)) {
+        const secret = readFileSync(secretFile, "utf8").trim();
+        if (secret.length >= 16) return secret;
+    }
+    const secret = randomBytes(32).toString("base64url");
+    writeFileSync(secretFile, `${secret}\n`, { mode: 0o600 });
+    return secret;
 }
 
 export function encryptSecret(value: string) {

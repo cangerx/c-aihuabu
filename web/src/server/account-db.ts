@@ -34,8 +34,11 @@ type AccountDb = {
     channels: CloudChannel[];
 };
 
-const dataDir = process.env.AI_HUABU_DATA_DIR || path.join(process.cwd(), ".ai-huabu");
-const dbFile = path.join(dataDir, "account-db.json");
+export function accountDataDir() {
+    return process.env.AI_HUABU_DATA_DIR || path.join(process.cwd(), ".ai-huabu");
+}
+
+const dbFile = path.join(accountDataDir(), "account-db.json");
 
 const emptyDb: AccountDb = {
     users: [],
@@ -52,7 +55,7 @@ export async function readAccountDb(): Promise<AccountDb> {
 }
 
 export async function writeAccountDb(db: AccountDb) {
-    await mkdir(dataDir, { recursive: true });
+    await mkdir(accountDataDir(), { recursive: true });
     const tmpFile = `${dbFile}.${process.pid}.${Date.now()}.tmp`;
     await writeFile(tmpFile, JSON.stringify(db, null, 2));
     await rename(tmpFile, dbFile);

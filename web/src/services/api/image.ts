@@ -64,6 +64,27 @@ type ResponseApiPayload = {
     code?: number;
     msg?: string;
 };
+type ChatInputMessage =
+    | AiTextMessage
+    | { role: "assistant"; content: string | null; tool_calls: Array<{ id: string; type: "function"; function: { name: string; arguments: string } }> }
+    | { role: "tool"; tool_call_id: string; content: string };
+type ChatToolDefinition = {
+    type: "function";
+    function: {
+        name: string;
+        description?: string;
+        parameters: Record<string, unknown>;
+        strict?: boolean;
+    };
+};
+type ChatCompletionPayload = {
+    choices?: Array<{
+        message?: { content?: string | null; tool_calls?: Array<{ id?: string; type?: string; function?: { name?: string; arguments?: string } }> };
+    }>;
+    error?: { message?: string };
+    code?: number;
+    msg?: string;
+};
 type ResponseStreamState = { buffer: string; text: string; payload?: ResponseApiPayload; error?: string };
 
 type ImageApiResponse = {
@@ -333,6 +354,16 @@ function toResponseInput(messages: ResponseInputMessage[]): ResponseInputItem[] 
     });
 }
 
+function toChatMessages(messages: ResponseInputMessage[]): ChatInputMessage[] {
+    return messages.flatMap((message): ChatInputMessage[] => {
+        if ("type" in message) {
+            return [{ role: "assistant", content: null, tool_calls: [{ id: message.call_id, type: "function", function: { name: message.name, arguments: message.arguments } }] }];
+        }
+        if (message.role === "tool") return [message];
+        return [{ role: message.role, content: message.content }];
+    });
+}
+
 function toResponseContent(content: ResponseMessageContent): string | ResponseInputContent[] {
     if (!Array.isArray(content)) return String(content || "");
     return content.map((item) => (item.type === "text" ? { type: "input_text" as const, text: item.text } : { type: "input_image" as const, image_url: item.image_url.url }));
@@ -345,6 +376,18 @@ function toResponseTool(tool: ResponseFunctionTool): ResponseApiToolDefinition {
         description: tool.function.description,
         parameters: tool.function.parameters,
         strict: tool.function.strict,
+    };
+}
+
+function toChatTool(tool: ResponseFunctionTool): ChatToolDefinition {
+    return {
+        type: "function",
+        function: {
+            name: tool.function.name,
+            description: tool.function.description,
+            parameters: tool.function.parameters,
+            strict: tool.function.strict,
+        },
     };
 }
 
@@ -473,6 +516,49 @@ async function requestStreamingResponse(config: AiConfig, body: Record<string, u
     validateResponsePayload(state.payload);
     const result = parseToolResponse(state.payload);
     return { ...result, content: state.text || result.content };
+}
+
+async function requestChatToolResponse(config: AiConfig, messages: ResponseInputMessage[], tools: ResponseFunctionTool[], toolChoice: ToolChoice, onDelta?: (text: string) => void, options?: RequestOptions): Promise<ToolResponseResult> {
+    const response = await fetch(aiApiUrl(config, "/chat/completions"), {
+        method: "POST",
+        headers: aiHeaders(config, "application/json"),
+        body: JSON.stringify({
+            model: config.model,
+            messages: toChatMessages(withSystemMessage(config, messages)),
+            tools: tools.map(toChatTool),
+            tool_choice: toChatToolChoice(toolChoice),
+            parallel_tool_calls: false,
+        }),
+        signal: options?.signal,
+    });
+    if (!response.ok) throw new Error(await readFetchError(response, "请求失败"));
+    const payload = (await response.json()) as ChatCompletionPayload;
+    validateChatPayload(payload);
+    const result = parseChatToolResponse(payload);
+    if (result.content) onDelta?.(result.content);
+    return result;
+}
+
+function toChatToolChoice(toolChoice: ToolChoice) {
+    if (typeof toolChoice !== "object") return toolChoice;
+    return { type: "function", function: { name: toolChoice.name } };
+}
+
+function validateChatPayload(payload: ChatCompletionPayload) {
+    if (typeof payload.code === "number" && payload.code !== 0) throw new Error(payload.msg || "请求失败");
+    if (payload.error?.message) throw new Error(payload.error.message);
+}
+
+function parseChatToolResponse(payload: ChatCompletionPayload): ToolResponseResult {
+    const message = payload.choices?.[0]?.message;
+    const toolCalls = (message?.tool_calls || [])
+        .filter((item) => item.type === "function" && item.function?.name)
+        .map((item) => ({
+            id: item.id || nanoid(),
+            type: "function" as const,
+            function: { name: item.function?.name || "", arguments: item.function?.arguments || "{}" },
+        }));
+    return { content: message?.content || "", toolCalls };
 }
 
 function toGeminiBody(config: AiConfig, messages: ResponseInputMessage[], extra?: Record<string, unknown>) {
@@ -823,16 +909,26 @@ export async function requestToolResponse(config: AiConfig, messages: ResponseIn
         if (requestConfig.apiFormat === "gemini") {
             return await requestGeminiStreamingResponse(requestConfig, toGeminiBody(requestConfig, messages, toGeminiToolOptions(tools, toolChoice)), onDelta, options);
         }
-        return await requestStreamingResponse(requestConfig, {
-            model: requestConfig.model,
-            input: toResponseInput(withSystemMessage(requestConfig, messages)),
-            tools: tools.map(toResponseTool),
-            tool_choice: toolChoice,
-            parallel_tool_calls: false,
-        }, onDelta, options);
+        try {
+            return await requestStreamingResponse(requestConfig, {
+                model: requestConfig.model,
+                input: toResponseInput(withSystemMessage(requestConfig, messages)),
+                tools: tools.map(toResponseTool),
+                tool_choice: toolChoice,
+                parallel_tool_calls: false,
+            }, onDelta, options);
+        } catch (error) {
+            if (!shouldFallbackToChatTools(error)) throw error;
+            return await requestChatToolResponse(requestConfig, messages, tools, toolChoice, onDelta, options);
+        }
     } catch (error) {
         throw new Error(readAxiosError(error, "请求失败"));
     }
+}
+
+function shouldFallbackToChatTools(error: unknown) {
+    const message = error instanceof Error ? error.message : String(error || "");
+    return /Bad input|anyOf|oneOf|tools\/\d+\/function|enum function not in custom|tool_choice|\/responses|404/.test(message);
 }
 
 export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKey" | "apiFormat">) {

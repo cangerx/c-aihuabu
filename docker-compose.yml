@@ -1,12 +1,17 @@
 services:
   app:
-    image: ghcr.io/cangerx/c-aihuabu:latest
+    image: c-aihuabu:local
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: infinite-canvas
     ports:
-      - "3000:3000"
+      - "${C_AI_HOST_PORT:-3000}:3000"
     environment:
-      C_AI_PUBLIC_BASE_URL: ""
+      C_AI_PUBLIC_BASE_URL: "${C_AI_PUBLIC_BASE_URL:-}"
+      AI_HUABU_DATA_DIR: "${AI_HUABU_DATA_DIR:-/app/web/data/account}"
       # 参考图片上传后返回给视频上游的公网地址；上游通常要求 https://
     volumes:
+      - ./data/account:/app/web/data/account
       - ./data/uploads:/app/web/data/uploads
     restart: unless-stopped

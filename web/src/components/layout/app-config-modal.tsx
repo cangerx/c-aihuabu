@@ -171,7 +171,14 @@ export function AppConfigModal() {
 
     const copyCloudChannelModels = (channel: CloudModelChannel) => {
         navigator.clipboard?.writeText(channel.models.join("\n")).catch(() => {});
-        message.success("已复制云端渠道模型名；云端 Key 不会下发到浏览器");
+        message.success("已复制云端渠道模型名");
+    };
+
+    const useCloudChannel = (channel: CloudModelChannel) => {
+        if (!channel.apiKey) return message.error("云端 Key 解密失败，无法应用");
+        updateChannels([...config.channels.filter((item) => item.id !== channel.id), createModelChannel(channel)]);
+        setConfigDialogTab("channels");
+        message.success("已应用云端个人渠道");
     };
 
     const updateChannels = (channels: ModelChannel[]) => {
@@ -381,9 +388,14 @@ export function AppConfigModal() {
                                                             {apiFormatLabel(channel.apiFormat)} · {channel.models.length} 个模型 · Key {channel.apiKeyPreview}
                                                         </div>
                                                     </div>
-                                                    <Button size="small" onClick={() => copyCloudChannelModels(channel)}>
-                                                        复制模型
-                                                    </Button>
+                                                    <div className="flex shrink-0 gap-2">
+                                                        <Button size="small" onClick={() => copyCloudChannelModels(channel)}>
+                                                            复制模型
+                                                        </Button>
+                                                        <Button size="small" type="primary" onClick={() => useCloudChannel(channel)}>
+                                                            应用
+                                                        </Button>
+                                                    </div>
                                                 </div>
                                             ))}
                                             {!cloudChannels.length ? <div className="rounded-lg border border-dashed border-stone-300 p-6 text-center text-sm text-stone-500 dark:border-stone-700">还没有云端个人渠道，可在“渠道”Tab 将本地渠道保存到云端。</div> : null}

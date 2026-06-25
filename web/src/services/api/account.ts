@@ -3,7 +3,7 @@ import type { ApiCallFormat, ModelChannel } from "@/stores/use-config-store";
 type ApiEnvelope<T> = { code: number; data: T; msg: string };
 
 export type AccountUser = { id: string; email: string; createdAt: string };
-export type CloudModelChannel = Omit<ModelChannel, "apiKey"> & {
+export type CloudModelChannel = ModelChannel & {
     scope: "cloud_personal";
     apiKeyPreview: string;
     createdAt: string;

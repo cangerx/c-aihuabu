@@ -81,9 +81,11 @@ export async function DELETE(request: Request) {
 }
 
 function publicChannel(channel: CloudChannel) {
+    let apiKey = "";
     let apiKeyPreview = "";
     try {
-        apiKeyPreview = maskSecret(decryptSecret(channel.encryptedApiKey));
+        apiKey = decryptSecret(channel.encryptedApiKey);
+        apiKeyPreview = maskSecret(apiKey);
     } catch {
         apiKeyPreview = "****";
     }
@@ -92,6 +94,7 @@ function publicChannel(channel: CloudChannel) {
         scope: "cloud_personal" as const,
         name: channel.name,
         baseUrl: channel.baseUrl,
+        apiKey,
         apiFormat: channel.apiFormat,
         models: channel.models,
         apiKeyPreview,
