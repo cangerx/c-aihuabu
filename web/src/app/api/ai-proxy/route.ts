@@ -63,7 +63,7 @@ async function handle(request: NextRequest) {
             return createTask(method, url, headers, body, request.nextUrl.searchParams.get("task"));
         }
         if (shouldUseJsonKeepAlive(method, url)) {
-            return streamJsonProxy(request, method, url, headers, body);
+            return Response.json({ error: { message: "当前页面仍在使用旧版生图请求，请刷新页面或清理浏览器缓存后重试。" } }, { status: 409 });
         }
         const response = await fetch(url, {
             method,

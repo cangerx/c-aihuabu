@@ -23,5 +23,15 @@ export default function nextConfig(phase: string): NextConfig {
             NEXT_PUBLIC_APP_VERSION: localVersion,
             NEXT_PUBLIC_APP_RELEASES: JSON.stringify(releases),
         },
+        async headers() {
+            const noStore = [
+                { key: "Cache-Control", value: "no-store, max-age=0" },
+                { key: "CDN-Cache-Control", value: "no-store" },
+            ];
+            return [
+                { source: "/api/:path*", headers: noStore },
+                { source: "/((?!_next/static|_next/image|icons|favicon.ico).*)", headers: noStore },
+            ];
+        },
     };
 }
