@@ -1,4 +1,6 @@
-import { after, NextRequest } from "next/server";
+import http from "node:http";
+import https from "node:https";
+import { NextRequest } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -100,7 +102,7 @@ function createTask(method: string, url: URL, headers: Headers, body: ArrayBuffe
     const id = requestedId && /^[A-Za-z0-9_-]{8,80}$/.test(requestedId) ? requestedId : crypto.randomUUID();
     if (tasks.has(id)) return Response.json({ error: { message: "代理任务 ID 已存在" } }, { status: 409 });
     tasks.set(id, { status: "pending", createdAt: Date.now(), updatedAt: Date.now() });
-    after(() => runTask(id, method, url, headers, body));
+    void runTask(id, method, url, headers, body);
     return Response.json({ id });
 }
 
@@ -110,29 +112,60 @@ async function runTask(id: string, method: string, url: URL, headers: Headers, b
     taskControllers.set(id, controller);
     const timer = setTimeout(() => controller.abort(), AI_PROXY_IMAGE_TIMEOUT_MS);
     try {
-        const response = await fetch(url, {
-            method,
-            headers,
-            body: body?.byteLength ? body : undefined,
-            signal: controller.signal,
-        });
+        const response = await requestJsonWithNode(url, method, headers, body, controller.signal);
         console.log(`[ai-proxy-task] ${method} ${url.href} -> ${response.status}`);
-        const data = await readJsonResponse(response);
         if (!tasks.has(id)) return;
         tasks.set(id, {
-            status: response.ok ? "success" : "error",
+            status: response.status >= 200 && response.status < 300 ? "success" : "error",
             createdAt: tasks.get(id)?.createdAt || Date.now(),
             updatedAt: Date.now(),
-            ...(response.ok ? { data } : { error: responseErrorMessage(data) || `请求失败：${response.status}` }),
+            ...(response.status >= 200 && response.status < 300 ? { data: response.data } : { error: responseErrorMessage(response.data) || `请求失败：${response.status}` }),
         });
     } catch (error) {
         if (!tasks.has(id)) return;
-        const message = error instanceof Error && error.name === "AbortError" ? "AI proxy timeout" : error instanceof Error ? error.message : "AI proxy error";
+        const message = isAbortError(error) ? "AI proxy timeout" : error instanceof Error ? error.message : "AI proxy error";
         tasks.set(id, { status: "error", createdAt: tasks.get(id)?.createdAt || Date.now(), updatedAt: Date.now(), error: message });
     } finally {
         clearTimeout(timer);
         taskControllers.delete(id);
     }
+}
+
+function requestJsonWithNode(url: URL, method: string, headers: Headers, body: ArrayBuffer | undefined, signal: AbortSignal) {
+    return new Promise<{ status: number; data: unknown }>((resolve, reject) => {
+        const client = url.protocol === "https:" ? https : http;
+        const req = client.request(
+            url,
+            {
+                method,
+                headers: Object.fromEntries(headers.entries()),
+                timeout: 0,
+            },
+            (res) => {
+                const chunks: Buffer[] = [];
+                res.on("data", (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+                res.on("end", () => {
+                    const text = Buffer.concat(chunks).toString("utf8");
+                    resolve({ status: res.statusCode || 0, data: parseJsonText(text) });
+                });
+            },
+        );
+        req.setTimeout(0);
+        req.on("error", reject);
+        signal.addEventListener(
+            "abort",
+            () => {
+                req.destroy(new DOMException("Aborted", "AbortError"));
+            },
+            { once: true },
+        );
+        if (body?.byteLength) req.write(Buffer.from(body));
+        req.end();
+    });
+}
+
+function isAbortError(error: unknown) {
+    return error instanceof Error && (error.name === "AbortError" || error.message === "Aborted");
 }
 
 function getTask(id: string) {
@@ -224,6 +257,10 @@ function streamJsonProxy(request: NextRequest, method: string, url: URL, headers
 
 async function readJsonResponse(response: Response) {
     const text = await response.text();
+    return parseJsonText(text);
+}
+
+function parseJsonText(text: string) {
     if (!text) return null;
     try {
         return JSON.parse(text) as unknown;
