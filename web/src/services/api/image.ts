@@ -151,6 +151,8 @@ const IMAGE_MAX_RATIO = 3;
 const IMAGE_OUTPUT_FORMAT = "png";
 const NEW_TOKEN_IMAGE_TIMEOUT_MS = 30 * 60 * 1000;
 const NEW_TOKEN_IMAGE_POLL_MS = 2500;
+const IMAGE_PROXY_TASK_TIMEOUT_MS = 10 * 60 * 1000;
+const IMAGE_PROXY_TASK_POLL_MS = 2000;
 
 function normalizeQuality(quality: string) {
     const value = quality.trim().toLowerCase();
@@ -240,6 +242,7 @@ function parseImagePayload(payload: ImageApiResponse) {
     if (typeof payload.code === "number" && payload.code !== 0) {
         throw new Error(payload.msg || "请求失败");
     }
+    if (payload.error?.message) throw new Error(payload.error.message);
     const images =
         payload.data
             ?.map(resolveImageDataUrl)
@@ -999,15 +1002,64 @@ async function getModelsWithProxyFallback(baseUrl: string, apiKey: string) {
     }
 }
 
-async function postWithProxyFallback<T>(config: AiConfig, path: string, body: unknown, contentType?: string, options?: RequestOptions) {
+type DataResponse<T> = { data: T };
+
+async function postWithProxyFallback<T>(config: AiConfig, path: string, body: unknown, contentType?: string, options?: RequestOptions): Promise<DataResponse<T>> {
     const directUrl = buildApiUrl(config.baseUrl, path);
-    const request = (url: string) => axios.post<T>(url, body, { headers: aiHeaders(config, contentType), signal: options?.signal });
+    const request = (url: string): Promise<DataResponse<T>> => axios.post<T>(url, body, { headers: aiHeaders(config, contentType), signal: options?.signal });
+    const proxiedUrl = aiApiUrl(config, path);
     try {
-        return await request(aiApiUrl(config, path));
+        if (shouldUseImageProxyTask(path, proxiedUrl, directUrl)) {
+            return await postImageProxyTask<T>(directUrl, config, body, contentType, options);
+        }
+        return await request(proxiedUrl);
     } catch (error) {
-        if (!axios.isAxiosError(error) || error.response || aiApiUrl(config, path) !== directUrl) throw error;
+        if (!axios.isAxiosError(error) || error.response || proxiedUrl !== directUrl) throw error;
+        if (shouldUseImageProxyTask(path, buildForcedProxiedUrl(directUrl), directUrl)) {
+            return await postImageProxyTask<T>(directUrl, config, body, contentType, options);
+        }
         return await request(buildForcedProxiedUrl(directUrl));
     }
+}
+
+function shouldUseImageProxyTask(path: string, url: string, directUrl: string) {
+    return url !== directUrl && /^\/images\/(generations|edits)$/.test(path);
+}
+
+async function postImageProxyTask<T>(targetUrl: string, config: AiConfig, body: unknown, contentType?: string, options?: RequestOptions): Promise<DataResponse<T>> {
+    const taskId = nanoid();
+    const taskUrl = `/api/ai-proxy?task=${encodeURIComponent(taskId)}`;
+    const createUrl = `${buildForcedProxiedUrl(targetUrl)}&mode=task&task=${encodeURIComponent(taskId)}`;
+    let taskCreated = false;
+    try {
+        const created = await axios.post<{ id?: string }>(createUrl, body, { headers: aiHeaders(config, contentType), signal: options?.signal });
+        if (created.data.id !== taskId) throw new Error("AI 代理任务没有返回有效 ID");
+        taskCreated = true;
+        const data = await pollImageProxyTask<T>(taskUrl, options);
+        return { data };
+    } catch (error) {
+        if (!taskCreated && shouldCleanupPossiblyCreatedTask(error)) axios.delete(taskUrl).catch(() => undefined);
+        throw error;
+    } finally {
+        if (taskCreated) axios.delete(taskUrl).catch(() => undefined);
+    }
+}
+
+async function pollImageProxyTask<T>(taskUrl: string, options?: RequestOptions) {
+    const maxAttempts = Math.ceil(IMAGE_PROXY_TASK_TIMEOUT_MS / IMAGE_PROXY_TASK_POLL_MS);
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+        const response = await axios.get<{ status?: string; data?: T; error?: string }>(taskUrl, { signal: options?.signal });
+        if (response.data.status === "success") return response.data.data as T;
+        if (response.data.status === "error") throw new Error(response.data.error || "AI 代理任务失败");
+        await delay(IMAGE_PROXY_TASK_POLL_MS, options?.signal);
+    }
+    throw new Error("AI 代理任务超时，请稍后重试");
+}
+
+function shouldCleanupPossiblyCreatedTask(error: unknown) {
+    if (axios.isCancel(error) || error instanceof DOMException) return true;
+    return axios.isAxiosError(error) && !error.response;
 }
 
 async function getWithProxyFallback<T>(config: AiConfig, path: string, options?: RequestOptions) {
