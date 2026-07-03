@@ -2,12 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp, Camera, LoaderCircle, Music2, Wand2, Plus, ChevronDown, Palette } from "lucide-react";
-import { Button, Tooltip, Dropdown, message } from "antd";
+import { App, Button, Tooltip, Dropdown } from "antd";
 
 import { ModelPicker } from "@/components/model-picker";
 import { defaultConfig, modelOptionName, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { requestCreditCost } from "@/constant/credits";
 import { canvasThemes } from "@/lib/canvas-theme";
+import { isGrokImagineImageConfig, normalizeGrokImagineImageCount } from "@/lib/grok-imagine";
+import { isStepImageEdit2Config, normalizeStepImageEdit2Size } from "@/lib/step-image";
 import { caiVideoModelCapabilities, isSeedanceVideoModel } from "@/lib/seedance-video";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
@@ -33,6 +35,7 @@ type CanvasNodePromptPanelProps = {
 };
 
 export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfigChange, onGenerate, onStop, mentionReferences = [], onImageSettingsOpenChange, onRemoveReference }: CanvasNodePromptPanelProps) {
+    const { message } = App.useApp();
     const globalConfig = useEffectiveConfig();
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
     const themeKey = useThemeStore((state) => state.theme);
@@ -43,7 +46,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     const hasImageContent = node.type === CanvasNodeType.Image && Boolean(node.metadata?.content);
     const [prompt, setPrompt] = useState(node.metadata?.prompt || "");
     const [promptLibraryOpen, setPromptLibraryOpen] = useState(false);
-    const credits = requestCreditCost({ channelMode: config.channelMode, model: config.model, count: mode === "image" ? config.count : 1 });
+    const credits = requestCreditCost({ channelMode: config.channelMode, model: config.model, count: mode === "image" && isGrokImagineImageConfig(config) ? String(normalizeGrokImagineImageCount(config.count)) : mode === "image" ? config.count : 1 });
 
     const [activeVideoTab, setActiveVideoTab] = useState<string>(node.metadata?.videoMode || "text-to-video");
     const [cameraMovement, setCameraMovement] = useState<string>(node.metadata?.cameraMovement || "自适应");
@@ -59,13 +62,14 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     const supportsRichVideoRefs = videoCapabilities.allAroundReference || isSeedanceVideo;
     const totalRefs = imageRefs.length + (supportsRichVideoRefs ? videoRefs.length + audioRefs.length : 0);
     const activeRefs = mentionReferences.filter((r) => r.active);
+    const hasSingleImageRef = imageRefs.length === 1;
 
     const videoTabs = [
         { id: "text-to-video", label: "文生视频", enabled: videoCapabilities.textToVideo, tooltip: "当前模型必须连接图片后生成视频" },
         ...(videoCapabilities.allAroundReference ? [{ id: "all-around", label: "全能参考", enabled: totalRefs >= 1, tooltip: "当前模型支持图片/视频/音频多参考，需要先连接素材节点" }] : []),
-        { id: "image-to-video", label: "图生视频", enabled: imageRefs.length >= 1, tooltip: "需要连接图片节点 (1~15个)" },
+        { id: "image-to-video", label: "图生视频", enabled: hasSingleImageRef, tooltip: "需要连接 1 张图片节点" },
         ...(videoCapabilities.firstLastFrame ? [{ id: "first-last", label: "首尾帧", enabled: imageRefs.length >= 2, tooltip: "Seedance 首尾帧需要连接 2 个图片节点" }] : []),
-        { id: "image-ref", label: "图片参考", enabled: imageRefs.length >= 1, tooltip: "需要连接图片节点 (1~15个)" },
+        ...(videoCapabilities.imageReference ? [{ id: "image-ref", label: "图片参考", enabled: imageRefs.length >= 1, tooltip: "需要连接图片节点 (1~15个)" }] : []),
     ];
 
     const updateVideoMode = (value: string) => {
@@ -80,10 +84,10 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
             return;
         }
         if (activeVideoTab === "text-to-video") {
-            if (!videoCapabilities.textToVideo && imageRefs.length >= 1) updateVideoMode("image-to-video");
+            if (!videoCapabilities.textToVideo && hasSingleImageRef) updateVideoMode("image-to-video");
             else if (videoCapabilities.allAroundReference && videoRefs.length > 0) updateVideoMode("all-around");
             else if (videoCapabilities.firstLastFrame && imageRefs.length >= 2) updateVideoMode("first-last");
-            else if (imageRefs.length >= 1) updateVideoMode("image-to-video");
+            else if (hasSingleImageRef) updateVideoMode("image-to-video");
         } else if (!videoTabs.find((tab) => tab.id === activeVideoTab)?.enabled) {
             updateVideoMode(videoCapabilities.textToVideo ? "text-to-video" : "image-to-video");
         }
@@ -219,7 +223,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                         return tab.enabled ? (
                             btn
                         ) : (
-                            <Tooltip key={tab.id} title={tab.tooltip} placement="top" overlayClassName="z-[1300]">
+                            <Tooltip key={tab.id} title={tab.tooltip} placement="top" classNames={{ root: "z-[1300]" }}>
                                 <span>{btn}</span>
                             </Tooltip>
                         );
@@ -245,7 +249,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                             const isImage = ref.kind === "image";
                             const isVideo = ref.kind === "video";
                             return (
-                                <Tooltip key={ref.id} title={`${ref.title} (点击断开连接)`} placement="top" overlayClassName="z-[1300]">
+                                <Tooltip key={ref.id} title={`${ref.title} (点击断开连接)`} placement="top" classNames={{ root: "z-[1300]" }}>
                                     <div
                                         onClick={() => onRemoveReference?.(ref.nodeId)}
                                         className="group/thumb relative flex size-9 cursor-pointer items-center justify-center overflow-hidden rounded-lg border border-gray-200/60 shadow-sm transition-all hover:scale-105 hover:border-red-500/50 dark:border-zinc-700"
@@ -352,7 +356,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                                 config={config}
                                 onConfigChange={(key, value) => onConfigChange(node.id, videoConfigPatch(key, value))}
                             />
-                            <Dropdown menu={cameraMenu} placement="topLeft" trigger={["click"]} overlayClassName="z-[1300]">
+                            <Dropdown menu={cameraMenu} placement="topLeft" trigger={["click"]} classNames={{ root: "z-[1300]" }}>
                                 <button
                                     type="button"
                                     className="flex h-7 shrink-0 items-center gap-1 rounded-full border border-gray-200/60 bg-transparent px-2.5 text-[11px] text-gray-700 hover:bg-gray-50 transition-colors dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
@@ -430,7 +434,7 @@ function defaultMode(type: CanvasNodeData["type"]): CanvasNodeGenerationMode {
 
 function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: CanvasNodeGenerationMode): AiConfig {
     const defaultModel = mode === "image" ? globalConfig.imageModel : mode === "video" ? globalConfig.videoModel : mode === "audio" ? globalConfig.audioModel : globalConfig.textModel;
-    return {
+    const nextConfig = {
         ...globalConfig,
         model: node.metadata?.model || defaultModel || (mode === "audio" ? defaultConfig.audioModel : globalConfig.model || defaultConfig.model),
         quality: node.metadata?.quality || globalConfig.quality || defaultConfig.quality,
@@ -445,6 +449,13 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
         audioInstructions: node.metadata?.audioInstructions || globalConfig.audioInstructions || defaultConfig.audioInstructions,
         count: String(node.metadata?.count || (mode === "image" ? globalConfig.canvasImageCount || globalConfig.count : globalConfig.count) || defaultConfig.count),
     };
+    if (mode === "image" && isStepImageEdit2Config(nextConfig)) {
+        return {
+            ...nextConfig,
+            size: normalizeStepImageEdit2Size(nextConfig.size),
+        };
+    }
+    return nextConfig;
 }
 
 function promptPlaceholder(mode: CanvasNodeGenerationMode, hasImageContent: boolean, hasTextContent: boolean, hasReferences = false) {

@@ -2,11 +2,12 @@
 
 import type { ReactNode } from "react";
 import { useEffect, useRef } from "react";
-import { message } from "antd";
+import { App } from "antd";
 
 import { createModelChannel, useConfigStore } from "@/stores/use-config-store";
 
 export function ClientRootInit({ children }: { children: ReactNode }) {
+    const { message } = App.useApp();
     const handledConfigParams = useRef(false);
     const updateConfig = useConfigStore((state) => state.updateConfig);
     const config = useConfigStore((state) => state.config);

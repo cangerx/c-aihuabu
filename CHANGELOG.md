@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v0.4.20 - 2026-07-03
+
++ [新增] 适配 Grok Imagine 图片/视频新模型，图像设置按 `1k/2k`、宽高比和 `aspect_ratio` / `resolution` 动态提交，视频设置按模型能力切换比例、清晰度和参考图模式。
++ [新增] 适配 StepFun `step-image-edit-2` 固定尺寸与专用提交参数，生图工作台和画布使用同一份归一化配置。
++ [修复] Grok 图片结果优先使用 `b64_json`，并增强远程图片转存、代理读取和渲染失败兜底，避免“URL 可打开但工作台或画布显示失败”。
++ [修复] 清理 Ant Design 静态 `message`、Tooltip 旧属性和主题初始化脚本问题，减少 Next.js / antd 控制台告警。
++ [优化] 补齐前端类型检查阻断项，保证当前 Web 工程 `tsc --noEmit` 可通过。
+
 ## v0.4.19 - 2026-06-30
 
 + [修复] 同步图片代理任务改用 Node 原生 HTTP 客户端在服务端后台请求上游，避免 Next `fetch` / 请求生命周期取消长耗时上游连接导致上游 `context canceled`。

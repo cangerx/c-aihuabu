@@ -2,7 +2,7 @@
 
 import { Check, Search } from "lucide-react";
 import { type UIEvent, useEffect, useMemo, useState } from "react";
-import { Empty, Input, message, Modal, Spin } from "antd";
+import { App, Empty, Input, Modal, Spin } from "antd";
 
 import { ALL_PROMPTS_OPTION, CATEGORY_MAP, cleanTag } from "@/services/api/prompts";
 import { cn } from "@/lib/utils";
@@ -10,6 +10,7 @@ import { PromptCard } from "./prompt-card";
 import { usePromptList } from "./use-prompt-list";
 
 export function PromptSelectDialog({ open, onOpenChange, onSelect }: { open: boolean; onOpenChange: (open: boolean) => void; onSelect: (prompt: string) => void }) {
+    const { message } = App.useApp();
     const [keyword, setKeyword] = useState("");
     const [selectedTags, setSelectedTags] = useState<string[]>([]);
     const [selectedCategory, setSelectedCategory] = useState(ALL_PROMPTS_OPTION);

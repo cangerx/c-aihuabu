@@ -6,6 +6,7 @@ import { ChevronRight, DownloadCloud, Film, FileText, Image as ImageIcon, Messag
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes } from "@/lib/image-utils";
+import { proxiedImageDisplayUrl } from "@/services/image-storage";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
 import { CanvasNodeType, type CanvasNodeData, type CanvasNodeMetadata, type CanvasScriptMode, type CanvasScriptScene, type Position } from "../types";
@@ -837,14 +838,24 @@ function ImageContent({
 }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const isBatchChild = Boolean(node.metadata?.batchRootId);
+    const sourceUrl = node.metadata!.content!;
+    const [displayUrl, setDisplayUrl] = useState(sourceUrl);
+
+    useEffect(() => {
+        setDisplayUrl(sourceUrl);
+    }, [sourceUrl]);
 
     return (
         <BatchFrame batchCount={isBatchRoot ? batchCount : 0} batchExpanded={batchExpanded} batchOpening={batchOpening} batchRecovering={batchRecovering} onToggleBatch={onToggleBatch}>
             <div className="h-full w-full overflow-hidden rounded-3xl">
                 <img
-                    src={node.metadata!.content!}
+                    src={displayUrl}
                     alt={node.title}
                     draggable={false}
+                    onError={() => {
+                        const fallback = proxiedImageDisplayUrl(sourceUrl);
+                        if (fallback !== displayUrl) setDisplayUrl(fallback);
+                    }}
                     onDragStart={(event) => event.preventDefault()}
                     className={`pointer-events-none block h-full w-full select-none ${node.metadata?.freeResize ? "object-fill" : "object-contain"}`}
                 />

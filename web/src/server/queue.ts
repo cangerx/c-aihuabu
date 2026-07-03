@@ -1,4 +1,4 @@
-import { Queue } from "bullmq";
+import { Queue, type ConnectionOptions } from "bullmq";
 import IORedis from "ioredis";
 
 export const IMAGE_GENERATION_QUEUE = "image-generation";
@@ -17,7 +17,6 @@ export function getRedis() {
 }
 
 export function getImageGenerationQueue() {
-    imageQueue ||= new Queue(IMAGE_GENERATION_QUEUE, { connection: getRedis() });
+    imageQueue ||= new Queue(IMAGE_GENERATION_QUEUE, { connection: getRedis() as unknown as ConnectionOptions });
     return imageQueue;
 }
-

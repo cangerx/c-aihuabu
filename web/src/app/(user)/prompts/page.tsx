@@ -2,7 +2,7 @@
 
 import { ChevronDown, FolderPlus, Search } from "lucide-react";
 import { type UIEvent, useEffect, useMemo, useState } from "react";
-import { Button, Empty, Input, message, Spin } from "antd";
+import { App, Button, Empty, Input, Spin } from "antd";
 
 import { PromptCard } from "@/components/prompts/prompt-card";
 import { PromptDetailDialog } from "@/components/prompts/prompt-detail-dialog";
@@ -13,6 +13,7 @@ import { useAssetStore } from "@/stores/use-asset-store";
 import { ALL_PROMPTS_OPTION, CATEGORY_MAP, cleanTag, type Prompt } from "@/services/api/prompts";
 
 export default function PromptsPage() {
+    const { message } = App.useApp();
     const [titleKeyword, setTitleKeyword] = useState("");
     const [selectedTags, setSelectedTags] = useState<string[]>([]);
     const [selectedCategory, setSelectedCategory] = useState(ALL_PROMPTS_OPTION);

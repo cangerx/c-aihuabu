@@ -4,6 +4,8 @@ import { type ReactNode, useState } from "react";
 import { ConfigProvider, Switch } from "antd";
 
 import { type CanvasTheme } from "@/lib/canvas-theme";
+import { grokImagineImageMaxCount, grokImagineImageRatioOptions, grokImagineImageResolutionOptions, isGrokImagineImageConfig, normalizeGrokImagineImageRatio, normalizeGrokImagineImageResolution } from "@/lib/grok-imagine";
+import { isStepImageEdit2Config, normalizeStepImageEdit2Size, stepImageEdit2SizeOptions, stepImageEdit2SizeLabel } from "@/lib/step-image";
 import type { AiConfig } from "@/stores/use-config-store";
 
 const qualityOptions = [
@@ -42,16 +44,20 @@ type ImageSettingsPanelProps = {
 
 export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5", maxCount = 15, quickCount = 10 }: ImageSettingsPanelProps) {
     const [snapDimensionToStep, setSnapDimensionToStep] = useState(true);
-    const quality = config.quality || "auto";
-    const count = Math.max(1, Math.min(maxCount, Math.floor(Math.abs(Number(config.count)) || 1)));
+    const isStepImageEdit2 = isStepImageEdit2Config(config);
+    const isGrokImagineImage = isGrokImagineImageConfig(config);
+    const effectiveMaxCount = isGrokImagineImage ? Math.min(maxCount, grokImagineImageMaxCount) : maxCount;
+    const quality = isGrokImagineImage ? normalizeGrokImagineImageResolution(config.quality) : config.quality || "auto";
+    const count = Math.max(1, Math.min(effectiveMaxCount, Math.floor(Math.abs(Number(config.count)) || 1)));
     const activeSize = config.size || "auto";
-    const selectedAspect = aspectOptions.find((item) => (item.size || item.value) === activeSize || item.value === activeSize);
-    const dimensions = readSizeDimensions(activeSize, selectedAspect || aspectOptions[0]);
+    const quickOptions = Array.from({ length: Math.min(quickCount, effectiveMaxCount) }, (_, index) => index + 1);
     const selectAspect = (value: string) => {
         const option = aspectOptions.find((item) => item.value === value);
         onConfigChange("size", option?.size || option?.value || "auto");
     };
     const updateDimension = (key: "width" | "height", value: number | null) => {
+        const selectedAspect = aspectOptions.find((item) => (item.size || item.value) === activeSize || item.value === activeSize);
+        const dimensions = readSizeDimensions(activeSize, selectedAspect || aspectOptions[0]);
         const next = Math.max(1, Math.floor(value || dimensions[key] || 1024));
         const width = key === "width" ? next : dimensions.width;
         const height = key === "height" ? next : dimensions.height;
@@ -70,61 +76,118 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
                 }}
             >
                 {showTitle ? <div className="text-lg font-semibold">图像设置</div> : null}
-                <div className="space-y-2.5">
-                    <SettingTitle color={theme.node.muted}>质量</SettingTitle>
-                    <div className="grid grid-cols-4 gap-2.5">
-                        {qualityOptions.map((item) => (
-                            <OptionPill key={item.value} selected={quality === item.value} theme={theme} onClick={() => onConfigChange("quality", item.value)}>
-                                {item.label}
-                            </OptionPill>
-                        ))}
-                    </div>
-                </div>
-                <div className="space-y-2.5">
-                    <div className="flex items-center justify-between gap-3">
-                        <SettingTitle color={theme.node.muted}>尺寸</SettingTitle>
-                        <div className="flex items-center gap-2">
-                            <span className="text-xs font-medium" style={{ color: theme.node.muted }}>
-                                16倍数对齐
-                            </span>
-                            <span title="输入完成后自动向上补成 16 的倍数" onMouseDown={(event) => event.stopPropagation()}>
-                                <Switch size="small" checked={snapDimensionToStep} onChange={setSnapDimensionToStep} />
-                            </span>
+                {isStepImageEdit2 ? (
+                    <>
+                        <div className="space-y-2.5">
+                            <SettingTitle color={theme.node.muted}>尺寸</SettingTitle>
+                            <div className="grid grid-cols-2 gap-2.5">
+                                {stepImageEdit2SizeOptions.map((item) => (
+                                    <button
+                                        key={item.value}
+                                        type="button"
+                                        className="flex h-[72px] cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border bg-transparent text-sm transition hover:opacity-80"
+                                        style={{ borderColor: normalizeStepImageEdit2Size(activeSize) === item.value ? theme.node.text : theme.node.stroke, background: "transparent", color: theme.node.text }}
+                                        onMouseDown={(event) => event.stopPropagation()}
+                                        onClick={() => onConfigChange("size", item.value)}
+                                    >
+                                        <SizePreview width={item.width} height={item.height} color={theme.node.text} />
+                                        <span>{item.label}</span>
+                                        <span className="text-[10px] leading-none opacity-55">{item.value}</span>
+                                    </button>
+                                ))}
+                            </div>
                         </div>
-                    </div>
-                    <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2.5">
-                        <DimensionInput prefix="W" value={dimensions.width} disabled={activeSize === "auto"} theme={theme} alignToStep={snapDimensionToStep} onChange={(value) => updateDimension("width", value)} />
-                        <span className="text-lg opacity-45">↔</span>
-                        <DimensionInput prefix="H" value={dimensions.height} disabled={activeSize === "auto"} theme={theme} alignToStep={snapDimensionToStep} onChange={(value) => updateDimension("height", value)} />
-                    </div>
-                </div>
-                <div className="space-y-2.5">
-                    <SettingTitle color={theme.node.muted}>宽高比</SettingTitle>
-                    <div className="grid grid-cols-4 gap-2.5">
-                        {aspectOptions.map((item) => (
-                            <button
-                                key={item.value}
-                                type="button"
-                                className="flex h-[72px] cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border bg-transparent text-sm transition hover:opacity-80"
-                                style={{ borderColor: selectedAspect?.value === item.value ? theme.node.text : theme.node.stroke, background: "transparent", color: theme.node.text }}
-                                onMouseDown={(event) => event.stopPropagation()}
-                                onClick={() => selectAspect(item.value)}
-                            >
-                                <AspectIcon type={item.icon} width={item.width} height={item.height} color={theme.node.text} />
-                                <span>{item.label}</span>
-                            </button>
-                        ))}
-                    </div>
-                </div>
+                    </>
+                ) : isGrokImagineImage ? (
+                    <>
+                        <div className="space-y-2.5">
+                            <SettingTitle color={theme.node.muted}>分辨率</SettingTitle>
+                            <div className="grid grid-cols-2 gap-2.5">
+                                {grokImagineImageResolutionOptions.map((item) => (
+                                    <OptionPill key={item.value} selected={quality === item.value} theme={theme} onClick={() => onConfigChange("quality", item.value)}>
+                                        {item.label}
+                                    </OptionPill>
+                                ))}
+                            </div>
+                        </div>
+                        <div className="space-y-2.5">
+                            <SettingTitle color={theme.node.muted}>宽高比</SettingTitle>
+                            <div className="grid grid-cols-4 gap-2.5">
+                                {grokImagineImageRatioOptions.map((item) => (
+                                    <button
+                                        key={item.value}
+                                        type="button"
+                                        className="flex h-[72px] cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border bg-transparent text-sm transition hover:opacity-80"
+                                        style={{ borderColor: normalizeGrokImagineImageRatio(activeSize) === item.value ? theme.node.text : theme.node.stroke, background: "transparent", color: theme.node.text }}
+                                        onMouseDown={(event) => event.stopPropagation()}
+                                        onClick={() => onConfigChange("size", item.value)}
+                                    >
+                                        <AspectIcon type={item.value === "auto" ? "auto" : "ratio"} width={item.width} height={item.height} color={theme.node.text} />
+                                        <span>{item.label}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </>
+                ) : (
+                    <>
+                        <div className="space-y-2.5">
+                            <SettingTitle color={theme.node.muted}>质量</SettingTitle>
+                            <div className="grid grid-cols-4 gap-2.5">
+                                {qualityOptions.map((item) => (
+                                    <OptionPill key={item.value} selected={quality === item.value} theme={theme} onClick={() => onConfigChange("quality", item.value)}>
+                                        {item.label}
+                                    </OptionPill>
+                                ))}
+                            </div>
+                        </div>
+                        <div className="space-y-2.5">
+                            <div className="flex items-center justify-between gap-3">
+                                <SettingTitle color={theme.node.muted}>尺寸</SettingTitle>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs font-medium" style={{ color: theme.node.muted }}>
+                                        16倍数对齐
+                                    </span>
+                                    <span title="输入完成后自动向上补成 16 的倍数" onMouseDown={(event) => event.stopPropagation()}>
+                                        <Switch size="small" checked={snapDimensionToStep} onChange={setSnapDimensionToStep} />
+                                    </span>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2.5">
+                                <DimensionInput prefix="W" value={readSizeDimensions(activeSize, aspectOptions[0]).width} disabled={activeSize === "auto"} theme={theme} alignToStep={snapDimensionToStep} onChange={(value) => updateDimension("width", value)} />
+                                <span className="text-lg opacity-45">↔</span>
+                                <DimensionInput prefix="H" value={readSizeDimensions(activeSize, aspectOptions[0]).height} disabled={activeSize === "auto"} theme={theme} alignToStep={snapDimensionToStep} onChange={(value) => updateDimension("height", value)} />
+                            </div>
+                        </div>
+                        <div className="space-y-2.5">
+                            <SettingTitle color={theme.node.muted}>宽高比</SettingTitle>
+                            <div className="grid grid-cols-4 gap-2.5">
+                                {aspectOptions.map((item) => (
+                                    <button
+                                        key={item.value}
+                                        type="button"
+                                        className="flex h-[72px] cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border bg-transparent text-sm transition hover:opacity-80"
+                                        style={{ borderColor: (aspectOptions.find((option) => (option.size || option.value) === activeSize || option.value === activeSize)?.value === item.value) ? theme.node.text : theme.node.stroke, background: "transparent", color: theme.node.text }}
+                                        onMouseDown={(event) => event.stopPropagation()}
+                                        onClick={() => selectAspect(item.value)}
+                                    >
+                                        <AspectIcon type={item.icon} width={item.width} height={item.height} color={theme.node.text} />
+                                        <span>{item.label}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </>
+                )}
                 <div className="space-y-2.5">
                     <SettingTitle color={theme.node.muted}>生成张数</SettingTitle>
                     <div className="grid grid-cols-4 gap-2.5">
-                        {Array.from({ length: quickCount }, (_, index) => index + 1).map((value) => (
+                        {quickOptions.map((value) => (
                             <OptionPill key={value} selected={count === value} theme={theme} onClick={() => onConfigChange("count", String(value))}>
                                 {value} 张
                             </OptionPill>
                         ))}
-                        <CountInput value={count} max={maxCount} theme={theme} onChange={(value) => onConfigChange("count", String(value || 1))} />
+                        <CountInput value={count} max={effectiveMaxCount} theme={theme} onChange={(value) => onConfigChange("count", String(value || 1))} />
                     </div>
                 </div>
             </div>
@@ -146,10 +209,12 @@ export function ImageSettingsTheme({ theme, children }: { theme: CanvasTheme; ch
 }
 
 export function imageQualityLabel(value: string) {
-    return ({ auto: "自动", high: "高", medium: "中", low: "低" } as Record<string, string>)[value] || value;
+    return ({ auto: "自动", high: "高", medium: "中", low: "低", "1k": "1k", "2k": "2k" } as Record<string, string>)[value] || value;
 }
 
 export function imageSizeLabel(size: string) {
+    const raw = String(size || "").trim().toLowerCase();
+    if (stepImageEdit2SizeOptions.some((item) => item.value === raw)) return stepImageEdit2SizeLabel(raw);
     return aspectOptions.find((item) => (item.size || item.value) === size || item.value === size)?.label || size;
 }
 
@@ -213,8 +278,16 @@ function CountInput({ value, max, theme, onChange }: { value: number; max: numbe
     );
 }
 
+function SizePreview({ width, height, color }: { width: number; height: number; color: string }) {
+    return <RatioPreview width={width} height={height} color={color} />;
+}
+
 function AspectIcon({ type, width, height, color }: { type: string; width: number; height: number; color: string }) {
     if (type === "auto") return null;
+    return <RatioPreview width={width} height={height} color={color} />;
+}
+
+function RatioPreview({ width, height, color }: { width: number; height: number; color: string }) {
     const ratio = width / Math.max(1, height);
     const boxWidth = ratio >= 1 ? 24 : Math.max(10, 24 * ratio);
     const boxHeight = ratio >= 1 ? Math.max(10, 24 / ratio) : 24;

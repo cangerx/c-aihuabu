@@ -11,11 +11,13 @@ import { requestAudioGeneration, storeGeneratedAudio } from "@/services/api/audi
 import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo, type VideoGenerationTask, type VideoGenerationTaskState } from "@/services/api/video";
 import { DOCS_URL } from "@/constant/env";
 import { defaultConfig, modelOptionName, type AiConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
-import { resolveImageUrl, uploadImage, type UploadedImage } from "@/services/image-storage";
+import { persistImageUrl, resolveImageUrl, uploadImage, type UploadedImage } from "@/services/image-storage";
 import { resolveMediaUrl, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta, sanitizeImageDataUrl } from "@/lib/image-utils";
 import { canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
+import { isGrokImagineImageConfig, isGrokImagineVideoModel, normalizeGrokImagineImageCount, normalizeGrokImagineImageRatio, normalizeGrokImagineImageResolution, normalizeGrokImagineVideoRatio, normalizeGrokImagineVideoResolution } from "@/lib/grok-imagine";
+import { isStepImageEdit2Config, normalizeStepImageEdit2Size } from "@/lib/step-image";
 import { boolConfig, isSeedanceVideoModel, normalizeSeedanceRatio, seedanceVideoReferenceError, seedanceVideoReferenceHint } from "@/lib/seedance-video";
 import { normalizeVideoResolutionValue, normalizeVideoSizeValue } from "@/components/video-settings-panel";
 import { UserStatusActions } from "@/components/layout/user-status-actions";
@@ -23,7 +25,7 @@ import { useAssetStore } from "@/stores/use-asset-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { cropDataUrl, splitDataUrl, upscaleDataUrl } from "../utils/canvas-image-data";
 import { fitNodeSize, nodeSizeFromRatio } from "../utils/canvas-node-size";
-import { App, Button, Dropdown, message, Modal } from "antd";
+import { App, Button, Dropdown, Modal } from "antd";
 import { NODE_DEFAULT_SIZE, getNodeSpec } from "../constants";
 import { ActiveConnectionPath, ConnectionPath } from "../components/canvas-connections";
 import { CanvasConfigComposer } from "../components/canvas-config-composer";
@@ -222,7 +224,7 @@ function ConnectionCreateOption({ theme, icon, title, description, onClick }: { 
 }
 
 function InfiniteCanvasPage() {
-    const { modal } = App.useApp();
+    const { message, modal } = App.useApp();
     const params = useParams<{ id: string }>();
     const router = useRouter();
     const projectId = params.id;
@@ -2236,7 +2238,7 @@ function InfiniteCanvasPage() {
             const controller = startGenerationRequest(childId, node.id, childId);
             try {
                 const image = await requestEdit(generationConfig, prompt, [source], { id: `${node.id}-mask`, name: "mask.png", type: "image/png", dataUrl: payload.maskDataUrl }, { signal: controller.signal }).then((items) => items[0]);
-                const uploaded = await uploadImage(image.dataUrl);
+                const uploaded = await persistImageUrl(image.dataUrl);
                 const size = fitNodeSize(uploaded.width, uploaded.height, node.width, node.height);
                 setNodes((prev) => prev.map((item) => (item.id === childId ? { ...item, width: size.width, height: size.height, metadata: { ...item.metadata, ...imageMetadata(uploaded), prompt, ...generationMetadata } } : item)));
             } catch (error) {
@@ -2314,7 +2316,7 @@ function InfiniteCanvasPage() {
                 const image = await requestEdit(generationConfig, prompt, [{ id: node.id, name: `${node.title || node.id}.png`, type: node.metadata.mimeType || "image/png", dataUrl: node.metadata.content, storageKey: node.metadata.storageKey }], undefined, { signal: controller.signal }).then(
                     (items) => items[0],
                 );
-                const uploaded = await uploadImage(image.dataUrl);
+                const uploaded = await persistImageUrl(image.dataUrl);
                 const size = fitNodeSize(uploaded.width, uploaded.height, imageConfig.width, imageConfig.height);
                 setNodes((prev) => prev.map((item) => (item.id === childId ? { ...item, width: size.width, height: size.height, metadata: { ...item.metadata, ...imageMetadata(uploaded), prompt, ...generationMetadata } } : item)));
             } catch (error) {
@@ -2612,7 +2614,7 @@ function InfiniteCanvasPage() {
                                 const image = referenceImages.length
                                     ? await requestEdit({ ...generationConfig, count: "1" }, effectivePrompt, referenceImages, undefined, { signal: controller.signal }).then((items) => items[0])
                                     : await requestGeneration({ ...generationConfig, count: "1" }, effectivePrompt, { signal: controller.signal }).then((items) => items[0]);
-                                const uploaded = await uploadImage(image.dataUrl);
+                                const uploaded = await persistImageUrl(image.dataUrl);
                                 const imageSize = fitNodeSize(uploaded.width, uploaded.height, imageConfig.width, imageConfig.height);
                                 setNodes((prev) => {
                                     const root = prev.find((node) => node.id === rootId);
@@ -2885,7 +2887,7 @@ function InfiniteCanvasPage() {
                 }
 
                 const image = useReferenceImages ? await requestEdit(generationConfig, prompt, retryImages, undefined, { signal: controller.signal }).then((items) => items[0]) : await requestGeneration(generationConfig, prompt, { signal: controller.signal }).then((items) => items[0]);
-                const uploadedImage = await uploadImage(image.dataUrl);
+                const uploadedImage = await persistImageUrl(image.dataUrl);
                 const imageConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
                 const imageSize = fitNodeSize(uploadedImage.width, uploadedImage.height, imageConfig.width, imageConfig.height);
                 const generationMetadata = savedImageMetadata?.generationType
@@ -2996,7 +2998,7 @@ function InfiniteCanvasPage() {
 
     const insertAssistantImage = useCallback(
         async (image: CanvasAssistantImage) => {
-            const storedImage = image.storageKey ? { url: image.dataUrl, storageKey: image.storageKey, width: 1, height: 1, bytes: 0, mimeType: "image/png" } : await uploadImage(image.dataUrl);
+            const storedImage = image.storageKey ? { url: image.dataUrl, storageKey: image.storageKey, width: 1, height: 1, bytes: 0, mimeType: "image/png" } : await persistImageUrl(image.dataUrl);
             const meta = storedImage.width === 1 && storedImage.height === 1 ? await readImageMeta(storedImage.url) : storedImage;
             const config = fitNodeSize(meta.width, meta.height);
             const center = screenToCanvas((containerRef.current?.getBoundingClientRect().left || 0) + size.width / 2, (containerRef.current?.getBoundingClientRect().top || 0) + size.height / 2);
@@ -3711,8 +3713,8 @@ function parseScriptScenes(value: string): CanvasScriptScene[] {
 function parseScriptScenesFromParsed(parsed: any): CanvasScriptScene[] {
     const rawScenes = Array.isArray(parsed?.scenes) ? parsed.scenes : Array.isArray(parsed) ? parsed : [];
     return rawScenes
-        .map((item, index) => normalizeScriptScene(item, index))
-        .filter((scene): scene is CanvasScriptScene => Boolean(scene?.imagePrompt && scene.videoPrompt))
+        .map((item: unknown, index: number) => normalizeScriptScene(item, index))
+        .filter((scene: CanvasScriptScene | null): scene is CanvasScriptScene => Boolean(scene?.imagePrompt && scene.videoPrompt))
         .slice(0, 30);
 }
 
@@ -3889,7 +3891,7 @@ async function hydrateCanvasImages(nodes: CanvasNodeData[]) {
             if (node.type !== CanvasNodeType.Image || !content) return node;
             if (node.metadata?.storageKey) return { ...node, metadata: { ...node.metadata, content: await resolveImageUrl(node.metadata.storageKey, content) } };
             if (!content.startsWith("data:image/")) return node;
-            return { ...node, metadata: { ...node.metadata, ...imageMetadata(await uploadImage(content)) } };
+            return { ...node, metadata: { ...node.metadata, ...imageMetadata(await persistImageUrl(content)) } };
         }),
     );
 }
@@ -3898,7 +3900,7 @@ async function hydrateAssistantImages(sessions: CanvasAssistantSession[]) {
     const hydrateItem = async <T extends { dataUrl?: string; storageKey?: string }>(item: T) => {
         if (item.storageKey) return { ...item, dataUrl: await resolveImageUrl(item.storageKey, item.dataUrl) };
         if (item.dataUrl?.startsWith("data:image/")) {
-            const image = await uploadImage(item.dataUrl);
+            const image = await persistImageUrl(item.dataUrl);
             return { ...item, dataUrl: image.url, storageKey: image.storageKey };
         }
         return item;
@@ -3972,15 +3974,30 @@ function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefine
         audioInstructions: node?.metadata?.audioInstructions || config.audioInstructions || defaultConfig.audioInstructions,
         count: String(node?.metadata?.count || (mode === "image" ? config.canvasImageCount || config.count : config.count) || defaultConfig.count),
     };
+    if (mode === "image" && isGrokImagineImageConfig(nextConfig)) {
+        return {
+            ...nextConfig,
+            quality: normalizeGrokImagineImageResolution(nextConfig.quality),
+            size: normalizeGrokImagineImageRatio(nextConfig.size),
+            count: String(normalizeGrokImagineImageCount(nextConfig.count)),
+        };
+    }
+    if (mode === "image" && isStepImageEdit2Config(nextConfig)) {
+        return {
+            ...nextConfig,
+            size: normalizeStepImageEdit2Size(nextConfig.size),
+        };
+    }
     if (mode !== "video") return nextConfig;
+    const grokImagineVideo = isGrokImagineVideoModel(nextConfig.model);
     const seedance = isSeedanceVideoConfig(nextConfig);
     const asyncJson = nextConfig.apiFormat === "newtoken" || nextConfig.apiFormat === "duomiapi" || nextConfig.apiFormat === "lingdongapi";
     return {
         ...nextConfig,
         videoModel: nextConfig.model,
-        size: seedance || asyncJson ? normalizeSeedanceRatio(nextConfig.size) : normalizeVideoSizeValue(nextConfig.size),
+        size: grokImagineVideo ? normalizeGrokImagineVideoRatio(nextConfig.size) : seedance || asyncJson ? normalizeSeedanceRatio(nextConfig.size) : normalizeVideoSizeValue(nextConfig.size),
         videoSeconds: normalizeCanvasVideoSeconds(nextConfig.videoSeconds),
-        vquality: normalizeVideoResolutionValue(nextConfig.vquality),
+        vquality: grokImagineVideo ? normalizeGrokImagineVideoResolution(nextConfig.vquality, nextConfig.model) : normalizeVideoResolutionValue(nextConfig.vquality),
         videoGenerateAudio: String(boolConfig(nextConfig.videoGenerateAudio, true)),
         videoWatermark: String(boolConfig(nextConfig.videoWatermark, false)),
     };

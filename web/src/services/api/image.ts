@@ -1,5 +1,7 @@
 import axios from "axios";
 
+import { grokImagineImageEditMaxCount, grokImagineImageMaxCount, isGrokImagineApiFormat, isGrokImagineImageModel, normalizeGrokImagineImageRatio, normalizeGrokImagineImageResolution } from "@/lib/grok-imagine";
+import { isStepImageEdit2Model, normalizeStepImageEdit2Size } from "@/lib/step-image";
 import { buildAiApiUrl, buildApiUrl, buildForcedProxiedUrl, buildProxiedUrl, resolveModelRequestConfig, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
@@ -487,8 +489,9 @@ function consumeResponseStreamText(state: ResponseStreamState, text: string, onD
     for (;;) {
         const match = state.buffer.match(/\r?\n\r?\n/);
         if (!match) break;
-        consumeResponseStreamBlock(state.buffer.slice(0, match.index), state, onDelta);
-        state.buffer = state.buffer.slice(match.index + match[0].length);
+        const index = match.index ?? 0;
+        consumeResponseStreamBlock(state.buffer.slice(0, index), state, onDelta);
+        state.buffer = state.buffer.slice(index + match[0].length);
     }
     if (flush && state.buffer.trim()) {
         consumeResponseStreamBlock(state.buffer, state, onDelta);
@@ -678,8 +681,9 @@ function consumeGeminiStreamText(state: GeminiStreamState, text: string, onDelta
     for (;;) {
         const match = state.buffer.match(/\r?\n\r?\n/);
         if (!match) break;
-        consumeGeminiStreamBlock(state.buffer.slice(0, match.index), state, onDelta);
-        state.buffer = state.buffer.slice(match.index + match[0].length);
+        const index = match.index ?? 0;
+        consumeGeminiStreamBlock(state.buffer.slice(0, index), state, onDelta);
+        state.buffer = state.buffer.slice(index + match[0].length);
     }
     if (flush && state.buffer.trim()) {
         consumeGeminiStreamBlock(state.buffer, state, onDelta);
@@ -814,7 +818,9 @@ function parseGeminiImagePayload(payload: GeminiPayload) {
 
 export async function requestGeneration(config: AiConfig, prompt: string, options?: RequestOptions) {
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
-    const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
+    const isGrokImagine = isGrokImagineApiFormat(requestConfig) && isGrokImagineImageModel(requestConfig.model);
+    const isStepImageEdit2 = isStepImageEdit2Model(requestConfig.model);
+    const n = Math.max(1, Math.min(isGrokImagine ? grokImagineImageMaxCount : 15, Math.floor(Math.abs(Number(config.count)) || 1)));
     if (isNewTokenAsyncImageModel(requestConfig)) {
         return requestNewTokenAsyncImages(requestConfig, prompt, [], n, options);
     }
@@ -824,6 +830,12 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
         } catch (error) {
             throw new Error(readAxiosError(error, "请求失败"));
         }
+    }
+    if (isStepImageEdit2) {
+        return requestStepImageGenerate(requestConfig, prompt, n, options);
+    }
+    if (isGrokImagine) {
+        return requestGrokImagineImages(requestConfig, prompt, n, options);
     }
     const quality = normalizeQuality(config.quality);
     const requestSize = resolveRequestSize(quality, config.size);
@@ -851,7 +863,9 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
 
 export async function requestEdit(config: AiConfig, prompt: string, references: ReferenceImage[], mask?: ReferenceImage, options?: RequestOptions) {
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
-    const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
+    const isGrokImagine = isGrokImagineApiFormat(requestConfig) && isGrokImagineImageModel(requestConfig.model);
+    const isStepImageEdit2 = isStepImageEdit2Model(requestConfig.model);
+    const n = Math.max(1, Math.min(isGrokImagine ? grokImagineImageMaxCount : 15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const requestPrompt = buildImageReferencePromptText(prompt, references);
     if (isNewTokenAsyncImageModel(requestConfig)) {
         if (mask) throw new Error("NewToken gpt-image2 异步接口暂不支持蒙版编辑");
@@ -868,6 +882,13 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     if (requestConfig.apiFormat === "lingdongapi") {
         if (mask) throw new Error("Lingdong 调用格式暂不支持蒙版编辑");
         return requestLingdongImages(requestConfig, requestPrompt, references, n, options);
+    }
+    if (isStepImageEdit2) {
+        return requestStepImageEdit(requestConfig, requestPrompt, references, mask, n, options);
+    }
+    if (isGrokImagine) {
+        if (mask) throw new Error("Grok Imagine 图像编辑暂不支持蒙版编辑");
+        return requestGrokImagineImageEdits(requestConfig, requestPrompt, references, n, options);
     }
     const quality = normalizeQuality(config.quality);
     const requestSize = resolveRequestSize(quality, config.size);
@@ -917,6 +938,86 @@ async function requestLingdongImages(config: AiConfig, prompt: string, reference
         return parseImagePayload(response.data);
     } catch (error) {
         throw new Error(readAxiosError(error, "Lingdong 图片生成失败"));
+    }
+}
+
+async function requestGrokImagineImages(config: AiConfig, prompt: string, count: number, options?: RequestOptions) {
+    const aspectRatio = normalizeGrokImagineImageRatio(config.size);
+    const body = {
+        model: config.model,
+        prompt: withSystemPrompt(config, prompt),
+        n: count,
+        ...(aspectRatio === "auto" ? {} : { aspect_ratio: aspectRatio }),
+        resolution: normalizeGrokImagineImageResolution(config.quality),
+        response_format: "b64_json",
+    };
+    try {
+        const response = await postWithProxyFallback<ImageApiResponse>(config, "/images/generations", body, "application/json", options);
+        return parseImagePayload(response.data);
+    } catch (error) {
+        throw new Error(readAxiosError(error, "Grok Imagine 图片生成失败"));
+    }
+}
+
+async function requestGrokImagineImageEdits(config: AiConfig, prompt: string, references: ReferenceImage[], count: number, options?: RequestOptions) {
+    const aspectRatio = normalizeGrokImagineImageRatio(config.size);
+    if (references.length > grokImagineImageEditMaxCount) throw new Error("Grok Imagine 图像编辑最多支持 3 张参考图");
+    const imagePayloads = await Promise.all(references.map(async (image) => ({ url: await imageToDataUrl(image) })));
+    const body: Record<string, unknown> = {
+        model: config.model,
+        prompt: withSystemPrompt(config, prompt),
+        n: count,
+        response_format: "b64_json",
+        resolution: normalizeGrokImagineImageResolution(config.quality),
+    };
+    if (aspectRatio !== "auto") body.aspect_ratio = aspectRatio;
+    if (imagePayloads.length === 1) body.image = imagePayloads[0];
+    else if (imagePayloads.length > 1) body.images = imagePayloads;
+
+    try {
+        const response = await postWithProxyFallback<ImageApiResponse>(config, "/images/edits", body, "application/json", options);
+        return parseImagePayload(response.data);
+    } catch (error) {
+        throw new Error(readAxiosError(error, "Grok Imagine 图片编辑失败"));
+    }
+}
+
+async function requestStepImageGenerate(config: AiConfig, prompt: string, count: number, options?: RequestOptions) {
+    const body = {
+        model: config.model,
+        prompt: withSystemPrompt(config, prompt),
+        n: count,
+        response_format: "b64_json",
+        size: normalizeStepImageEdit2Size(config.size),
+        cfg_scale: 1.0,
+        steps: 8,
+    };
+    try {
+        const response = await postWithProxyFallback<ImageApiResponse>(config, "/images/generations", body, "application/json", options);
+        return parseImagePayload(response.data);
+    } catch (error) {
+        throw new Error(readAxiosError(error, "Step Image Edit 2 图片生成失败"));
+    }
+}
+
+async function requestStepImageEdit(config: AiConfig, prompt: string, references: ReferenceImage[], mask: ReferenceImage | undefined, count: number, options?: RequestOptions) {
+    if (mask) throw new Error("step-image-edit-2 暂不支持蒙版编辑");
+    if (!references.length) throw new Error("step-image-edit-2 需要 1 张参考图");
+    if (references.length > 1) throw new Error("step-image-edit-2 仅支持 1 张参考图");
+    const formData = new FormData();
+    formData.set("model", config.model);
+    formData.set("prompt", withSystemPrompt(config, prompt));
+    formData.set("n", String(count));
+    formData.set("response_format", "b64_json");
+    formData.set("cfg_scale", "1.0");
+    formData.set("steps", "8");
+    const file = await dataUrlToFile({ ...references[0], dataUrl: await imageToDataUrl(references[0]) });
+    formData.set("image", file);
+    try {
+        const response = await postWithProxyFallback<ImageApiResponse>(config, "/images/edits", formData, undefined, options);
+        return parseImagePayload(response.data);
+    } catch (error) {
+        throw new Error(readAxiosError(error, "Step Image Edit 2 图片编辑失败"));
     }
 }
 

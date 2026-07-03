@@ -2,7 +2,7 @@
 
 import { ArrowLeft, ArrowRight, BookOpen, CheckSquare, CircleStop, ClipboardPaste, Download, FolderPlus, History, LoaderCircle, Music2, Plus, SlidersHorizontal, Sparkles, Trash2, Upload, VideoIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Button, Checkbox, Drawer, Empty, message, Modal, Tag, Tooltip, Typography } from "antd";
+import { App, Button, Checkbox, Drawer, Empty, Modal, Tag, Tooltip, Typography } from "antd";
 import localforage from "localforage";
 import { nanoid } from "nanoid";
 import { saveAs } from "file-saver";
@@ -24,6 +24,7 @@ import { useThemeStore } from "@/stores/use-theme-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 import type { CanvasResourceReference } from "@/app/(user)/canvas/utils/canvas-resource-references";
+import { isGrokImagineVideoModel, normalizeGrokImagineVideoRatio, normalizeGrokImagineVideoResolution } from "@/lib/grok-imagine";
 
 type GeneratedVideo = {
     id: string;
@@ -76,6 +77,7 @@ const MAX_CONSECUTIVE_POLL_ERRORS = 6;
 const logStore = localforage.createInstance({ name: "infinite-canvas", storeName: "video_generation_logs" });
 
 export default function VideoPage() {
+    const { message } = App.useApp();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const promptInputRef = useRef<HTMLTextAreaElement>(null);
     const activeLogIdsRef = useRef<Set<string>>(new Set());
@@ -109,6 +111,7 @@ export default function VideoPage() {
     const [referenceUploadLabel, setReferenceUploadLabel] = useState("");
 
     const model = effectiveConfig.videoModel || effectiveConfig.model;
+    const displayConfig = buildVideoConfig(effectiveConfig, model);
     const canGenerate = Boolean(prompt.trim());
     const running = runningCount > 0;
     const promptReferences = buildVideoPromptReferences(references, videoReferences, audioReferences);
@@ -629,7 +632,7 @@ export default function VideoPage() {
 
                             <div className="flex items-center justify-between rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm dark:border-stone-800 dark:bg-stone-900 sm:hidden">
                                 <span className="truncate text-stone-500 dark:text-stone-400">
-                                    {modelOptionLabel(effectiveConfig, model)} · {normalizeResolution(effectiveConfig.vquality)}p · {videoSizeLabel(effectiveConfig.size)} · {normalizeVideoSeconds(effectiveConfig.videoSeconds)}s
+                                    {modelOptionLabel(effectiveConfig, model)} · {normalizeResolution(displayConfig.vquality)}p · {videoSizeLabel(displayConfig.size)} · {normalizeVideoSeconds(displayConfig.videoSeconds)}s
                                 </span>
                                 <Button size="small" type="text" icon={<SlidersHorizontal className="size-4" />} onClick={() => setSettingsOpen(true)}>
                                     调整
@@ -692,7 +695,7 @@ export default function VideoPage() {
                 </div>
             </Drawer>
             <PromptSelectDialog open={promptDialogOpen} onOpenChange={setPromptDialogOpen} onSelect={setPrompt} />
-            <AssetPickerModal open={assetPickerOpen} defaultTab="my-assets" onInsert={(payload) => void insertPickedAsset(payload)} onClose={() => setAssetPickerOpen(false)} />
+            <AssetPickerModal open={assetPickerOpen} onInsert={(payload) => void insertPickedAsset(payload)} onClose={() => setAssetPickerOpen(false)} />
             <Modal title="删除生成记录" open={deleteConfirmOpen} onCancel={() => setDeleteConfirmOpen(false)} onOk={deleteSelectedLogs} okText="删除" okButtonProps={{ danger: true }} cancelText="取消">
                 确定删除选中的 {selectedLogIds.length} 条生成记录吗？生成中的记录会先停止本地轮询再删除。
             </Modal>
@@ -1109,15 +1112,16 @@ function buildLog({ prompt, model, config, references, videoReferences, audioRef
 }
 
 function buildVideoConfig(config: AiConfig, model: string): AiConfig {
+    const isGrokImagineVideo = isGrokImagineVideoModel(model);
     const seedance = isSeedanceVideoConfig({ ...config, model });
     const asyncJson = config.apiFormat === "newtoken" || config.apiFormat === "duomiapi" || config.apiFormat === "lingdongapi";
     return {
         ...config,
         model,
         videoModel: model,
-        size: seedance || asyncJson ? normalizeSeedanceRatio(config.size) : normalizeVideoSize(config.size),
+        size: isGrokImagineVideo ? normalizeGrokImagineVideoRatio(config.size) : seedance || asyncJson ? normalizeSeedanceRatio(config.size) : normalizeVideoSize(config.size),
         videoSeconds: normalizeVideoSeconds(config.videoSeconds),
-        vquality: normalizeResolution(config.vquality),
+        vquality: isGrokImagineVideo ? normalizeGrokImagineVideoResolution(config.vquality, model) : normalizeResolution(config.vquality),
         videoGenerateAudio: String(boolConfig(config.videoGenerateAudio, true)),
         videoWatermark: String(boolConfig(config.videoWatermark, false)),
     };

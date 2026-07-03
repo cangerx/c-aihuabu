@@ -4,6 +4,7 @@ import { ArrowRight, FileText, Image as ImageIcon, Video, Play, Sparkles, MouseP
 import { type ReactNode } from "react";
 import { Button } from "antd";
 import { motion } from "motion/react";
+import type { Variants } from "motion/react";
 
 import { navigationTools } from "@/constant/navigation-tools";
 
@@ -34,7 +35,7 @@ function Highlighter({ action, color, children, delay = 0.8 }: { action: "highli
 }
 
 // container transition configuration
-const containerVariants = {
+const containerVariants: Variants = {
     hidden: { opacity: 0 },
     visible: {
         opacity: 1,
@@ -45,7 +46,7 @@ const containerVariants = {
     },
 };
 
-const itemVariants = {
+const itemVariants: Variants = {
     hidden: { opacity: 0, y: 30 },
     visible: {
         opacity: 1,
@@ -57,7 +58,7 @@ const itemVariants = {
     },
 };
 
-const sentenceVariants = {
+const sentenceVariants: Variants = {
     hidden: {},
     visible: {
         transition: {
@@ -67,7 +68,7 @@ const sentenceVariants = {
     },
 };
 
-const letterVariants = {
+const letterVariants: Variants = {
     hidden: { opacity: 0 },
     visible: {
         opacity: 1,

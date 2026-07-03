@@ -7,6 +7,8 @@ import { Button } from "antd";
 
 import { ImageSettingsPanel, imageQualityLabel, imageSizeLabel } from "@/components/image-settings-panel";
 import { canvasThemes } from "@/lib/canvas-theme";
+import { isGrokImagineImageConfig, normalizeGrokImagineImageResolution } from "@/lib/grok-imagine";
+import { isPortraitImageSize, isStepImageEdit2Config } from "@/lib/step-image";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { AiConfig } from "@/stores/use-config-store";
 
@@ -28,9 +30,10 @@ export function CanvasImageSettingsPopover({ config, onConfigChange, onOpenChang
     const [open, setOpen] = useState(false);
     const [buttonRect, setButtonRect] = useState<DOMRect | null>(null);
     const quality = config.quality || "auto";
+    const displayQuality = isGrokImagineImageConfig(config) ? normalizeGrokImagineImageResolution(quality) : quality;
     const activeSize = config.size || "auto";
-
-    const isPortrait = activeSize.includes("9:16") || activeSize.includes("2:3") || activeSize.includes("3:4");
+    const isStepImageEdit2 = isStepImageEdit2Config(config);
+    const isPortrait = isPortraitImageSize(activeSize);
 
     const updateOpen = (nextOpen: boolean) => {
         setOpen(nextOpen);
@@ -71,7 +74,7 @@ export function CanvasImageSettingsPopover({ config, onConfigChange, onOpenChang
                     className={buttonClassName || "flex h-7 items-center gap-1 rounded-full border border-gray-200/60 bg-gray-50/50 px-2.5 text-[11px] font-normal text-gray-700 transition-colors hover:bg-gray-100 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-300 dark:hover:bg-zinc-800"}
                 >
                     {isPortrait ? <Smartphone className="size-3 text-gray-400" /> : <Monitor className="size-3 text-gray-400" />}
-                    <span className="truncate">{imageSizeLabel(activeSize)} · {imageQualityLabel(quality)}</span>
+                    <span className="truncate">{imageSizeLabel(activeSize)}{isStepImageEdit2 ? "" : ` · ${imageQualityLabel(displayQuality)}`}</span>
                 </button>
                 {!buttonClassName ? (
                     <button

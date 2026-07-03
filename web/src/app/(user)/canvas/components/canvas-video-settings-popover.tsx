@@ -7,7 +7,9 @@ import { Button } from "antd";
 
 import { VideoSettingsPanel, videoResolutionLabel, videoSecondsLabel, videoSizeLabel } from "@/components/video-settings-panel";
 import { canvasThemes } from "@/lib/canvas-theme";
+import { isGrokImagineVideoConfig, normalizeGrokImagineVideoResolution } from "@/lib/grok-imagine";
 import { useThemeStore } from "@/stores/use-theme-store";
+import { modelOptionName } from "@/stores/use-config-store";
 import type { AiConfig } from "@/stores/use-config-store";
 
 type CanvasVideoSettingsPopoverProps = {
@@ -26,6 +28,8 @@ export function CanvasVideoSettingsPopover({ config, onConfigChange, buttonClass
 
     const activeSize = config.size || "16:9";
     const isPortrait = activeSize.includes("9:16") || activeSize.includes("2:3") || activeSize.includes("3:4");
+    const model = modelOptionName(config.model || config.videoModel);
+    const displayResolution = isGrokImagineVideoConfig(config) ? normalizeGrokImagineVideoResolution(config.vquality, model) : videoResolutionLabel(config.vquality);
 
     useEffect(() => {
         if (!open) return;
@@ -63,7 +67,7 @@ export function CanvasVideoSettingsPopover({ config, onConfigChange, buttonClass
                     <span className="text-gray-300 dark:text-zinc-600">·</span>
                     <span>{videoSecondsLabel(config.videoSeconds)}</span>
                     <span className="text-gray-300 dark:text-zinc-600">·</span>
-                    <span>{videoResolutionLabel(config.vquality)}</span>
+                    <span>{displayResolution}</span>
                 </button>
             </span>
             {panel}

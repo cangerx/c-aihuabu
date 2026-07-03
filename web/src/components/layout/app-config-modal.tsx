@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Form, Input, message, Modal, Progress, Segmented, Select, Tabs } from "antd";
+import { App, Button, Form, Input, Modal, Progress, Segmented, Select, Tabs } from "antd";
 import { CircleAlert, Cloud, Plus, RefreshCw, Trash2, Wifi } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -53,7 +53,7 @@ const duomiModels = [
     "grok-video",
     "grok-video-1.5",
 ];
-const caiVideoModels = ["videos", "videos_stable", "happyhorse", "grok-imagine-video"];
+const caiVideoModels = ["videos", "videos_stable", "happyhorse", "grok-imagine-video", "grok-imagine-video-1.5"];
 const lingdongModels = ["gpt-image-2", "sora-2", "sd-2-1", "sd-2-2", "sd-2-3", "sd-2-4", "sd-2-7", "sd-2-11", "sd-2-17"];
 
 const webdavDomainKeys: AppSyncDomainKey[] = ["canvas", "assets", "image-workbench", "video-workbench"];
@@ -75,6 +75,7 @@ function createWebdavDomainProgress(): Record<AppSyncDomainKey, WebdavDomainProg
 }
 
 export function AppConfigModal() {
+    const { message } = App.useApp();
     const [loadingChannelId, setLoadingChannelId] = useState("");
     const [testingWebdav, setTestingWebdav] = useState(false);
     const [syncingWebdav, setSyncingWebdav] = useState(false);

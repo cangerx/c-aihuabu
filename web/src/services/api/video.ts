@@ -3,12 +3,13 @@ import axios from "axios";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
+import { isGrokImagineApiFormat, isGrokImagineVideo15Model, isGrokImagineVideoModel, normalizeGrokImagineVideoDuration, normalizeGrokImagineVideoRatio, normalizeGrokImagineVideoResolution } from "@/lib/grok-imagine";
 import { boolConfig, buildSeedancePromptText, caiVideoModelCapabilities, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
 import { buildAiApiUrl, modelOptionName, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
-type VideoResponse = { id?: string; task_id?: string; status?: string; error?: { message?: string }; [key: string]: any };
+type VideoResponse = { id?: string; request_id?: string; task_id?: string; status?: string; error?: { message?: string }; [key: string]: any };
 type ApiVideoResponse = VideoResponse | { code?: number; data?: VideoResponse | null; msg?: string };
 type SeedanceTask = {
     id: string;
@@ -47,6 +48,11 @@ function aiHeaders(config: AiConfig, contentType?: string) {
     };
 }
 
+function withSystemPrompt(config: AiConfig, prompt: string) {
+    const systemPrompt = config.systemPrompt.trim();
+    return systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt;
+}
+
 export async function requestVideoGeneration(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationResult> {
     const task = await createVideoGenerationTask(config, prompt, references, videoReferences, audioReferences, options);
     const delayMs = task.provider === "seedance" ? 5000 : 2500;
@@ -66,6 +72,9 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
     const selectedModel = (config.model || config.videoModel).trim();
     const requestConfig = resolveModelRequestConfig(config, selectedModel);
     assertVideoConfig(requestConfig, requestConfig.model);
+    if (isGrokImagineApiFormat(requestConfig) && isGrokImagineVideoModel(requestConfig.model)) {
+        return createGrokImagineVideoTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
+    }
     if (requestConfig.apiFormat === "duomiapi") {
         return createDuomiVideoTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
     }
@@ -90,6 +99,7 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
 export async function pollVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
     const requestConfig = resolveModelRequestConfig(config, task.model);
     assertVideoConfig(requestConfig, requestConfig.model);
+    if (isGrokImagineApiFormat(requestConfig) && isGrokImagineVideoModel(task.model)) return pollGrokImagineVideoTask(requestConfig, task, options);
     if (requestConfig.apiFormat === "duomiapi") return pollDuomiVideoTask(requestConfig, task, options);
     if (requestConfig.apiFormat === "lingdongapi") return pollLingdongVideoTask(requestConfig, task, options);
     if (requestConfig.apiFormat === "newtoken") return pollNewTokenVideoTask(requestConfig, task, options);
@@ -125,6 +135,53 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
     }
 }
 
+async function createGrokImagineVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
+    if (videoReferences.length || audioReferences.length) {
+        throw new Error("Grok Imagine 视频暂不支持参考视频或参考音频");
+    }
+
+    const modelName = modelOptionName(model);
+    const requestPrompt = buildSeedancePromptText(prompt, references, [], []);
+    const imageUrls = await Promise.all(references.map(async (image) => imageToDataUrl(image)));
+    const videoMode = options?.videoMode || "text-to-video";
+    const aspectRatio = normalizeGrokImagineVideoRatio(config.size);
+    const resolution = normalizeGrokImagineVideoResolution(config.vquality, modelName);
+    const duration = normalizeGrokImagineVideoDuration(config.videoSeconds);
+    const payload: Record<string, any> = {
+        model: modelName,
+        prompt: withSystemPrompt(config, requestPrompt),
+        aspect_ratio: aspectRatio,
+        resolution,
+        duration,
+    };
+
+    if (isGrokImagineVideo15Model(modelName)) {
+        if (videoMode === "image-ref") throw new Error("grok-imagine-video-1.5 不支持参考图生视频");
+        assertGrokImagineVideo15Reference(modelName, imageUrls);
+        payload.image = { url: imageUrls[0] };
+    } else if (videoMode === "image-to-video") {
+        if (!imageUrls[0]) throw new Error("图生视频需要先连接 1 张图片");
+        if (imageUrls.length > 1) throw new Error("图生视频仅支持 1 张图片输入");
+        payload.image = { url: imageUrls[0] };
+    } else if (videoMode === "image-ref") {
+        if (!imageUrls.length) throw new Error("参考图生视频需要至少 1 张图片");
+        payload.reference_images = imageUrls.map((url) => ({ url }));
+    } else if (imageUrls.length === 1) {
+        payload.image = { url: imageUrls[0] };
+    } else if (imageUrls.length > 1) {
+        payload.reference_images = imageUrls.map((url) => ({ url }));
+    }
+
+    try {
+        const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos/generations"), payload, { headers: aiHeaders(config, "application/json"), signal: options?.signal })).data);
+        const requestId = readVideoTaskId(created);
+        if (!requestId) throw new Error("Grok Imagine 接口没有返回 request_id");
+        return { id: requestId, provider: "openai", model };
+    } catch (error) {
+        throw new Error(readAxiosError(error, "Grok Imagine 视频任务创建失败"));
+    }
+}
+
 async function createNewTokenVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
     const imageUrls = await Promise.all(references.map((image) => resolveNewTokenImageUrl(image, options)));
     const videoUrls = await Promise.all(videoReferences.map((video) => resolveNewTokenMediaUrl(video, "参考视频", options)));
@@ -150,8 +207,9 @@ async function createDuomiVideoTask(config: AiConfig, model: string, prompt: str
     const audioUrls = await Promise.all(audioReferences.map((audio) => resolveCaiMediaUrl(audio, "参考音频", options)));
     const requestPrompt = buildSeedancePromptText(prompt, references, videoReferences, audioReferences);
     assertGrokImagineVideo15Reference(modelName, imageUrls);
+    const videoMode = options?.videoMode || "text-to-video";
     const isGrok = modelName.toLowerCase().includes("grok");
-    const payload = isGrok ? buildDuomiGrokPayload(config, modelName, requestPrompt, imageUrls) : buildDuomiSeedancePayload(config, modelName, requestPrompt, imageUrls, videoUrls, audioUrls);
+    const payload = isGrok ? buildDuomiGrokPayload(config, modelName, requestPrompt, imageUrls, videoMode) : buildDuomiSeedancePayload(config, modelName, requestPrompt, imageUrls, videoUrls, audioUrls);
     const path = isGrok ? "/videos/generations" : "/contents/generations/tasks";
 
     try {
@@ -368,6 +426,32 @@ async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, 
     }
 }
 
+async function pollGrokImagineVideoTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
+    try {
+        const video = unwrapVideoResponse((await axios.get<ApiVideoResponse>(aiApiUrl(config, `/videos/${task.id}`), { headers: aiHeaders(config), signal: options?.signal })).data);
+        const status = normalizeTaskStatus(video.status || video.state || video.task_status);
+        if (status === "completed") {
+            const directUrl = readVideoUrl(video);
+            if (directUrl) return { status: "completed", result: await videoResultFromUrl(resolveProviderUrl(config, directUrl), options) };
+            try {
+                const content = await axios.get<Blob>(aiApiUrl(config, `/videos/${task.id}/content`), { headers: aiHeaders(config), responseType: "blob", signal: options?.signal });
+                await assertVideoBlob(content.data);
+                return { status: "completed", result: { blob: content.data } };
+            } catch (error) {
+                const direct = readVideoUrl(video);
+                if (direct) return { status: "completed", result: await videoResultFromUrl(resolveProviderUrl(config, direct), options) };
+                throw error;
+            }
+        }
+        const directUrl = readVideoUrl(video);
+        if (directUrl) return { status: "completed", result: await videoResultFromUrl(resolveProviderUrl(config, directUrl), options) };
+        if (status === "failed") return { status: "failed", error: video.error?.message || "Grok Imagine 视频生成失败" };
+        return { status: "pending" };
+    } catch (error) {
+        throw new Error(readAxiosError(error, "Grok Imagine 视频任务查询失败"));
+    }
+}
+
 async function createSeedanceTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
     if (audioReferences.length && !references.length && !videoReferences.length) {
         throw new Error("Seedance 参考音频不能单独使用，请同时添加参考图或参考视频");
@@ -556,6 +640,9 @@ function buildNewTokenVideoPayload(config: AiConfig, model: string, prompt: stri
     };
 
     if (lowerModel.includes("grok-imagine-video-1.5")) {
+        if (videoMode === "image-ref") throw new Error("Grok Imagine Video 1.5 不支持图片参考模式");
+        if (!imageUrls.length) throw new Error("Grok Imagine Video 1.5 需要连接 1 张图片后才能生成视频");
+        if (imageUrls.length > 1) throw new Error("Grok Imagine Video 1.5 仅支持 1 张图片输入");
         payload.input_reference = imageUrls[0];
         return payload;
     }
@@ -637,16 +724,19 @@ function buildDuomiSeedancePayload(config: AiConfig, model: string, prompt: stri
     };
 }
 
-function buildDuomiGrokPayload(config: AiConfig, model: string, prompt: string, imageUrls: string[]) {
+function buildDuomiGrokPayload(config: AiConfig, model: string, prompt: string, imageUrls: string[], videoMode = "text-to-video") {
     const duration = Math.max(6, Math.min(30, Math.floor(Number(config.videoSeconds) || 10)));
     const payload: Record<string, any> = {
         model,
         prompt,
         aspect_ratio: normalizeNewTokenAspectRatio(config.size),
         duration,
-        quality: "720p",
+        quality: normalizeGrokImagineVideoResolution(config.vquality, model),
     };
-    if (model.toLowerCase().includes("grok-imagine-video-1.5") && imageUrls[0]) {
+    if (model.toLowerCase().includes("grok-imagine-video-1.5")) {
+        if (videoMode === "image-ref") throw new Error("Grok Imagine Video 1.5 不支持图片参考模式");
+        if (!imageUrls.length) throw new Error("Grok Imagine Video 1.5 需要连接 1 张图片后才能生成视频");
+        if (imageUrls.length > 1) throw new Error("Grok Imagine Video 1.5 仅支持 1 张图片输入");
         payload.input_reference = imageUrls[0];
     } else {
         payload.image_urls = model === "grok-video-1.5" ? imageUrls.slice(0, 1) : imageUrls.slice(0, 7);
@@ -673,7 +763,7 @@ function unwrapEnvelope<T>(payload: ApiEnvelope<T>, emptyMessage: string): T {
 }
 
 function readVideoTaskId(payload: VideoResponse) {
-    return String(payload.id || payload.task_id || payload.taskId || payload.data?.id || payload.data?.task_id || "").trim();
+    return String(payload.id || payload.request_id || payload.task_id || payload.taskId || payload.data?.id || payload.data?.request_id || payload.data?.task_id || "").trim();
 }
 
 function normalizeTaskStatus(status: string | undefined) {
@@ -897,7 +987,9 @@ function assertCaiVideoMode(model: string, imageUrls: string[], videoUrls: strin
 }
 
 function assertGrokImagineVideo15Reference(model: string, imageUrls: string[]) {
-    if (caiVideoModelCapabilities(model).requiresImage && !imageUrls.length) throw new Error("grok-imagine-video-1.5-preview 必须连接图片后才能生成视频");
+    if (!caiVideoModelCapabilities(model).requiresImage) return;
+    if (!imageUrls.length) throw new Error("Grok Imagine Video 1.5 需要连接 1 张图片后才能生成视频");
+    if (imageUrls.length > 1) throw new Error("Grok Imagine Video 1.5 仅支持 1 张图片输入");
 }
 
 function appendCaiReferences(payload: Record<string, any>, model: string, imageUrls: string[], videoUrls: string[], audioUrls: string[], videoMode = "text-to-video") {

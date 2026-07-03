@@ -76,7 +76,7 @@ export const defaultConfig: AiConfig = {
             baseUrl: OPENAI_BASE_URL,
             apiKey: "",
             apiFormat: "openai",
-            models: ["gpt-image-2", "grok-imagine-video", "gpt-5.5", "gpt-4o-mini-tts"],
+            models: ["gpt-image-2", "grok-imagine-image-quality", "grok-imagine-image", "grok-imagine-video", "grok-imagine-video-1.5", "gpt-5.5", "gpt-4o-mini-tts"],
         },
     ],
     model: "default::gpt-image-2",
@@ -93,9 +93,9 @@ export const defaultConfig: AiConfig = {
     videoGenerateAudio: "true",
     videoWatermark: "false",
     systemPrompt: "",
-    models: ["default::gpt-image-2", "default::grok-imagine-video", "default::gpt-5.5", "default::gpt-4o-mini-tts"],
-    imageModels: ["default::gpt-image-2"],
-    videoModels: ["default::grok-imagine-video"],
+    models: ["default::gpt-image-2", "default::grok-imagine-image-quality", "default::grok-imagine-image", "default::grok-imagine-video", "default::grok-imagine-video-1.5", "default::gpt-5.5", "default::gpt-4o-mini-tts"],
+    imageModels: ["default::gpt-image-2", "default::grok-imagine-image-quality", "default::grok-imagine-image"],
+    videoModels: ["default::grok-imagine-video", "default::grok-imagine-video-1.5"],
     textModels: ["default::gpt-5.5"],
     audioModels: ["default::gpt-4o-mini-tts"],
     quality: "auto",
@@ -319,8 +319,9 @@ export function normalizeModelOptionValue(value: string | undefined, channels: M
         const channel = channels.find((item) => item.id === decoded.channelId);
         return channel && channel.models.includes(decoded.model) ? model : "";
     }
-    const channel = channels.find((item) => item.models.includes(decoded?.model || model)) || channels[0];
-    return channel && channel.models.includes(decoded?.model || model) ? encodeChannelModel(channel.id, decoded?.model || model) : model;
+    const modelName = model;
+    const channel = channels.find((item) => item.models.includes(modelName)) || channels[0];
+    return channel && channel.models.includes(modelName) ? encodeChannelModel(channel.id, modelName) : modelName;
 }
 
 export function resolveModelChannel(config: AiConfig, value: string) {

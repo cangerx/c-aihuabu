@@ -89,7 +89,7 @@ export function caiVideoModelCapabilities(model: string) {
     return {
         textToVideo: !isGrok15,
         imageToVideo: true,
-        imageReference: true,
+        imageReference: !isGrok15,
         firstLastFrame: isSeedance || isVeo31,
         allAroundReference: isSeedance || isNewTokenAllAround || isVeo31,
         requiresImage: isGrok15,

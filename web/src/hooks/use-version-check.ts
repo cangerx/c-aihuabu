@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { message } from "antd";
+import { App } from "antd";
 import { APP_VERSION } from "@/constant/env";
 import { parseChangelog, type ReleaseInfo } from "@/lib/release";
 
@@ -27,6 +27,7 @@ function isNewerVersion(latestVersion: string, currentVersion: string) {
 }
 
 export function useVersionCheck() {
+    const { message } = App.useApp();
     const currentVersion = APP_VERSION;
     const localReleases = useMemo(readLocalReleases, []);
     const [latestVersion, setLatestVersion] = useState(currentVersion);

@@ -4,6 +4,7 @@ import localforage from "localforage";
 
 import { nanoid } from "nanoid";
 import { readImageMeta } from "@/lib/image-utils";
+import { buildForcedProxiedUrl } from "@/stores/use-config-store";
 
 export type UploadedImage = {
     url: string;
@@ -16,15 +17,33 @@ export type UploadedImage = {
 
 const store = localforage.createInstance({ name: "infinite-canvas", storeName: "image_files" });
 const objectUrls = new Map<string, string>();
+const FALLBACK_IMAGE_META = { width: 1024, height: 1024, mimeType: "image/png" };
 
 export async function uploadImage(input: string | Blob): Promise<UploadedImage> {
-    const blob = typeof input === "string" ? await (await fetch(input)).blob() : input;
+    const blob = typeof input === "string" ? await readBlobFromUrl(input) : input;
     const storageKey = `image:${nanoid()}`;
     await store.setItem(storageKey, blob);
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
     const meta = await readImageMeta(url);
     return { url, storageKey, width: meta.width, height: meta.height, bytes: blob.size, mimeType: blob.type || meta.mimeType };
+}
+
+export function imageDisplayUrl(url: string) {
+    return url;
+}
+
+export async function persistImageUrl(input: string) {
+    try {
+        return await uploadImage(input);
+    } catch {
+        const meta = await readRemoteImageMeta(input);
+        return { url: imageDisplayUrl(input), storageKey: "", width: meta.width, height: meta.height, bytes: 0, mimeType: meta.mimeType };
+    }
+}
+
+export function proxiedImageDisplayUrl(url: string) {
+    return /^https?:\/\//i.test(url) ? buildForcedProxiedUrl(url) : url;
 }
 
 export async function resolveImageUrl(storageKey?: string, fallback = "") {
@@ -52,7 +71,7 @@ export async function setImageBlob(storageKey: string, blob: Blob) {
 export async function imageToDataUrl(image: { url?: string; dataUrl?: string; storageKey?: string }) {
     const url = image.dataUrl || (await resolveImageUrl(image.storageKey, image.url || ""));
     if (!url || url.startsWith("data:")) return url;
-    return blobToDataUrl(await (await fetch(url)).blob());
+    return blobToDataUrl(await readBlobFromUrl(url));
 }
 
 export async function deleteStoredImages(keys: Iterable<string>) {
@@ -89,4 +108,26 @@ function blobToDataUrl(blob: Blob) {
         reader.onerror = () => reject(new Error("读取图片失败"));
         reader.readAsDataURL(blob);
     });
+}
+
+async function readBlobFromUrl(url: string) {
+    try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("读取图片失败");
+        return await response.blob();
+    } catch (error) {
+        if (!/^https?:\/\//i.test(url)) throw error;
+        const proxied = await fetch(buildForcedProxiedUrl(url));
+        if (!proxied.ok) throw new Error("读取图片失败");
+        return await proxied.blob();
+    }
+}
+
+async function readRemoteImageMeta(url: string) {
+    const sources = /^https?:\/\//i.test(url) ? [buildForcedProxiedUrl(url), url] : [url];
+    for (const source of sources) {
+        const meta = await readImageMeta(source);
+        if (meta.width !== FALLBACK_IMAGE_META.width || meta.height !== FALLBACK_IMAGE_META.height || source.startsWith("data:")) return meta;
+    }
+    return FALLBACK_IMAGE_META;
 }

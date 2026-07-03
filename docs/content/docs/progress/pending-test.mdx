@@ -7,6 +7,11 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 ## 本轮重点测试
 
+- Grok Imagine 新模型：选择 `grok-imagine-image-quality` / `grok-imagine-image` 时，图像设置应切换为 `1k/2k` 和对应宽高比，提交 `/v1/images/generations` 与 `/v1/images/edits` 时应发送 `aspect_ratio` / `resolution` JSON；选择 `grok-imagine-video` / `grok-imagine-video-1.5` 时，视频设置应切换为 `480p/720p/1080p` 和对应宽高比，`grok-imagine-video-1.5` 在画布里不应再显示“图片参考”模式，只允许单图图生视频，1080p 只在允许的模型/模式下提交，多图编辑应按 `images` 数组提交且超过 3 张要直接报错。配置页“填入 Cai 视频模型”也应包含 `grok-imagine-video-1.5`，避免默认模型列表漏项。
+- Grok Imagine 图片结果落盘：Grok 图片生成/编辑请求应优先使用 `response_format=b64_json`，生图工作台和画布节点拿到结果后应转成本地可持久化资源；历史记录或第三方渠道仍返回外链图片 URL 时，应先尝试本地代理转存，转存失败也要保留原始 URL 用于显示，不能再因浏览器直连缺少 CORS 导致“URL 可打开但节点显示失败”。
+- 生图工作台参数同步：桌面和移动端的图像设置面板都应按当前选中的模型切换到对应的 StepFun 固定尺寸或 Grok 1k/2k + 宽高比，摘要栏、设置面板和提交请求必须使用同一份归一化配置。
+- 主题初始化脚本清理：打开任意页面时控制台不应再出现 `Encountered a script tag while rendering React component`；切换浅色/深色主题后刷新页面，服务端首屏应根据 `infinite-canvas-theme` cookie 输出对应的 `html.dark` 和 `color-scheme`。
+- StepFun `step-image-edit-2`：选择该模型时，图像设置应切换为文档里的固定尺寸 `1024x1024`、`768x1360`、`896x1184`、`1360x768`、`1184x896`；提交 `/v1/images/generations` 时应自动补上 `cfg_scale=1.0`、`steps=8` 和选中的 `size`，提交 `/v1/images/edits` 时也应走该模型的专用落参，尺寸显示和节点比例要同步归一化，尺寸卡片预览也不能再报 `SizePreview is not defined`。
 - AI 请求代理同步生图：开启“AI 请求代理”后，使用同步 `/v1/images/generations` 或 `/v1/images/edits` 的渠道生成/编辑耗时 30 秒以上的图片时，浏览器应先创建本地代理任务再轮询结果，本地请求不应再被边缘网关提前截断为 524；如果上游返回业务错误，页面应显示上游错误文案而不是“接口没有返回图片”。
 - 同步图片代理任务稳定性：服务端日志中图片代理任务应显示 `[ai-proxy-task] POST ... -> 200` 或上游真实错误；上游不应再记录由本服务主动断开造成的 `context canceled`。
 - 前端缓存更新：部署新版本后重新打开页面，Network 里生图请求应出现 `mode=task&task=...` 的创建任务请求和后续 `task=...` 轮询；如果仍出现不带 `mode=task` 的旧 `/api/ai-proxy?url=.../images/generations` 请求，页面应快速提示刷新或清理缓存，而不是继续等待到 524。

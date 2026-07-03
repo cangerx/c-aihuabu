@@ -2,7 +2,7 @@
 
 import { ArrowLeft, ArrowRight, BookOpen, CheckSquare, CircleStop, ClipboardPaste, Download, FolderPlus, History, ImagePlus, LoaderCircle, PenLine, Plus, SlidersHorizontal, Sparkles, Trash2, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Button, Checkbox, Drawer, Empty, Image, message, Modal, Tag, Tooltip, Typography } from "antd";
+import { App, Button, Checkbox, Drawer, Empty, Image, Modal, Tag, Tooltip, Typography } from "antd";
 import localforage from "localforage";
 import { saveAs } from "file-saver";
 
@@ -18,10 +18,13 @@ import { useThemeStore } from "@/stores/use-theme-store";
 import { nanoid } from "nanoid";
 import { formatBytes, formatDuration, getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
 import { requestEdit, requestGeneration } from "@/services/api/image";
-import { deleteStoredImages, resolveImageUrl, uploadImage } from "@/services/image-storage";
+import { deleteStoredImages, persistImageUrl, proxiedImageDisplayUrl, resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { useAssetStore } from "@/stores/use-asset-store";
 import type { ReferenceImage } from "@/types/image";
 import type { CanvasResourceReference } from "@/app/(user)/canvas/utils/canvas-resource-references";
+import { imageSizeLabel } from "@/components/image-settings-panel";
+import { isGrokImagineImageConfig, normalizeGrokImagineImageResolution } from "@/lib/grok-imagine";
+import { isStepImageEdit2Config, normalizeStepImageEdit2Size } from "@/lib/step-image";
 
 type GeneratedImage = {
     id: string;
@@ -71,6 +74,7 @@ const RESULT_ACTION_BUTTON_CLASS = "min-w-0 px-1.5 [&_.ant-btn-icon]:shrink-0 [&
 const logStore = localforage.createInstance({ name: "infinite-canvas", storeName: "image_generation_logs" });
 
 export default function ImagePage() {
+    const { message: appMessage } = App.useApp();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const promptInputRef = useRef<HTMLTextAreaElement>(null);
     const generationAbortControllersRef = useRef<Map<string, AbortController>>(new Map());
@@ -99,6 +103,7 @@ export default function ImagePage() {
     const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
     const model = effectiveConfig.imageModel || effectiveConfig.model;
+    const displayConfig = buildImageConfig(effectiveConfig, model);
     const canGenerate = Boolean(prompt.trim());
     const running = runningCount > 0;
     const generationCount = Math.max(1, Math.min(10, Number(config.count) || 1));
@@ -130,7 +135,7 @@ export default function ImagePage() {
             const items = await navigator.clipboard.read();
             const blobs = await Promise.all(items.flatMap((item) => item.types.filter((type) => type.startsWith("image/")).map((type) => item.getType(type))));
             if (!blobs.length) {
-                message.error("剪切板里没有可读取的图片");
+                appMessage.error("剪切板里没有可读取的图片");
                 return;
             }
             const nextReferences = await Promise.all(
@@ -140,20 +145,27 @@ export default function ImagePage() {
                 }),
             );
             setReferences((value) => [...value, ...nextReferences]);
-            message.success(`已读取 ${nextReferences.length} 张参考图`);
+            appMessage.success(`已读取 ${nextReferences.length} 张参考图`);
         } catch {
-            message.error("剪切板里没有可读取的图片");
+            appMessage.error("剪切板里没有可读取的图片");
         }
+    };
+
+    const persistResultImage = async (image: GeneratedImage, index: number, logId?: string) => {
+        const storedImage = await persistGeneratedImage(image);
+        if (logId && (deletedLogIdsRef.current.has(logId) || stoppedLogIdsRef.current.has(logId))) return storedImage;
+        setResults((value) => updateResultAt(value, index, { status: "success", image: storedImage }));
+        return storedImage;
     };
 
     const generate = async () => {
         const text = prompt.trim();
         if (!text) {
-            message.error("请输入生图提示词");
+            appMessage.error("请输入生图提示词");
             return;
         }
         if (!isAiConfigReady(effectiveConfig, model)) {
-            message.warning("请先完成配置");
+            appMessage.warning("请先完成配置");
             openConfigDialog(true);
             return;
         }
@@ -203,9 +215,7 @@ export default function ImagePage() {
             runGenerationSlot(index, snapshot, pendingLog.id)
                 .then(async (image) => {
                     if (deletedLogIdsRef.current.has(pendingLog.id) || stoppedLogIdsRef.current.has(pendingLog.id)) return image;
-                    const stored = await uploadImage(image.dataUrl);
-                    if (deletedLogIdsRef.current.has(pendingLog.id) || stoppedLogIdsRef.current.has(pendingLog.id)) return image;
-                    const storedImage = { ...image, dataUrl: stored.url, storageKey: stored.storageKey, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType };
+                    const storedImage = await persistResultImage(image, index, pendingLog.id);
                     slotImages[index] = storedImage;
                     await updatePendingLog("生成中");
                     return storedImage;
@@ -226,7 +236,7 @@ export default function ImagePage() {
 
         try {
             if (!deletedLogIdsRef.current.has(pendingLog.id)) await updatePendingLog(successCount && !stopped ? "成功" : "失败", stopped ? "已停止本地生成" : failed?.reason instanceof Error ? failed.reason.message : undefined);
-            if (!stopped) successCount ? message.success("图片已生成") : message.error(failed?.reason instanceof Error ? failed.reason.message : "生成失败");
+            if (!stopped) successCount ? appMessage.success("图片已生成") : appMessage.error(failed?.reason instanceof Error ? failed.reason.message : "生成失败");
         } finally {
             generationAbortControllersRef.current.delete(pendingLog.id);
             stoppedLogIdsRef.current.delete(pendingLog.id);
@@ -239,33 +249,33 @@ export default function ImagePage() {
     };
 
     const addResultToReferences = async (image: GeneratedImage, index: number) => {
-        const stored = await uploadImage(image.dataUrl);
-        setReferences((value) => [...value, { id: nanoid(), name: `result-${index + 1}.png`, type: stored.mimeType, dataUrl: stored.url, storageKey: stored.storageKey }]);
-        message.success("已加入参考图");
+        const stored = await persistGeneratedImage(image);
+        setReferences((value) => [...value, { id: nanoid(), name: `result-${index + 1}.png`, type: stored.mimeType || "image/png", dataUrl: stored.dataUrl, storageKey: stored.storageKey }]);
+        appMessage.success("已加入参考图");
     };
 
     const saveResultToAssets = async (image: GeneratedImage, index: number) => {
-        const stored = await uploadImage(image.dataUrl);
+        const stored = await persistGeneratedImage(image);
         addAsset({
             kind: "image",
             title: `生成结果 ${index + 1}`,
-            coverUrl: stored.url,
+            coverUrl: stored.dataUrl,
             tags: [],
             source: "生图工作台",
-            data: { dataUrl: stored.url, storageKey: stored.storageKey, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType },
+            data: { dataUrl: stored.dataUrl, storageKey: stored.storageKey, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType || "image/png" },
             metadata: { source: "image-page", prompt },
         });
-        message.success("已加入我的素材");
+        appMessage.success("已加入我的素材");
     };
 
     const insertPickedAsset = async (payload: InsertAssetPayload) => {
         if (payload.kind === "text") {
             setPrompt(payload.content);
         } else if (payload.kind === "image") {
-            const stored = await uploadImage(payload.dataUrl);
-            setReferences((value) => [...value, { id: nanoid(), name: payload.title, type: stored.mimeType, dataUrl: stored.url, storageKey: stored.storageKey }]);
+            const stored = await tryUploadImage(payload.dataUrl);
+            setReferences((value) => [...value, { id: nanoid(), name: payload.title, type: stored?.mimeType || "image/png", dataUrl: stored?.url || payload.dataUrl, storageKey: stored?.storageKey }]);
         } else {
-            message.warning("生图工作台只能使用文本或图片素材");
+            appMessage.warning("生图工作台只能使用文本或图片素材");
         }
         setAssetPickerOpen(false);
     };
@@ -323,7 +333,7 @@ export default function ImagePage() {
         ).then(async () => {
             await refreshLogs();
             if (previewLog && stoppedLogs.some((log) => log.id === previewLog.id)) setResults([{ id: previewLog.id, status: "failed", error: "已停止本地生成" }]);
-            message.success(`已停止 ${stoppedLogs.length} 条生成记录`);
+            appMessage.success(`已停止 ${stoppedLogs.length} 条生成记录`);
         });
     };
 
@@ -366,15 +376,15 @@ export default function ImagePage() {
     const buildRequestSnapshot = () => {
         const text = prompt.trim();
         if (!text) {
-            message.error("请输入生图提示词");
+            appMessage.error("请输入生图提示词");
             return null;
         }
         if (!isAiConfigReady(effectiveConfig, model)) {
-            message.warning("请先完成配置");
+            appMessage.warning("请先完成配置");
             openConfigDialog(true);
             return null;
         }
-        return { text, config: { ...effectiveConfig, model, count: "1" }, references: [...references] };
+        return { text, config: { ...displayConfig, model, imageModel: model, count: "1" }, references: [...references] };
     };
 
     const runGenerationSlot = async (index: number, snapshot: { text: string; config: AiConfig; references: ReferenceImage[] }, logId?: string) => {
@@ -402,7 +412,9 @@ export default function ImagePage() {
         if (!snapshot) return;
         setPreviewLog(null);
         setResults((value) => updateResultAt(value, index, { status: "pending", error: undefined, image: undefined }));
-        void runGenerationSlot(index, snapshot).catch(() => {});
+        void runGenerationSlot(index, snapshot)
+            .then((image) => persistResultImage(image, index))
+            .catch(() => {});
     };
 
     return (
@@ -518,7 +530,8 @@ export default function ImagePage() {
 
                             <div className="flex items-center justify-between rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm dark:border-stone-800 dark:bg-stone-900 sm:hidden">
                                 <span className="truncate text-stone-500 dark:text-stone-400">
-                                    {modelOptionLabel(effectiveConfig, model)} · {effectiveConfig.size} · {effectiveConfig.quality}
+                                    {modelOptionLabel(effectiveConfig, model)} · {imageSizeLabel(displayConfig.size)}
+                                    {!isStepImageEdit2Config(displayConfig) ? ` · ${displayConfig.quality}` : ""}
                                 </span>
                                 <Button size="small" type="text" icon={<SlidersHorizontal className="size-4" />} onClick={() => setSettingsOpen(true)}>
                                     调整
@@ -526,7 +539,7 @@ export default function ImagePage() {
                             </div>
 
                             <div className="hidden gap-4 sm:grid sm:grid-cols-2">
-                                <GenerationSettings config={effectiveConfig} model={model} updateConfig={updateConfig} openConfigDialog={openConfigDialog} />
+                                <GenerationSettings config={displayConfig} model={model} updateConfig={updateConfig} openConfigDialog={openConfigDialog} />
                             </div>
                         </div>
 
@@ -590,16 +603,33 @@ export default function ImagePage() {
             </Drawer>
             <Drawer title="参数" placement="bottom" size="82vh" open={settingsOpen} onClose={() => setSettingsOpen(false)}>
                 <div className="grid grid-cols-2 gap-3 pb-4">
-                    <GenerationSettings config={effectiveConfig} model={model} updateConfig={updateConfig} openConfigDialog={openConfigDialog} />
+                    <GenerationSettings config={displayConfig} model={model} updateConfig={updateConfig} openConfigDialog={openConfigDialog} />
                 </div>
             </Drawer>
             <PromptSelectDialog open={promptDialogOpen} onOpenChange={setPromptDialogOpen} onSelect={setPrompt} />
-            <AssetPickerModal open={assetPickerOpen} defaultTab="my-assets" onInsert={(payload) => void insertPickedAsset(payload)} onClose={() => setAssetPickerOpen(false)} />
+            <AssetPickerModal open={assetPickerOpen} onInsert={(payload) => void insertPickedAsset(payload)} onClose={() => setAssetPickerOpen(false)} />
             <Modal title="删除生成记录" open={deleteConfirmOpen} onCancel={() => setDeleteConfirmOpen(false)} onOk={deleteSelectedLogs} okText="删除" okButtonProps={{ danger: true }} cancelText="取消">
                 确定删除选中的 {selectedLogIds.length} 条生成记录吗？生成中的记录会先停止本地生成再删除。
             </Modal>
         </div>
     );
+}
+
+async function persistGeneratedImage(image: GeneratedImage) {
+    try {
+        const stored = await persistImageUrl(image.dataUrl);
+        return { ...image, dataUrl: stored.url, storageKey: stored.storageKey, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType };
+    } catch {
+        return image;
+    }
+}
+
+async function tryUploadImage(dataUrl: string) {
+    try {
+        return await uploadImage(dataUrl);
+    } catch {
+        return null;
+    }
 }
 
 function GenerationSettings({ config, model, updateConfig, openConfigDialog }: { config: AiConfig; model: string; updateConfig: UpdateAiConfig; openConfigDialog: (shouldPromptContinue?: boolean) => void }) {
@@ -631,9 +661,23 @@ function ResultImageCard({
     onDownload: (image: GeneratedImage, index: number) => void;
     onSaveAsset: (image: GeneratedImage, index: number) => void;
 }) {
+    const [displayUrl, setDisplayUrl] = useState(image.dataUrl);
+
+    useEffect(() => {
+        setDisplayUrl(image.dataUrl);
+    }, [image.dataUrl]);
+
     return (
         <div className="overflow-hidden rounded-lg border border-stone-200 bg-background dark:border-stone-800">
-            <Image src={image.dataUrl} alt={`生成结果 ${index + 1}`} className="aspect-square object-cover" />
+            <Image
+                src={displayUrl}
+                alt={`生成结果 ${index + 1}`}
+                className="aspect-square object-cover"
+                onError={() => {
+                    const fallback = proxiedImageDisplayUrl(image.dataUrl);
+                    if (fallback !== displayUrl) setDisplayUrl(fallback);
+                }}
+            />
             <div className="space-y-2 border-t border-stone-200 px-3 py-2.5 dark:border-stone-800">
                 <div className="flex min-w-0 gap-x-2 gap-y-1 text-xs text-stone-500 dark:text-stone-400">
                     <span>
@@ -715,6 +759,27 @@ function buildImagePromptReferences(references: ReferenceImage[]): CanvasResourc
         previewUrl: image.dataUrl,
         active: true,
     }));
+}
+
+function buildImageConfig(config: AiConfig, model: string): AiConfig {
+    let nextConfig = {
+        ...config,
+        model,
+        imageModel: model,
+    };
+    if (isGrokImagineImageConfig(nextConfig)) {
+        nextConfig = {
+            ...nextConfig,
+            quality: normalizeGrokImagineImageResolution(nextConfig.quality),
+        };
+    }
+    if (isStepImageEdit2Config(nextConfig)) {
+        nextConfig = {
+            ...nextConfig,
+            size: normalizeStepImageEdit2Size(nextConfig.size),
+        };
+    }
+    return nextConfig;
 }
 
 function LogPanel({
