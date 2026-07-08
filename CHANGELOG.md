@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## v0.4.22 - 2026-07-08
+
++ [修复] 移除 Vite 手动 vendor 分包，修复线上 Ant Design 依赖初始化时报 `useLayoutEffect` 为空导致首页空白的问题。
+
 ## v0.4.21 - 2026-07-08
 
 + [调整] 主应用从 Next.js 迁移为 Vite 静态前端构建，使用 React Router 承载现有页面，并改为 nginx 静态镜像运行。

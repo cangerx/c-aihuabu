@@ -12,20 +12,6 @@ const localChangelog = readFileSync(resolve(webDir, "../CHANGELOG.md"), "utf8");
 
 export default defineConfig({
     plugins: [react()],
-    build: {
-        chunkSizeWarningLimit: 1000,
-        rollupOptions: {
-            output: {
-                manualChunks(id) {
-                    if (!id.includes("node_modules")) return;
-                    if (/[\\/]node_modules[\\/](@ant-design|antd|rc-|@rc-component)[\\/]/.test(id)) return "antd-vendor";
-                    if (/[\\/]node_modules[\\/](@codemirror|@uiw)[\\/]/.test(id)) return "editor-vendor";
-                    if (/[\\/]node_modules[\\/](motion|framer-motion)[\\/]/.test(id)) return "motion-vendor";
-                    return "vendor";
-                },
-            },
-        },
-    },
     resolve: {
         alias: {
             "@": resolve(webDir, "src"),
