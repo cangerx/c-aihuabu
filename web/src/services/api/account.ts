@@ -1,7 +1,5 @@
 import type { ApiCallFormat, ModelChannel } from "@/stores/use-config-store";
 
-type ApiEnvelope<T> = { code: number; data: T; msg: string };
-
 export type AccountUser = { id: string; email: string; createdAt: string };
 export type CloudModelChannel = ModelChannel & {
     scope: "cloud_personal";
@@ -10,39 +8,28 @@ export type CloudModelChannel = ModelChannel & {
     updatedAt: string;
 };
 
-async function requestAccount<T>(path: string, init?: RequestInit) {
-    const response = await fetch(`/api/account${path}`, {
-        ...init,
-        headers: {
-            "Content-Type": "application/json",
-            ...init?.headers,
-        },
-    });
-    const payload = (await response.json().catch(() => null)) as ApiEnvelope<T> | null;
-    if (!response.ok || !payload || payload.code !== 0) throw new Error(payload?.msg || "请求失败");
-    return payload.data;
+const staticUnsupportedMessage = "静态前端版本不包含账号后端，云端账号和云端个人渠道暂不可用";
+
+export async function fetchAccountMe() {
+    return { user: null as AccountUser | null };
 }
 
-export function fetchAccountMe() {
-    return requestAccount<{ user: AccountUser | null }>("/me");
+export async function registerAccount(_email: string, _password: string): Promise<{ user: AccountUser }> {
+    throw new Error(staticUnsupportedMessage);
 }
 
-export function registerAccount(email: string, password: string) {
-    return requestAccount<{ user: AccountUser }>("/register", { method: "POST", body: JSON.stringify({ email, password }) });
+export async function loginAccount(_email: string, _password: string): Promise<{ user: AccountUser }> {
+    throw new Error(staticUnsupportedMessage);
 }
 
-export function loginAccount(email: string, password: string) {
-    return requestAccount<{ user: AccountUser }>("/login", { method: "POST", body: JSON.stringify({ email, password }) });
+export async function logoutAccount() {
+    return { success: true };
 }
 
-export function logoutAccount() {
-    return requestAccount<{ success: boolean }>("/logout", { method: "POST" });
+export async function fetchCloudChannels() {
+    return { channels: [] as CloudModelChannel[] };
 }
 
-export function fetchCloudChannels() {
-    return requestAccount<{ channels: CloudModelChannel[] }>("/channels");
-}
-
-export function createCloudChannel(input: { name: string; baseUrl: string; apiKey: string; apiFormat: ApiCallFormat; models: string[] }) {
-    return requestAccount<{ channel: CloudModelChannel }>("/channels", { method: "POST", body: JSON.stringify(input) });
+export async function createCloudChannel(_input: { name: string; baseUrl: string; apiKey: string; apiFormat: ApiCallFormat; models: string[] }): Promise<{ channel: CloudModelChannel }> {
+    throw new Error(staticUnsupportedMessage);
 }

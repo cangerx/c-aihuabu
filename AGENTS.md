@@ -21,7 +21,7 @@
 
 ## 后端规范
 
-- 后端使用 Go + Gin + GORM。
+- 如果后续新增独立后端，后端使用 Go + Gin + GORM。
 - `handler/` 只处理 HTTP 入参、调用 service、返回 `OK` / `Fail`。
 - `service/` 放业务逻辑、默认值、校验、时间、ID、鉴权等处理。
 - `repository/` 只做数据库访问和 GORM 查询。
@@ -32,7 +32,8 @@
 
 ## 前端规范
 
-- 前端使用 Next.js App Router、React、TypeScript、Ant Design、Tailwind、Zustand。
+- 前端使用 Vite、React、React Router、TypeScript、Ant Design、Tailwind、Zustand。
+- 主应用是静态前端构建，不要新增 Next.js 依赖、Next.js API Routes、Server Components、`next/*` import、`process.env` 运行时读取；前端环境变量使用 `import.meta.env.VITE_*`。
 - 编写 Ant Design 相关代码时，参考 https://ant.design/llms-full.txt 理解组件 API、示例和设计规范，并优先结合项目当前 antd 版本与既有写法。
 - API 请求统一放在 `web/src/services/api/`。
 - 全局或跨页面状态优先放在 `web/src/stores/`。
@@ -90,4 +91,5 @@
 
 - 当前画布项目和“我的素材”主要保存在浏览器本地，不要在文档中误写成已支持云同步。
 - 当前 AI API Key 存在浏览器本地，并由前端直接请求 OpenAI 兼容接口；涉及安全说明时要写清楚。
-- Docker 静态资源路径目前仍是待办项，文档中不要过度承诺生产部署已经完全验证。
+- 当前主应用没有内置账号后端、AI 请求代理、服务端临时上传或 WebDAV 转发；渠道和 WebDAV 必须支持浏览器 CORS。
+- Docker 主应用镜像是 nginx 静态站点，运行时环境变量和数据卷不参与前端配置；用户配置保存在浏览器本地。

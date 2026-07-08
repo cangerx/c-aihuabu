@@ -7,13 +7,4 @@ services:
     container_name: infinite-canvas
     ports:
       - "${C_AI_HOST_PORT:-3000}:3000"
-    environment:
-      C_AI_PUBLIC_BASE_URL: "${C_AI_PUBLIC_BASE_URL:-}"
-      AI_HUABU_DATA_DIR: "${AI_HUABU_DATA_DIR:-/app/web/data/account}"
-      C_AI_NEWTOKEN_MEDIA_UPLOAD_URL: "${C_AI_NEWTOKEN_MEDIA_UPLOAD_URL:-https://www.aimh8.com/agent/openapi/fpbrowser2api/v1/media/upload}"
-      C_AI_NEWTOKEN_MEDIA_UPLOAD_KEY: "${C_AI_NEWTOKEN_MEDIA_UPLOAD_KEY:-}"
-      # 参考图片上传后返回给视频上游的公网地址；上游通常要求 https://
-    volumes:
-      - ./data/account:/app/web/data/account
-      - ./data/uploads:/app/web/data/uploads
     restart: unless-stopped

@@ -831,7 +831,7 @@ function statusMessage(status: number | undefined, fallback: string) {
 async function resolveCaiPublicUrl(value: string | undefined, label: string, mimeType: string, options?: RequestOptions) {
     const url = String(value || "").trim();
     if (isCaiReachableUrl(url)) return assertPublicReferenceReachable(url, mimeType, label, options);
-    if (/^https?:\/\//i.test(url)) throw new Error(`${label}地址不是上游可访问的公网 HTTPS URL，请配置 C_AI_PUBLIC_BASE_URL 为当前站点的公网 HTTPS 地址。`);
+    if (/^https?:\/\//i.test(url)) throw new Error(`${label}地址不是上游可访问的公网 HTTPS URL。静态前端版本不能代传本地素材，请先上传到对象存储或使用可被上游读取的 HTTPS 链接。`);
     throw new Error(`Cai 专用接口要求${label}必须是服务器可访问的公网 URL，当前本地素材不能直接提交。请先上传到对象存储或使用公网链接。`);
 }
 
@@ -851,14 +851,10 @@ async function resolveCaiMediaUrl(media: ReferenceVideo | ReferenceAudio, label:
     return uploadCaiReferenceFile(file, options);
 }
 
-async function uploadCaiReferenceFile(file: File, options?: RequestOptions) {
-    const form = new FormData();
-    form.append("file", file);
-    const response = await axios.post<{ code?: number; data?: { url?: string }; msg?: string }>("/api/uploads/references", form, { signal: options?.signal });
-    const url = response.data?.data?.url;
-    if (!url) throw new Error(response.data?.msg || "参考图片上传失败");
-    if (!isCaiReachableUrl(url)) throw new Error("参考素材已上传到本地服务，但返回地址不是公网 HTTPS URL。请在 Docker/部署环境配置 C_AI_PUBLIC_BASE_URL=https://你的域名，并确保外网可访问。");
-    return assertPublicReferenceReachable(url, file.type, "参考素材", options);
+async function uploadCaiReferenceFile(file: File, options?: RequestOptions): Promise<string> {
+    void file;
+    void options;
+    throw new Error("静态前端版本没有服务端临时上传能力。Cai / Seedance / Lingdong 等异步视频参考素材需要公网 HTTPS URL，请先上传到对象存储或使用公网链接。");
 }
 
 async function resolveNewTokenImageUrl(image: ReferenceImage, options?: RequestOptions) {
@@ -877,24 +873,15 @@ async function resolveNewTokenMediaUrl(media: ReferenceVideo | ReferenceAudio, l
     return uploadNewTokenReferenceFile(file, options);
 }
 
-async function uploadNewTokenReferenceUrl(remoteUrl: string, mimeType: string, options?: RequestOptions) {
-    const form = new FormData();
-    form.append("url", remoteUrl);
-    const response = await axios.post<{ code?: number; data?: { url?: string }; msg?: string }>("/api/uploads/newtoken-references", form, { signal: options?.signal });
-    const url = response.data?.data?.url;
-    if (!url) throw new Error(response.data?.msg || "NewToken 参考素材上传失败");
-    if (!isCaiReachableUrl(url)) throw new Error("NewToken 参考素材上传成功，但返回地址不是公网 HTTPS URL");
-    return assertPublicReferenceReachable(url, mimeType, "NewToken 参考素材", options);
+async function uploadNewTokenReferenceUrl(remoteUrl: string, mimeType: string, options?: RequestOptions): Promise<string> {
+    if (!isCaiReachableUrl(remoteUrl)) throw new Error("NewToken 参考素材需要公网 HTTPS URL。静态前端版本没有 NewToken 媒体中转上传能力。");
+    return assertPublicReferenceReachable(remoteUrl, mimeType, "NewToken 参考素材", options);
 }
 
-async function uploadNewTokenReferenceFile(file: File, options?: RequestOptions) {
-    const form = new FormData();
-    form.append("file", file);
-    const response = await axios.post<{ code?: number; data?: { url?: string }; msg?: string }>("/api/uploads/newtoken-references", form, { signal: options?.signal });
-    const url = response.data?.data?.url;
-    if (!url) throw new Error(response.data?.msg || "NewToken 参考素材上传失败");
-    if (!isCaiReachableUrl(url)) throw new Error("NewToken 参考素材上传成功，但返回地址不是公网 HTTPS URL");
-    return assertPublicReferenceReachable(url, file.type, "NewToken 参考素材", options);
+async function uploadNewTokenReferenceFile(file: File, options?: RequestOptions): Promise<string> {
+    void file;
+    void options;
+    throw new Error("静态前端版本没有 NewToken 媒体中转上传能力。请先把参考素材上传到公网 HTTPS 地址后再提交。");
 }
 
 async function assertPublicReferenceReachable(url: string, mimeType: string, label: string, options?: RequestOptions): Promise<string> {

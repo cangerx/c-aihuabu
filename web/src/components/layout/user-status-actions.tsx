@@ -44,12 +44,12 @@ export function UserStatusActions({ showConfig = true, variant = "default", onOp
                 type="button"
                 className={cn(naturalIconClass, "w-auto gap-1 rounded-md px-2 text-xs font-medium")}
                 style={iconStyle}
-                onClick={() => openConfigDialog(false, "account")}
-                aria-label={user ? "账号" : "登录"}
-                title={user ? `账号：${user.email}` : "登录 / 注册"}
+                onClick={() => openConfigDialog(false, "channels")}
+                aria-label={user ? "账号" : "本地配置"}
+                title={user ? `账号：${user.email}` : "静态版使用本地配置"}
             >
                 <UserRound className="size-4" />
-                <span className="hidden sm:inline">{user ? "账号" : "登录"}</span>
+                <span className="hidden sm:inline">{user ? "账号" : "本地"}</span>
             </button>
             <a href={DOCS_URL} target="_blank" rel="noopener noreferrer" className={naturalIconClass} style={iconStyle} aria-label="中转服务 Key" title="中转服务 Key">
                 <Key className="size-4" />

@@ -1,0 +1,527 @@
+---
+title: 核心功能盘点
+description: 当前 C-AI 画布的核心能力、数据结构、调用链和重构边界
+---
+
+# 核心功能盘点
+
+本文档用于重构前梳理当前项目的核心能力和关键数据流。目标不是描述实现细节，而是提取后续重构必须保留的产品能力、数据边界和高性能架构需要重点处理的问题。
+
+## 1. 产品核心定位
+
+C-AI 画布是一套面向 AI 视觉创作的工作台，核心不是单次生图，而是围绕「素材 → 提示词 → 图像 → 视频 → 再编辑」形成可视化流程。
+
+当前最重要的产品能力：
+
+- 无限画布编排：在画布上创建图片、文本、配置、视频、音频等节点，通过连线表达上下游关系。
+- 多模态生成：支持文生图、图生图、局部编辑、图片理解、文生视频、图生视频、音频生成等能力。
+- 连续迭代工作流：生成结果可继续作为下游参考，形成链式或树状创作流程。
+- 素材沉淀：可把画布节点、生成结果、上传文件加入“我的素材”。
+- 生成记录：生图工作台和视频创作台保存历史记录，支持恢复预览、加入素材、删除、停止任务。
+- 提示词库：聚合多个 GitHub 提示词仓库，提供搜索、分类、详情和套用能力。
+- 本机 Agent：通过 C-ai Agent 连接本机 Codex / Claude Code，并允许 Agent 读取和修改当前画布。
+- WebDAV 同步：把本地画布、素材、生成记录和媒体文件同步到用户自己的 WebDAV。
+
+## 2. 当前主要页面
+
+| 页面 | 路径 | 核心职责 |
+| --- | --- | --- |
+| 首页 | `web/src/app/(user)/page.tsx` | 产品入口和展示 |
+| 无限画布列表 | `web/src/app/(user)/canvas/page.tsx` | 展示、创建、导入、删除画布项目 |
+| 无限画布详情 | `web/src/app/(user)/canvas/[id]/canvas-client-page.tsx` | 画布编辑、节点操作、多模态生成、Agent 面板 |
+| 生图工作台 | `web/src/app/(user)/image/page.tsx` | 独立图片生成、图生图、历史记录 |
+| 视频创作台 | `web/src/app/(user)/video/page.tsx` | 独立视频生成、任务轮询、历史记录 |
+| 我的素材 | `web/src/app/(user)/assets/page.tsx` | 素材管理、上传、编辑、删除、插入画布 |
+| 提示词中心 | `web/src/app/(user)/prompts/page.tsx` | 提示词检索、过滤、详情查看 |
+| 配置弹窗 | `web/src/components/layout/app-config-modal.tsx` | 模型渠道、模型列表、账号、偏好、WebDAV 配置 |
+
+## 3. 核心领域对象
+
+### 3.1 画布项目
+
+当前画布项目类型定义在：
+
+```txt
+web/src/app/(user)/canvas/stores/use-canvas-store.ts
+```
+
+核心结构：
+
+```ts
+type CanvasProject = {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  nodes: CanvasNodeData[];
+  connections: CanvasConnection[];
+  chatSessions: CanvasAssistantSession[];
+  activeChatId: string | null;
+  backgroundMode: CanvasBackgroundMode;
+  showImageInfo: boolean;
+  viewport: ViewportTransform;
+};
+```
+
+重构时必须保留：
+
+- 项目级标题、创建时间、更新时间。
+- 节点列表和连线列表。
+- 画布助手会话。
+- 当前视口状态。
+- 背景模式和图片信息显示偏好。
+
+### 3.2 节点
+
+节点类型定义在：
+
+```txt
+web/src/app/(user)/canvas/types.ts
+```
+
+当前节点类型：
+
+```ts
+enum CanvasNodeType {
+  Image = "image",
+  Text = "text",
+  Config = "config",
+  Video = "video",
+  Audio = "audio",
+}
+```
+
+节点核心字段：
+
+```ts
+type CanvasNodeData = {
+  id: string;
+  type: CanvasNodeType;
+  title: string;
+  position: { x: number; y: number };
+  width: number;
+  height: number;
+  metadata?: CanvasNodeMetadata;
+};
+```
+
+重构时建议把节点拆成两层：
+
+- 稳定通用字段：`id/type/title/position/size/status`。
+- 类型专属数据：`image/video/audio/text/config/script` 等 payload。
+
+这样可以减少当前 `metadata` 无限膨胀的问题。
+
+### 3.3 连线
+
+```ts
+type CanvasConnection = {
+  id: string;
+  fromNodeId: string;
+  toNodeId: string;
+};
+```
+
+当前连线只表达节点依赖，不区分端口。重构时如果需要更强工作流能力，可以升级为：
+
+```ts
+type Edge = {
+  id: string;
+  sourceNodeId: string;
+  sourcePort?: string;
+  targetNodeId: string;
+  targetPort?: string;
+  kind?: "reference" | "prompt" | "mask" | "first-frame" | "last-frame";
+};
+```
+
+### 3.4 素材
+
+素材 Store 位于：
+
+```txt
+web/src/stores/use-asset-store.ts
+```
+
+当前素材类型：
+
+```ts
+type AssetKind = "text" | "image" | "video";
+```
+
+重构时建议统一为：
+
+```ts
+type Asset = {
+  id: string;
+  ownerId: string;
+  kind: "text" | "image" | "video" | "audio" | "file";
+  title: string;
+  tags: string[];
+  note?: string;
+  fileId?: string;
+  content?: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+```
+
+### 3.5 生成记录和生成任务
+
+当前生图和视频各自维护本地日志：
+
+```txt
+web/src/app/(user)/image/page.tsx
+web/src/app/(user)/video/page.tsx
+```
+
+当前问题是日志和任务状态分散在页面内，后续高性能重构应统一为“任务系统”：
+
+```ts
+type GenerationTask = {
+  id: string;
+  userId: string;
+  kind: "image" | "video" | "audio" | "text";
+  status: "queued" | "running" | "succeeded" | "partial_failed" | "failed" | "cancelled";
+  prompt: string;
+  config: Record<string, unknown>;
+  references: Reference[];
+  outputs: Output[];
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+```
+
+## 4. 当前本地持久化位置
+
+| 数据 | 当前实现 | 说明 |
+| --- | --- | --- |
+| 画布项目 | `localForage`，key `infinite-canvas:canvas_store` | 项目 JSON，包含节点、连线、助手会话 |
+| 我的素材 | `localForage`，key `infinite-canvas:asset_store` | 素材 JSON |
+| 图片文件 | `localForage` store `image_files` | Blob，storageKey 形如 `image:<id>` |
+| 视频/音频文件 | `localForage` store `media_files` | Blob，storageKey 形如 `video:<id>` / `audio:<id>` |
+| 生图记录 | `localForage` store `image_generation_logs` | 页面私有日志 |
+| 视频记录 | `localForage` store `video_generation_logs` | 页面私有日志和上游 taskId |
+| 模型渠道配置 | Zustand persist，key `infinite-canvas:ai_config_store` | 包含 Base URL、Key、模型列表、偏好 |
+| 主题配置 | Zustand persist + `index.html` 初始化脚本 | 浅色/深色主题 |
+| Agent 配置 | `localStorage` | 本机 Agent URL、token、面板宽度 |
+| WebDAV 配置 | Zustand persist | WebDAV 地址、账号、目录；静态版仅支持前端直连 |
+
+高性能重构时，本地存储应降级为缓存层，不能继续作为主数据源。
+
+## 5. 当前 AI 调用链
+
+### 5.1 图片 / 文本 / Agent
+
+核心文件：
+
+```txt
+web/src/services/api/image.ts
+```
+
+承担职责：
+
+- OpenAI 兼容 `/images/generations`。
+- OpenAI 兼容 `/images/edits`。
+- Gemini 文本和图片返回。
+- Grok Imagine 图片生成/编辑。
+- Step Image Edit 2。
+- NewToken 异步图片任务。
+- Lingdong 图片格式。
+- Responses API / Chat Completions 文本问答。
+- 在线 Agent 工具调用降级。
+
+当前问题：该文件职责过重，已混合模型适配、请求封装、错误解析、图片 payload 解析、工具调用协议。
+
+重构建议拆分：
+
+```txt
+ai/providers/openai.ts
+ai/providers/gemini.ts
+ai/providers/grok.ts
+ai/providers/newtoken.ts
+ai/providers/lingdong.ts
+ai/tasks/image-task-service.ts
+ai/tasks/text-task-service.ts
+ai/shared/errors.ts
+ai/shared/model-capabilities.ts
+```
+
+### 5.2 视频
+
+核心文件：
+
+```txt
+web/src/services/api/video.ts
+```
+
+承担职责：
+
+- OpenAI 风格视频任务。
+- Cai 专用接口。
+- NewToken 视频接口。
+- Duomi API。
+- Lingdong API。
+- 火山方舟 Seedance。
+- Grok Imagine Video。
+- 参考图/视频/音频上传和公网可读性检查。
+- 任务轮询。
+- 视频结果保存。
+
+当前问题：视频任务具有异步长耗时特征，不适合由页面状态直接托管。重构时应进入服务端任务队列。
+
+### 5.3 音频
+
+核心文件：
+
+```txt
+web/src/services/api/audio.ts
+```
+
+当前相对简单，可作为后端任务系统中的一种任务类型。
+
+## 6. 当前运行边界
+
+当前主应用已经迁移为 Vite 静态前端构建：
+
+```txt
+web/index.html
+web/src/main.tsx
+web/src/router.tsx
+web/vite.config.ts
+```
+
+已移除的 Next.js 服务端能力：
+
+```txt
+web/src/app/api/account/*
+web/src/app/api/ai-proxy/route.ts
+web/src/app/api/prompts/route.ts
+web/src/app/api/uploads/references/*
+web/src/app/api/uploads/newtoken-references/route.ts
+web/src/app/webdav-proxy/route.ts
+web/src/server/*
+```
+
+当前限制：
+
+- 没有内置账号后端，账号和云端个人渠道入口在静态版不可用。
+- 没有 AI 请求代理，模型渠道必须支持浏览器 CORS。
+- 没有服务端临时上传，异步视频参考素材需要用户先放到公网 HTTPS 地址。
+- 没有 WebDAV 转发，WebDAV 服务必须允许前端直连。
+- 提示词由浏览器直拉 GitHub Raw，并缓存在本地 IndexedDB。
+- Docker 镜像只运行 nginx 静态站点，运行时环境变量和数据卷不参与主应用配置。
+
+## 7. 必须保留的核心交互
+
+### 7.1 无限画布
+
+- 新建、打开、重命名、删除、导入、导出画布。
+- 拖拽、缩放、选择、多选、框选。
+- 节点移动、调整大小、裁剪、旋转、拆分、放大、去元数据、复制图片。
+- 节点连线和断开。
+- 撤销 / 重做。
+- 自动整理画布。
+- 小地图和缩放控制。
+- 节点生成状态：idle / loading / success / error。
+- 删除生成中节点时中断请求。
+
+### 7.2 图片生成
+
+- 文生图。
+- 图生图。
+- 多图参考。
+- 蒙版局部编辑。
+- 批量生成。
+- 模型专属参数归一化：尺寸、比例、质量、数量。
+- 生成结果落盘并插回画布。
+- 历史记录和素材沉淀。
+
+### 7.3 视频生成
+
+- 文生视频。
+- 图生视频。
+- 首尾帧。
+- 图片参考。
+- 全能参考：图片、视频、音频组合。
+- 上游异步 taskId 保存。
+- 轮询恢复和手动拉取结果。
+- 视频封面截取。
+- 生成记录和素材沉淀。
+
+### 7.4 画布助手 / Agent
+
+- 读取当前画布快照。
+- 围绕当前节点和上游节点问答。
+- 工具调用后由用户确认写入画布。
+- 本机 Agent 通过 MCP 操作画布。
+- 附件图片传给本机 Agent。
+
+### 7.5 素材和提示词
+
+- 文本、图片、视频素材管理。
+- 从素材插入画布或作为生成参考。
+- 提示词搜索、分类、详情、套用。
+- 画布和工作台输入框支持 `@` 引用素材。
+
+## 8. 当前性能和维护瓶颈
+
+### 8.1 大组件过重
+
+当前最大文件：
+
+```txt
+web/src/app/(user)/canvas/[id]/canvas-client-page.tsx  4000+ 行
+web/src/app/(user)/image/page.tsx                      1000+ 行
+web/src/app/(user)/video/page.tsx                      1100+ 行
+web/src/services/api/image.ts                          1200+ 行
+web/src/services/api/video.ts                          1000+ 行
+```
+
+问题：UI 状态、业务状态、请求流程、任务轮询、媒体处理混在一起。
+
+### 8.2 本地 Blob 存储不可扩展
+
+当前 `blob:` URL 只在当前浏览器会话有效，真实文件存在 IndexedDB/localForage。跨设备、多人、多端恢复和未来服务端任务都不适合继续依赖这种结构。
+
+### 8.3 生成任务前端托管
+
+长耗时任务由页面轮询和 localForage 日志维持，刷新、关闭页面、切设备都会影响体验。高性能重构应把任务状态、轮询、重试、取消放到独立后端或 Worker。
+
+### 8.4 模型适配耦合
+
+多家供应商协议差异全部堆在少数 API 文件里。后续新增模型会持续增加复杂度。
+
+### 8.5 缺少统一资源模型
+
+当前图片、视频、音频、参考素材、生成结果、素材库文件分别有不同路径和结构。重构应统一成 `FileObject / MediaAsset / GenerationOutput`。
+
+## 9. 高性能重构建议方向
+
+### 9.1 前端分层
+
+建议重构为：
+
+```txt
+features/canvas/      画布领域
+features/assets/      素材领域
+features/generation/  生成任务领域
+features/settings/    设置和渠道
+features/prompts/     提示词领域
+features/agent/       Agent 领域
+shared/ui/
+shared/api/
+shared/lib/
+```
+
+### 9.2 服务端分层
+
+建议新后端按领域拆分：
+
+```txt
+server/auth
+server/users
+server/files
+server/canvas
+server/assets
+server/generation
+server/model-channels
+server/providers
+server/prompts
+```
+
+### 9.3 数据主链路
+
+推荐目标链路：
+
+```txt
+浏览器 UI
+  -> API 创建/更新资源
+  -> PostgreSQL 保存元数据
+  -> 对象存储保存文件
+  -> Redis/BullMQ 执行生成任务
+  -> Worker 调用上游模型
+  -> 结果写入对象存储和任务表
+  -> 前端通过轮询或 SSE/WebSocket 获取状态
+```
+
+### 9.4 画布数据策略
+
+第一版高性能重构不建议把节点拆得太细。推荐：
+
+- `canvas_projects` 保存项目基础信息。
+- `canvas_documents` 或 `canvas_project_versions` 保存完整画布 JSON。
+- 大文件永远独立存 `files` 表和对象存储。
+- 前端编辑时做局部 patch，同步时服务端合并版本。
+
+### 9.5 任务策略
+
+所有生成统一走任务：
+
+```txt
+POST /api/tasks
+GET  /api/tasks/:id
+POST /api/tasks/:id/cancel
+GET  /api/tasks?type=image
+```
+
+任务类型：
+
+```txt
+image.generate
+image.edit
+image.upscale
+video.generate
+audio.generate
+text.chat
+agent.run
+```
+
+## 10. 重构时可抛弃或降级的内容
+
+如果是新架构重构，可以考虑：
+
+- 不继续兼容旧 localForage 数据结构，只提供一次性导入工具。
+- 不保留 WebDAV 作为主同步能力，最多作为导出/备份。
+- 不让前端长期持有 AI Key，改为服务端渠道。
+- 不再把生图和视频日志写在页面私有 localForage。
+- 不继续把所有供应商协议写进单个 API 文件。
+
+## 11. 最小可用重构范围
+
+如果要做一个高性能新版本，MVP 应包含：
+
+1. 用户注册/登录。
+2. 模型渠道管理。
+3. 文件上传和对象存储。
+4. 画布项目 CRUD。
+5. 节点和连线编辑。
+6. 图片生成任务。
+7. 视频生成任务。
+8. 我的素材。
+9. 生成记录。
+10. 提示词中心。
+
+可延后：
+
+- C-ai Agent。
+- WebDAV 同步。
+- 高级图片编辑工具。
+- 多供应商全量适配。
+- 复杂协同编辑。
+- 多租户计费。
+
+## 12. 重构检查清单
+
+开始新架构前，需要明确：
+
+- 数据库：PostgreSQL 是否固定。
+- 队列：Redis/BullMQ、独立 Worker 是否固定。
+- 文件存储：本地磁盘、S3、腾讯 COS、R2 选哪一个作为主实现。
+- 任务通知：轮询、SSE、WebSocket 选哪一个。
+- AI Key：用户自带 Key，还是平台统一渠道，还是两者都支持。
+- 部署形态：静态前端 + 独立后端、Docker Compose 多服务，还是托管后端。
+- 是否需要多人协作或只做单用户多设备同步。
+

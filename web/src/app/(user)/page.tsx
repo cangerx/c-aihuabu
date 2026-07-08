@@ -1,12 +1,14 @@
-"use client";
-
 import { ArrowRight, FileText, Image as ImageIcon, Video, Play, Sparkles, MousePointer } from "lucide-react";
-import { type ReactNode } from "react";
+import { type AnchorHTMLAttributes, type ReactNode } from "react";
 import { Button } from "antd";
 import { motion } from "motion/react";
 import type { Variants } from "motion/react";
 
 import { navigationTools } from "@/constant/navigation-tools";
+
+function Link({ href, ...props }: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) {
+    return <a href={href} {...props} />;
+}
 
 // highlighter with smooth expansion scaleX animation
 function Highlighter({ action, color, children, delay = 0.8 }: { action: "highlight" | "underline"; color: string; children: ReactNode; delay?: number }) {
@@ -84,7 +86,7 @@ export default function IndexPage() {
     return (
         <main className="relative h-full overflow-y-auto bg-background bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:16px_16px] text-stone-950 dark:bg-[radial-gradient(rgba(245,245,244,.15)_1px,transparent_1px)] dark:text-stone-100">
             {/* inject component specific keyframe animations to keep code modular and self-contained */}
-            <style jsx global>{`
+            <style>{`
                 @keyframes caret-blink {
                     50% { opacity: 0; }
                 }

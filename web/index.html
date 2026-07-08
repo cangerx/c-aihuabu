@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="C-AI画布：在一块无限画布上，生成、连接与重组你的视觉创意" />
+    <link rel="icon" href="/favicon.ico" />
+    <title>C-AI画布</title>
+    <script>
+      (() => {
+        try {
+          const raw = localStorage.getItem('infinite-canvas:theme_store');
+          const theme = raw ? JSON.parse(raw)?.state?.theme : 'dark';
+          const normalized = theme === 'light' ? 'light' : 'dark';
+          document.documentElement.classList.toggle('dark', normalized === 'dark');
+          document.documentElement.style.colorScheme = normalized;
+        } catch {
+          document.documentElement.classList.add('dark');
+          document.documentElement.style.colorScheme = 'dark';
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

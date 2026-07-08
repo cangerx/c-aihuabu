@@ -7,16 +7,21 @@ description: 用最少步骤把无限画布跑起来
 
 如果你只是想先把项目跑起来，优先部署或启动 `web/` 前端。
 
-## Vercel 部署
+## 静态部署
 
-在 Vercel 中导入仓库即可，根目录 `vercel.json` 会构建 `web/`。当前版本的 AI 请求由浏览器前台直连用户自己的 OpenAI 兼容地址，不需要额外配置服务端。
+主应用是 Vite 静态前端。构建后把 `web/dist` 部署到任意静态站点托管、对象存储静态网站、nginx 或 CDN 即可。当前版本的 AI 请求由浏览器前台直连用户自己的 OpenAI 兼容地址，不需要项目服务端。
+
+```bash
+cd web
+bun install
+bun run build
+```
 
 ## 本地启动
 
 ```bash
 git clone git@github.com:cangerx/c-aihuabu.git
-cd infinite-canvas
-cd web
+cd c-aihuabu/web
 bun install
 bun run dev
 ```
@@ -39,10 +44,11 @@ docker run --rm -p 3000:3000 infinite-canvas
 ## 首次使用建议
 
 - 先打开右上角配置弹窗，填入自己的 `Base URL`、`API Key` 和模型名。
-- 如果需要提示词仓库内容，打开 `/prompts` 会通过 Next.js route 拉取并缓存在内存中。
-- 如果需要跨设备同步画布、素材和生成记录，可在配置弹窗中填写 WebDAV。
+- 如果需要提示词仓库内容，打开 `/prompts` 会由浏览器直拉 GitHub Raw，并缓存在本地 IndexedDB。
+- 如果需要跨设备同步画布、素材和生成记录，可在配置弹窗中填写 WebDAV；静态版只支持 WebDAV 服务自身开放 CORS 的前端直连。
 
 ## 说明
 
 - 当前画布项目和“我的素材”主要保存在浏览器本地，WebDAV 同步需要用户自行配置。
 - AI API Key 保存在浏览器本地，并由前端直接请求 OpenAI 兼容接口。
+- 静态版没有账号后端、AI 请求代理、服务端临时上传和 WebDAV 转发；异步视频参考素材需要先上传到公网 HTTPS 地址。

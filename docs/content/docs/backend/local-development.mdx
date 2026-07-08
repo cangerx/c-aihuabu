@@ -5,7 +5,7 @@ description: 前端优先的本地开发方式
 
 # 本地开发
 
-当前主应用以 `web/` 前端为主，AI 请求由浏览器前台直连用户自己的 OpenAI 兼容接口。
+当前主应用是 `web/` 下的 Vite 静态前端，AI 请求由浏览器前台直连用户自己的 OpenAI 兼容接口。
 
 ## 1. 启动前端
 
@@ -23,7 +23,7 @@ http://localhost:3000
 
 ## 2. 配置模型
 
-打开右上角配置弹窗，填写自己的 `Base URL`、`API Key` 和模型名。第三方提示词由 Next.js route 拉取并缓存在运行实例内存中；WebDAV 可选择前端直连或 Next.js 转发。
+打开右上角配置弹窗，填写自己的 `Base URL`、`API Key` 和模型名。第三方提示词由浏览器直拉 GitHub Raw 并缓存在本地 IndexedDB；WebDAV 仅支持前端直连。
 
 ## 3. 启动文档站
 
@@ -36,5 +36,6 @@ bun run dev
 ## 常见场景
 
 - 改画布、页面和交互：主要看 `web/`
-- 改提示词缓存或 WebDAV 代理：主要看 `web/src/app/api/` 和 `web/src/app/webdav-proxy/`
+- 改提示词缓存：主要看 `web/src/services/api/prompts.ts`
+- 改 WebDAV 同步：主要看 `web/src/services/webdav-sync.ts` 和 `web/src/services/app-sync.ts`
 - 改文档站内容：主要看 `docs/content/docs/`

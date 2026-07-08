@@ -4,7 +4,6 @@ import localforage from "localforage";
 
 import { nanoid } from "nanoid";
 import { readImageMeta } from "@/lib/image-utils";
-import { buildForcedProxiedUrl } from "@/stores/use-config-store";
 
 export type UploadedImage = {
     url: string;
@@ -43,7 +42,7 @@ export async function persistImageUrl(input: string) {
 }
 
 export function proxiedImageDisplayUrl(url: string) {
-    return /^https?:\/\//i.test(url) ? buildForcedProxiedUrl(url) : url;
+    return url;
 }
 
 export async function resolveImageUrl(storageKey?: string, fallback = "") {
@@ -111,23 +110,13 @@ function blobToDataUrl(blob: Blob) {
 }
 
 async function readBlobFromUrl(url: string) {
-    try {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error("读取图片失败");
-        return await response.blob();
-    } catch (error) {
-        if (!/^https?:\/\//i.test(url)) throw error;
-        const proxied = await fetch(buildForcedProxiedUrl(url));
-        if (!proxied.ok) throw new Error("读取图片失败");
-        return await proxied.blob();
-    }
+    const response = await fetch(url);
+    if (!response.ok) throw new Error("读取图片失败");
+    return response.blob();
 }
 
 async function readRemoteImageMeta(url: string) {
-    const sources = /^https?:\/\//i.test(url) ? [buildForcedProxiedUrl(url), url] : [url];
-    for (const source of sources) {
-        const meta = await readImageMeta(source);
-        if (meta.width !== FALLBACK_IMAGE_META.width || meta.height !== FALLBACK_IMAGE_META.height || source.startsWith("data:")) return meta;
-    }
+    const meta = await readImageMeta(url);
+    if (meta.width !== FALLBACK_IMAGE_META.width || meta.height !== FALLBACK_IMAGE_META.height || url.startsWith("data:")) return meta;
     return FALLBACK_IMAGE_META;
 }

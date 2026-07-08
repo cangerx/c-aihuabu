@@ -347,8 +347,8 @@ export function AppConfigModal() {
                                 <section className="rounded-lg border border-stone-200 p-3 dark:border-stone-800">
                                     <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
                                         <div>
-                                            <div className="text-sm font-semibold">{accountUser ? `已登录：${accountUser.email}` : "登录后可保存云端个人渠道"}</div>
-                                            <div className="mt-1 text-xs leading-5 text-stone-500">未登录时继续使用本地 Key；登录后可把个人渠道加密保存到服务端，后续用于多端共享和异步任务。</div>
+                                            <div className="text-sm font-semibold">{accountUser ? `已登录：${accountUser.email}` : "静态版使用本地配置"}</div>
+                                            <div className="mt-1 text-xs leading-5 text-stone-500">静态前端版本不包含账号后端和云端个人渠道；请在“渠道”Tab 维护本地 Key，跨设备可用 WebDAV 同步画布和素材。</div>
                                         </div>
                                         {accountUser ? (
                                             <Button loading={accountLoading} onClick={() => void logout()}>
@@ -359,18 +359,18 @@ export function AppConfigModal() {
                                     {!accountUser ? (
                                         <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto_auto]">
                                             <Form.Item label="邮箱" className="mb-0">
-                                                <Input value={accountEmail} autoComplete="email" onChange={(event) => setAccountEmail(event.target.value)} />
+                                                <Input disabled value={accountEmail} autoComplete="email" onChange={(event) => setAccountEmail(event.target.value)} />
                                             </Form.Item>
                                             <Form.Item label="密码" className="mb-0">
-                                                <Input.Password value={accountPassword} autoComplete="current-password" onChange={(event) => setAccountPassword(event.target.value)} />
+                                                <Input.Password disabled value={accountPassword} autoComplete="current-password" onChange={(event) => setAccountPassword(event.target.value)} />
                                             </Form.Item>
                                             <Form.Item label=" " className="mb-0">
-                                                <Button type="primary" block loading={accountLoading} onClick={() => void submitAccount("login")}>
+                                                <Button disabled type="primary" block loading={accountLoading} onClick={() => void submitAccount("login")}>
                                                     登录
                                                 </Button>
                                             </Form.Item>
                                             <Form.Item label=" " className="mb-0">
-                                                <Button block loading={accountLoading} onClick={() => void submitAccount("register")}>
+                                                <Button disabled block loading={accountLoading} onClick={() => void submitAccount("register")}>
                                                     注册
                                                 </Button>
                                             </Form.Item>
@@ -557,16 +557,8 @@ export function AppConfigModal() {
                         children: (
                             <Form layout="vertical" requiredMark={false}>
                                 <div className="grid gap-4 md:grid-cols-4">
-                                    <Form.Item label="AI 请求代理" extra="如果你的中转渠道没有配置 CORS 跨域（表现为“读取模型失败”或无法生成），请开启此选项通过 Next.js 服务端进行请求转发。" className="mb-4 md:col-span-4">
-                                        <Segmented
-                                            block
-                                            value={config.aiProxyEnabled ? "proxy" : "direct"}
-                                            onChange={(value) => updateConfig("aiProxyEnabled", value === "proxy")}
-                                            options={[
-                                                { label: "浏览器直连 (需要渠道支持 CORS 跨域)", value: "direct" },
-                                                { label: "Next.js 服务端转发 (解决跨域/403错误)", value: "proxy" },
-                                            ]}
-                                        />
+                                    <Form.Item label="请求方式" extra="静态前端版本不包含 Next.js 服务端代理，AI 渠道必须支持浏览器 CORS 跨域。" className="mb-4 md:col-span-4">
+                                        <Segmented block value="direct" options={[{ label: "浏览器直连", value: "direct" }]} />
                                     </Form.Item>
                                     <Form.Item label="画布默认生图张数" extra="新建画布生图和配置节点默认使用，单个节点仍可单独覆盖。" className="mb-4">
                                         <Input
@@ -617,21 +609,13 @@ export function AppConfigModal() {
                                                 <Cloud className="size-4" />
                                                 WebDAV 同步
                                             </div>
-                                            <div className="mt-1 text-xs text-stone-500">同步画布、我的素材、生成记录和本地媒体文件，不包含 AI Key；服务不支持 CORS 时可走 Next.js 转发。</div>
+                                            <div className="mt-1 text-xs text-stone-500">同步画布、我的素材、生成记录和本地媒体文件，不包含 AI Key；静态版仅支持 WebDAV 服务自身开放 CORS 的前端直连。</div>
                                         </div>
                                         <div className="text-xs text-stone-500">{webdav.lastSyncedAt ? `上次同步 ${formatWebdavTime(webdav.lastSyncedAt)}` : "尚未同步"}</div>
                                     </div>
                                     <div className="grid gap-4 md:grid-cols-2">
                                         <Form.Item label="连接方式" className="mb-4 md:col-span-2">
-                                            <Segmented
-                                                block
-                                                value={webdav.proxyMode}
-                                                onChange={(value) => updateWebdavConfig("proxyMode", value as typeof webdav.proxyMode)}
-                                                options={[
-                                                    { label: "前端直连", value: "direct" },
-                                                    { label: "Next.js 转发", value: "nextjs" },
-                                                ]}
-                                            />
+                                            <Segmented block value="direct" options={[{ label: "前端直连（静态版）", value: "direct" }]} />
                                         </Form.Item>
                                         <Form.Item label="WebDAV 地址" className="mb-4">
                                             <Input value={webdav.url} placeholder="https://nas.example.com/webdav" onChange={(event) => updateWebdavConfig("url", event.target.value)} />

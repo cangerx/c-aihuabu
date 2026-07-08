@@ -1,8 +1,6 @@
-"use client";
-
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent as ReactChangeEvent, DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useNavigate, useParams } from "react-router-dom";
 import { Bot, Home, ImageIcon, Images, Key, List, Menu, Music2, Plus, Redo2, Settings2, Trash2, Undo2, Upload, Video } from "lucide-react";
 import { saveAs } from "file-saver";
 
@@ -226,8 +224,8 @@ function ConnectionCreateOption({ theme, icon, title, description, onClick }: { 
 function InfiniteCanvasPage() {
     const { message, modal } = App.useApp();
     const params = useParams<{ id: string }>();
-    const router = useRouter();
-    const projectId = params.id;
+    const navigate = useNavigate();
+    const projectId = params.id || "";
     const containerRef = useRef<HTMLDivElement>(null);
     const imageInputRef = useRef<HTMLInputElement>(null);
     const uploadTargetRef = useRef<{ nodeId?: string; position?: Position; connectToNodeId?: string } | null>(null);
@@ -400,7 +398,7 @@ function InfiniteCanvasPage() {
         setProjectLoaded(false);
         const project = openProject(projectId);
         if (!project) {
-            router.replace("/canvas");
+            navigate("/canvas", { replace: true });
             return;
         }
 
@@ -431,7 +429,7 @@ function InfiniteCanvasPage() {
             setProjectLoaded(true);
         };
         void restore();
-    }, [hydrated, openProject, projectId, router]);
+    }, [hydrated, openProject, projectId, navigate]);
 
     useEffect(() => {
         if (!projectLoaded || applyingHistoryRef.current || historyPausedRef.current) return;
@@ -1434,14 +1432,14 @@ function InfiniteCanvasPage() {
 
     const createAndOpenProject = useCallback(() => {
         const id = createProject(`无限画布 ${useCanvasStore.getState().projects.length + 1}`);
-        router.push(`/canvas/${id}`);
-    }, [createProject, router]);
+        navigate(`/canvas/${id}`);
+    }, [createProject, navigate]);
 
     const deleteCurrentProject = useCallback(() => {
         deleteProjects([projectId]);
         cleanupAssetImages();
-        router.push("/canvas");
-    }, [cleanupAssetImages, deleteProjects, projectId, router]);
+        navigate("/canvas");
+    }, [cleanupAssetImages, deleteProjects, projectId, navigate]);
 
     const handleCanvasMouseDown = useCallback(
         (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -3092,8 +3090,8 @@ function InfiniteCanvasPage() {
                     onCancelTitleEditing={() => setTitleEditing(false)}
                     canUndo={historyState.canUndo}
                     canRedo={historyState.canRedo}
-                    onHome={() => router.push("/")}
-                    onProjects={() => router.push("/canvas")}
+                    onHome={() => navigate("/")}
+                    onProjects={() => navigate("/canvas")}
                     onCreateProject={createAndOpenProject}
                     onDeleteProject={deleteCurrentProject}
                     onImportImage={() => handleUploadRequest()}

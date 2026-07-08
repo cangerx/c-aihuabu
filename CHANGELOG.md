@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## v0.4.21 - 2026-07-08
+
++ [调整] 主应用从 Next.js 迁移为 Vite 静态前端构建，使用 React Router 承载现有页面，并改为 nginx 静态镜像运行。
++ [调整] 移除主应用内置 Next.js API Routes / server 目录，账号云端渠道、AI 请求代理、服务端临时上传和 WebDAV 转发在静态版不可用；提示词改为浏览器直拉 GitHub Raw 并本地缓存。
+
 ## v0.4.20 - 2026-07-03
 
 + [新增] 适配 Grok Imagine 图片/视频新模型，图像设置按 `1k/2k`、宽高比和 `aspect_ratio` / `resolution` 动态提交，视频设置按模型能力切换比例、清晰度和参考图模式。

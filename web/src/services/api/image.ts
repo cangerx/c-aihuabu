@@ -2,7 +2,7 @@ import axios from "axios";
 
 import { grokImagineImageEditMaxCount, grokImagineImageMaxCount, isGrokImagineApiFormat, isGrokImagineImageModel, normalizeGrokImagineImageRatio, normalizeGrokImagineImageResolution } from "@/lib/grok-imagine";
 import { isStepImageEdit2Model, normalizeStepImageEdit2Size } from "@/lib/step-image";
-import { buildAiApiUrl, buildApiUrl, buildForcedProxiedUrl, buildProxiedUrl, resolveModelRequestConfig, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
+import { buildAiApiUrl, buildProxiedUrl, resolveModelRequestConfig, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { buildImageReferencePromptText } from "@/lib/image-reference-prompt";
@@ -153,8 +153,6 @@ const IMAGE_MAX_RATIO = 3;
 const IMAGE_OUTPUT_FORMAT = "png";
 const NEW_TOKEN_IMAGE_TIMEOUT_MS = 30 * 60 * 1000;
 const NEW_TOKEN_IMAGE_POLL_MS = 2500;
-const IMAGE_PROXY_TASK_TIMEOUT_MS = 10 * 60 * 1000;
-const IMAGE_PROXY_TASK_POLL_MS = 2000;
 
 function normalizeQuality(quality: string) {
     const value = quality.trim().toLowerCase();
@@ -1093,107 +1091,33 @@ export async function fetchChannelModels(channel: ModelChannel) {
 }
 
 async function getModelsWithProxyFallback(baseUrl: string, apiKey: string) {
-    const url = buildApiUrl(baseUrl, "/models");
     const headers = { Authorization: `Bearer ${apiKey}` };
-    try {
-        return await axios.get<{ data?: Array<{ id?: string }>; error?: { message?: string } }>(buildAiApiUrl(baseUrl, "/models"), { headers });
-    } catch (error) {
-        if (!axios.isAxiosError(error) || error.response || buildAiApiUrl(baseUrl, "/models") !== url) throw error;
-        return await axios.get<{ data?: Array<{ id?: string }>; error?: { message?: string } }>(buildForcedProxiedUrl(url), { headers });
-    }
+    return axios.get<{ data?: Array<{ id?: string }>; error?: { message?: string } }>(buildAiApiUrl(baseUrl, "/models"), { headers });
 }
 
 type DataResponse<T> = { data: T };
 
 async function postWithProxyFallback<T>(config: AiConfig, path: string, body: unknown, contentType?: string, options?: RequestOptions): Promise<DataResponse<T>> {
-    const directUrl = buildApiUrl(config.baseUrl, path);
     const request = (url: string): Promise<DataResponse<T>> => axios.post<T>(url, body, { headers: aiHeaders(config, contentType), signal: options?.signal });
-    const proxiedUrl = aiApiUrl(config, path);
-    try {
-        if (shouldUseImageProxyTask(path, proxiedUrl, directUrl)) {
-            return await postImageProxyTask<T>(directUrl, config, body, contentType, options);
-        }
-        return await request(proxiedUrl);
-    } catch (error) {
-        if (!axios.isAxiosError(error) || error.response || proxiedUrl !== directUrl) throw error;
-        if (shouldUseImageProxyTask(path, buildForcedProxiedUrl(directUrl), directUrl)) {
-            return await postImageProxyTask<T>(directUrl, config, body, contentType, options);
-        }
-        return await request(buildForcedProxiedUrl(directUrl));
-    }
-}
-
-function shouldUseImageProxyTask(path: string, url: string, directUrl: string) {
-    return url !== directUrl && /^\/images\/(generations|edits)$/.test(path);
-}
-
-async function postImageProxyTask<T>(targetUrl: string, config: AiConfig, body: unknown, contentType?: string, options?: RequestOptions): Promise<DataResponse<T>> {
-    const taskId = nanoid();
-    const taskUrl = `/api/ai-proxy?task=${encodeURIComponent(taskId)}`;
-    const createUrl = `${buildForcedProxiedUrl(targetUrl)}&mode=task&task=${encodeURIComponent(taskId)}`;
-    let taskCreated = false;
-    try {
-        const created = await axios.post<{ id?: string }>(createUrl, body, { headers: aiHeaders(config, contentType), signal: options?.signal });
-        if (created.data.id !== taskId) throw new Error("AI 代理任务没有返回有效 ID");
-        taskCreated = true;
-        const data = await pollImageProxyTask<T>(taskUrl, options);
-        return { data };
-    } catch (error) {
-        if (!taskCreated && shouldCleanupPossiblyCreatedTask(error)) axios.delete(taskUrl).catch(() => undefined);
-        throw error;
-    } finally {
-        if (taskCreated) axios.delete(taskUrl).catch(() => undefined);
-    }
-}
-
-async function pollImageProxyTask<T>(taskUrl: string, options?: RequestOptions) {
-    const maxAttempts = Math.ceil(IMAGE_PROXY_TASK_TIMEOUT_MS / IMAGE_PROXY_TASK_POLL_MS);
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-        if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
-        const response = await axios.get<{ status?: string; data?: T; error?: string }>(taskUrl, { signal: options?.signal });
-        if (response.data.status === "success") return response.data.data as T;
-        if (response.data.status === "error") throw new Error(response.data.error || "AI 代理任务失败");
-        await delay(IMAGE_PROXY_TASK_POLL_MS, options?.signal);
-    }
-    throw new Error("AI 代理任务超时，请稍后重试");
-}
-
-function shouldCleanupPossiblyCreatedTask(error: unknown) {
-    if (axios.isCancel(error) || error instanceof DOMException) return true;
-    return axios.isAxiosError(error) && !error.response;
+    return request(aiApiUrl(config, path));
 }
 
 async function getWithProxyFallback<T>(config: AiConfig, path: string, options?: RequestOptions) {
-    const directUrl = buildApiUrl(config.baseUrl, path);
     const request = (url: string) => axios.get<T>(url, { headers: aiHeaders(config), signal: options?.signal });
-    try {
-        return await request(aiApiUrl(config, path));
-    } catch (error) {
-        if (!axios.isAxiosError(error) || error.response || aiApiUrl(config, path) !== directUrl) throw error;
-        return await request(buildForcedProxiedUrl(directUrl));
-    }
+    return request(aiApiUrl(config, path));
 }
 
 async function resolveNewTokenReferenceImageUrl(image: ReferenceImage, options?: RequestOptions) {
-    const file = await dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) });
-    const form = new FormData();
-    form.append("file", file);
-    const response = await axios.post<{ code?: number; data?: { url?: string }; msg?: string }>("/api/uploads/newtoken-references", form, { signal: options?.signal });
-    const url = response.data?.data?.url;
-    if (!url) throw new Error(response.data?.msg || "NewToken 参考图片上传失败");
-    if (!isReachableHttpsUrl(url)) throw new Error("NewToken 参考图片上传成功，但返回地址不是公网 HTTPS URL");
-    await assertUploadedReferenceReachable(url, options);
-    return url;
+    return resolveStaticPublicReferenceImageUrl(image, "NewToken 参考图片", options);
 }
 
 async function resolveLingdongReferenceImageUrl(image: ReferenceImage, options?: RequestOptions) {
-    const file = await dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) });
-    const form = new FormData();
-    form.append("file", file);
-    const response = await axios.post<{ code?: number; data?: { url?: string }; msg?: string }>("/api/uploads/references", form, { signal: options?.signal });
-    const url = response.data?.data?.url;
-    if (!url) throw new Error(response.data?.msg || "Lingdong 参考图片上传失败");
-    if (!isReachableHttpsUrl(url)) throw new Error("Lingdong 参考图片上传成功，但返回地址不是公网 HTTPS URL");
+    return resolveStaticPublicReferenceImageUrl(image, "Lingdong 参考图片", options);
+}
+
+async function resolveStaticPublicReferenceImageUrl(image: ReferenceImage, label: string, options?: RequestOptions) {
+    const url = String(image.url || image.dataUrl || "").trim();
+    if (!isReachableHttpsUrl(url)) throw new Error(`${label}需要公网 HTTPS 图片 URL。静态前端版本没有服务端临时上传能力，请先把参考图上传到对象存储或使用公网链接。`);
     await assertUploadedReferenceReachable(url, options);
     return url;
 }

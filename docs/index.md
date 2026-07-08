@@ -17,6 +17,7 @@
 
 - [本地开发](/docs/backend/local-development)
 - [画布数据结构](/docs/backend/canvas-data-structure)
+- [核心功能盘点](/docs/backend/core-capability-inventory)
 
 ## 商务合作
 

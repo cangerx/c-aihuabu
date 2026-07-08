@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-import { writeThemeCookie, type ThemeName } from "@/lib/theme-cookie";
+export type ThemeName = "light" | "dark";
 
 type ThemeStore = {
     theme: ThemeName;
@@ -12,10 +12,7 @@ export const useThemeStore = create<ThemeStore>()(
     persist(
         (set) => ({
             theme: "dark",
-            setTheme: (theme) => {
-                writeThemeCookie(theme);
-                set({ theme });
-            },
+            setTheme: (theme) => set({ theme }),
         }),
         { name: "infinite-canvas:theme_store" },
     ),

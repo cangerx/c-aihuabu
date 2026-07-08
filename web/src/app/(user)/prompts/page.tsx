@@ -1,5 +1,3 @@
-"use client";
-
 import { ChevronDown, FolderPlus, Search } from "lucide-react";
 import { type UIEvent, useEffect, useMemo, useState } from "react";
 import { App, Button, Empty, Input, Spin } from "antd";
