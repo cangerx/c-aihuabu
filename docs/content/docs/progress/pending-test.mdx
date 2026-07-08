@@ -8,15 +8,15 @@ description: 当前版本已实现但仍需人工验证的变更项
 ## 本轮重点测试
 
 - Vite 静态前端迁移：`web/` 应通过 `bun run dev` 启动 Vite，通过 `bun run build` 生成 `web/dist`；首页、生图、视频、素材、提示词、画布列表、画布详情和 404 路由都应由 React Router 正常打开，刷新深层路由时 Docker/nginx 应回退到 `index.html`。
-- 静态版运行边界：配置页“请求方式”应只显示浏览器直连；账号/云端个人渠道操作应提示静态版不包含账号后端；提示词页应由浏览器直拉 GitHub Raw 并写入本地缓存；WebDAV 只支持前端直连；Cai / Seedance / Lingdong / NewToken 等异步视频参考素材使用本地文件时应提示先上传到公网 HTTPS 地址。
-- Docker 静态镜像：`docker compose up -d --build` 应构建 Vite 产物并用 nginx 监听 3000，不再需要账号数据卷、上传目录或运行时后端环境变量。
+- 静态版运行边界：配置页“请求方式”应显示“浏览器直连 / 同域代理”；默认仍为浏览器直连，开启同域代理后 AI 请求应走 `/api/proxy?url=...`；账号/云端个人渠道操作应提示静态版不包含账号后端；提示词页应由浏览器直拉 GitHub Raw 并写入本地缓存；WebDAV 只支持前端直连；Cai / Seedance / Lingdong / NewToken 等异步视频参考素材使用本地文件时应提示先上传到公网 HTTPS 地址。
+- Docker 静态镜像：`docker compose up -d --build` 应构建 Vite 产物并用 nginx 监听 3000，同时启动 Go 代理监听容器内 8787；`/healthz` 应返回 `ok`，`/api/proxy` 应能转发公网 http/https 上游。
 - 重构前核心功能盘点文档：新增 `docs/content/docs/backend/core-capability-inventory.mdx`，梳理当前页面、核心领域对象、本地持久化位置、AI 调用链、服务端能力、性能瓶颈和高性能重构边界；文档索引和开发文档导航应能看到“核心功能盘点”入口。
 - Grok Imagine 新模型：选择 `grok-imagine-image-quality` / `grok-imagine-image` 时，图像设置应切换为 `1k/2k` 和对应宽高比，提交 `/v1/images/generations` 与 `/v1/images/edits` 时应发送 `aspect_ratio` / `resolution` JSON；选择 `grok-imagine-video` / `grok-imagine-video-1.5` 时，视频设置应切换为 `480p/720p/1080p` 和对应宽高比，`grok-imagine-video-1.5` 在画布里不应再显示“图片参考”模式，只允许单图图生视频，1080p 只在允许的模型/模式下提交，多图编辑应按 `images` 数组提交且超过 3 张要直接报错。配置页“填入 Cai 视频模型”也应包含 `grok-imagine-video-1.5`，避免默认模型列表漏项。
 - Grok Imagine 图片结果落盘：Grok 图片生成/编辑请求应优先使用 `response_format=b64_json`，生图工作台和画布节点拿到结果后应转成本地可持久化资源；历史记录或第三方渠道仍返回外链图片 URL 时，应在浏览器 CORS 允许的情况下转存，转存失败也要保留原始 URL 用于显示。
 - 生图工作台参数同步：桌面和移动端的图像设置面板都应按当前选中的模型切换到对应的 StepFun 固定尺寸或 Grok 1k/2k + 宽高比，摘要栏、设置面板和提交请求必须使用同一份归一化配置。
 - 主题初始化脚本清理：打开任意页面时控制台不应再出现 `Encountered a script tag while rendering React component`；切换浅色/深色主题后刷新页面，`index.html` 内联脚本应根据本地主题缓存提前设置 `html.dark` 和 `color-scheme`。
 - StepFun `step-image-edit-2`：选择该模型时，图像设置应切换为文档里的固定尺寸 `1024x1024`、`768x1360`、`896x1184`、`1360x768`、`1184x896`；提交 `/v1/images/generations` 时应自动补上 `cfg_scale=1.0`、`steps=8` 和选中的 `size`，提交 `/v1/images/edits` 时也应走该模型的专用落参，尺寸显示和节点比例要同步归一化，尺寸卡片预览也不能再报 `SizePreview is not defined`。
-- 同步生图直连：使用同步 `/v1/images/generations` 或 `/v1/images/edits` 的渠道生成/编辑图片时应直接请求用户配置的 Base URL；如果渠道不支持浏览器 CORS 或请求被上游网关截断，页面应显示可理解的上游/网络错误。
+- 同步生图请求方式：关闭同域代理时，同步 `/v1/images/generations` 或 `/v1/images/edits` 应直接请求用户配置的 Base URL；开启同域代理时应请求同域 `/api/proxy`，浏览器不应再出现上游 CORS 报错。
 - 同步图片直连稳定性：静态版不再产生 `[ai-proxy-task]` 服务端日志；Network 中不应出现 `/api/ai-proxy` 请求。
 - 前端缓存更新：部署新版本后重新打开页面，Network 里不应再出现旧 `/api/ai-proxy`、`/api/uploads` 或 `/webdav-proxy` 请求；如果浏览器仍加载旧脚本，需要刷新或清理缓存。
 - 对应提交范围：`d6b430f` 起到当前最新提交，重点覆盖脚本生成器、参考图片托管和视频提交链路。
@@ -64,7 +64,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 - 画布默认生成张数调整：将画布中生图节点默认的单次生成张数由 3 张修改为 1 张。
 - 输入框禁用回车生成：去除了画布生成输入框中按回车键（Enter）触发内容生成的逻辑，现在只支持通过点击右下角按钮手动提交生成，回车键在输入框中恢复为插入换行的默认行为。
 - 生成后保留提示词：修改了画布生图面板的提交行为，点击生成后不再自动清空输入框内的提示词，方便用户在原有提示词基础上微调并快速重新提交。
-- **模型拉取直连**：静态版“拉取模型列表”直接请求渠道 `/models`；渠道如果不支持 CORS，应显示网络/跨域错误并允许用户手动填写模型。
+- **模型拉取请求方式**：关闭同域代理时“拉取模型列表”直接请求渠道 `/models`；开启同域代理时应经 `/api/proxy` 拉取，渠道如果自身返回鉴权或模型错误，应显示上游错误并允许用户手动填写模型。
 - **首页动画与视觉效果优化**：首页（`/`）重构为动态交互式设计，增加了平滑浮动的极光氛围渐变光晕（Glow Blobs），采用 Framer Motion 实现所有核心文案与按钮的序列淡入与上滑。同时，副标题高亮划线支持随字显现后横向延迟伸展划过。
 - **画布创意连线节点演示墙 (CanvasPreview)**：在首页下方增设了一个动态浮动的微缩节点画布演示区，包括“提示词节点”、“生图节点”（带流光渐变极光完成态）与“视频节点”（带播放组件和滚动进度条），这三个卡片在大屏下通过 SVG 折线连结，连接线具有淡入成线与虚线亮斑数据流动的视觉效果，完美演绎了 C-AI 画布“生成、连接和重组，从单次生成到连续推演”的产品理念。
 - **C-ai Agent 基础使用说明**：画布侧边栏的连接页补充了 C-ai Agent 与 MCP 的基础说明，分开说明网页侧边栏、Codex 快速接入和通用 MCP Agent 接入三种路径；爱马仕 Agent、OpenClaw、Claude Code 等支持 stdio MCP 的客户端都可以通过 `npx -y c-ai-agent mcp` 接入画布工具。

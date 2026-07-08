@@ -12,6 +12,12 @@ const localChangelog = readFileSync(resolve(webDir, "../CHANGELOG.md"), "utf8");
 
 export default defineConfig({
     plugins: [react()],
+    server: {
+        proxy: {
+            "/api/proxy": "http://127.0.0.1:8787",
+            "/healthz": "http://127.0.0.1:8787",
+        },
+    },
     resolve: {
         alias: {
             "@": resolve(webDir, "src"),

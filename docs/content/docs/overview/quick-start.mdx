@@ -9,7 +9,7 @@ description: 用最少步骤把无限画布跑起来
 
 ## 静态部署
 
-主应用是 Vite 静态前端。构建后把 `web/dist` 部署到任意静态站点托管、对象存储静态网站、nginx 或 CDN 即可。当前版本的 AI 请求由浏览器前台直连用户自己的 OpenAI 兼容地址，不需要项目服务端。
+主应用是 Vite 静态前端。构建后把 `web/dist` 部署到任意静态站点托管、对象存储静态网站、nginx 或 CDN 即可。纯静态部署下 AI 请求由浏览器前台直连用户自己的 OpenAI 兼容地址；如果渠道不支持 CORS，建议使用 Docker 镜像内置的同域 Go 代理。
 
 ```bash
 cd web
@@ -34,7 +34,7 @@ http://localhost:3000
 
 ## Docker 启动
 
-如果你需要基于当前源码构建镜像：
+如果你需要基于当前源码构建镜像，Docker 会同时启动 nginx 静态站点和 `/api/proxy` Go 代理：
 
 ```bash
 docker build -t infinite-canvas .
@@ -43,12 +43,12 @@ docker run --rm -p 3000:3000 infinite-canvas
 
 ## 首次使用建议
 
-- 先打开右上角配置弹窗，填入自己的 `Base URL`、`API Key` 和模型名。
+- 先打开右上角配置弹窗，填入自己的 `Base URL`、`API Key` 和模型名；默认“浏览器直连”，渠道不支持 CORS 时可在 Docker 部署下切到“同域代理”。
 - 如果需要提示词仓库内容，打开 `/prompts` 会由浏览器直拉 GitHub Raw，并缓存在本地 IndexedDB。
 - 如果需要跨设备同步画布、素材和生成记录，可在配置弹窗中填写 WebDAV；静态版只支持 WebDAV 服务自身开放 CORS 的前端直连。
 
 ## 说明
 
 - 当前画布项目和“我的素材”主要保存在浏览器本地，WebDAV 同步需要用户自行配置。
-- AI API Key 保存在浏览器本地，并由前端直接请求 OpenAI 兼容接口。
-- 静态版没有账号后端、AI 请求代理、服务端临时上传和 WebDAV 转发；异步视频参考素材需要先上传到公网 HTTPS 地址。
+- AI API Key 保存在浏览器本地；浏览器直连时由前端直接请求 OpenAI 兼容接口，同域代理时会经由当前部署的 `/api/proxy` 转发。
+- 纯静态部署没有账号后端、AI 请求代理、服务端临时上传和 WebDAV 转发；Docker 部署仅补充 AI 请求代理，异步视频参考素材仍需要先上传到公网 HTTPS 地址。

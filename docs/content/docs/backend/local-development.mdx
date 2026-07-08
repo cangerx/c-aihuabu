@@ -5,7 +5,7 @@ description: 前端优先的本地开发方式
 
 # 本地开发
 
-当前主应用是 `web/` 下的 Vite 静态前端，AI 请求由浏览器前台直连用户自己的 OpenAI 兼容接口。
+当前主应用是 `web/` 下的 Vite 静态前端，AI 请求默认由浏览器前台直连用户自己的 OpenAI 兼容接口。需要规避上游 CORS 时，可以同时启动 `proxy/` 下的 Go 同域代理。
 
 ## 1. 启动前端
 
@@ -21,11 +21,20 @@ bun run dev
 http://localhost:3000
 ```
 
-## 2. 配置模型
+## 2. 可选启动 Go 代理
 
-打开右上角配置弹窗，填写自己的 `Base URL`、`API Key` 和模型名。第三方提示词由浏览器直拉 GitHub Raw 并缓存在本地 IndexedDB；WebDAV 仅支持前端直连。
+```bash
+cd proxy
+go run .
+```
 
-## 3. 启动文档站
+Vite 开发服务会把 `/api/proxy` 转发到 `http://127.0.0.1:8787`。
+
+## 3. 配置模型
+
+打开右上角配置弹窗，填写自己的 `Base URL`、`API Key` 和模型名。默认使用浏览器直连；如已启动 Go 代理，可在“生成偏好”里切换为“同域代理”。第三方提示词由浏览器直拉 GitHub Raw 并缓存在本地 IndexedDB；WebDAV 仅支持前端直连。
+
+## 4. 启动文档站
 
 如果需要单独调整文档站，在 `docs` 目录执行：
 
@@ -36,6 +45,7 @@ bun run dev
 ## 常见场景
 
 - 改画布、页面和交互：主要看 `web/`
+- 改 AI 同域代理：主要看 `proxy/`、`Dockerfile` 和 `web/src/stores/use-config-store.ts`
 - 改提示词缓存：主要看 `web/src/services/api/prompts.ts`
 - 改 WebDAV 同步：主要看 `web/src/services/webdav-sync.ts` 和 `web/src/services/app-sync.ts`
 - 改文档站内容：主要看 `docs/content/docs/`

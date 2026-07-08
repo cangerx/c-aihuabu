@@ -18,6 +18,7 @@ export type ModelChannel = {
 
 export type AiConfig = {
     channelMode: "remote" | "local";
+    aiProxyEnabled: boolean;
     baseUrl: string;
     apiKey: string;
     apiFormat: ApiCallFormat;
@@ -65,6 +66,7 @@ const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
 
 export const defaultConfig: AiConfig = {
     channelMode: "local",
+    aiProxyEnabled: false,
     baseUrl: OPENAI_BASE_URL,
     apiKey: "",
     apiFormat: "openai",
@@ -228,6 +230,7 @@ export const useConfigStore = create<ConfigStore>()(
                     config: {
                         ...config,
                         channelMode: "local",
+                        aiProxyEnabled: Boolean(config.aiProxyEnabled),
                         apiFormat: normalizeApiFormat(config.apiFormat),
                         channels,
                         models,
@@ -428,10 +431,12 @@ function normalizeArkPlanBaseUrl(baseUrl: string) {
     }
 }
 
-export function buildProxiedUrl(targetUrl: string) {
-    return targetUrl;
+export function buildProxiedUrl(targetUrl: string, enabled = useConfigStore.getState().config.aiProxyEnabled) {
+    const url = targetUrl.trim();
+    if (!enabled || !/^https?:\/\//i.test(url)) return targetUrl;
+    return `/api/proxy?url=${encodeURIComponent(url)}`;
 }
 
-export function buildAiApiUrl(baseUrl: string, path: string) {
-    return buildProxiedUrl(buildApiUrl(baseUrl, path));
+export function buildAiApiUrl(baseUrl: string, path: string, proxyEnabled?: boolean) {
+    return buildProxiedUrl(buildApiUrl(baseUrl, path), proxyEnabled);
 }

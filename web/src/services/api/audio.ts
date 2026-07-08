@@ -7,7 +7,7 @@ import { buildAiApiUrl, resolveModelRequestConfig, type AiConfig } from "@/store
 type RequestOptions = { signal?: AbortSignal };
 
 function aiApiUrl(config: AiConfig, path: string) {
-    return buildAiApiUrl(config.baseUrl, path);
+    return buildAiApiUrl(config.baseUrl, path, config.aiProxyEnabled);
 }
 
 function aiHeaders(config: AiConfig) {

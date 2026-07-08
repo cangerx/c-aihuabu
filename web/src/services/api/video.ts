@@ -5,7 +5,7 @@ import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/fil
 import { imageToDataUrl } from "@/services/image-storage";
 import { isGrokImagineApiFormat, isGrokImagineVideo15Model, isGrokImagineVideoModel, normalizeGrokImagineVideoDuration, normalizeGrokImagineVideoRatio, normalizeGrokImagineVideoResolution } from "@/lib/grok-imagine";
 import { boolConfig, buildSeedancePromptText, caiVideoModelCapabilities, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
-import { buildAiApiUrl, modelOptionName, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
+import { buildAiApiUrl, buildProxiedUrl, modelOptionName, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
@@ -27,7 +27,7 @@ export type VideoGenerationTaskState = { status: "pending" } | { status: "comple
 
 function aiApiUrl(config: AiConfig, path: string) {
     if (config.apiFormat === "duomiapi") return duomiApiUrl(config, path);
-    return buildAiApiUrl(config.baseUrl, path);
+    return buildAiApiUrl(config.baseUrl, path, config.aiProxyEnabled);
 }
 
 function duomiApiUrl(config: AiConfig, path: string) {
@@ -38,7 +38,7 @@ function duomiApiUrl(config: AiConfig, path: string) {
         .replace(/\/api\/v3$/i, "");
     const normalizedPath = path.startsWith("/") ? path : `/${path}`;
     const prefix = normalizedPath.startsWith("/contents/") ? "/api/v3" : "/v1";
-    return `${baseUrl}${prefix}${normalizedPath}`;
+    return buildProxiedUrl(`${baseUrl}${prefix}${normalizedPath}`, config.aiProxyEnabled);
 }
 
 function aiHeaders(config: AiConfig, contentType?: string) {
@@ -517,7 +517,7 @@ function assertSeedanceAudioReferences(audioReferences: ReferenceAudio[]) {
 }
 
 function seedanceApiUrl(config: AiConfig, taskId?: string) {
-    return buildAiApiUrl(config.baseUrl, `/contents/generations/tasks${taskId ? `/${encodeURIComponent(taskId)}` : ""}`);
+    return buildAiApiUrl(config.baseUrl, `/contents/generations/tasks${taskId ? `/${encodeURIComponent(taskId)}` : ""}`, config.aiProxyEnabled);
 }
 
 async function buildSeedanceContent(config: AiConfig, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions) {

@@ -1,11 +1,11 @@
 ---
 title: Docker 部署
-description: 使用 Docker Compose 部署静态前端
+description: 使用 Docker Compose 部署静态前端和同域 AI 代理
 ---
 
 # Docker 部署
 
-如果你希望在自己的机器或服务器上运行主应用，可以直接使用 Docker Compose。镜像会构建 `web/` Vite 静态产物，并用 nginx 提供页面。
+如果你希望在自己的机器或服务器上运行主应用，可以直接使用 Docker Compose。镜像会构建 `web/` Vite 静态产物，用 nginx 提供页面，并启动一个 Go 服务提供 `/api/proxy` 同域 AI 请求代理。
 
 ## 使用 Docker Compose
 
@@ -49,6 +49,6 @@ docker compose -f docker-compose.local.yml up -d --build
 
 ## 数据说明
 
-当前主应用镜像只提供静态文件。画布、我的素材、生成记录和 AI API Key 默认保存在浏览器本地；第三方提示词由浏览器直拉 GitHub Raw 后缓存在本地 IndexedDB，不需要额外挂载数据目录。
+当前主应用镜像提供静态文件和可选 AI 请求代理。画布、我的素材、生成记录和 AI API Key 默认保存在浏览器本地；第三方提示词由浏览器直拉 GitHub Raw 后缓存在本地 IndexedDB，不需要额外挂载数据目录。
 
-Docker 运行时环境变量不会注入已构建的前端页面；需要变更文档链接等前端变量时，请在构建前使用 `VITE_*` 环境变量。静态版不包含账号后端、AI 请求代理、服务端临时上传和 WebDAV 转发。
+Docker 运行时环境变量不会注入已构建的前端页面；需要变更文档链接等前端变量时，请在构建前使用 `VITE_*` 环境变量。镜像内置的 `/api/proxy` 只转发用户配置的 AI 上游请求，不提供账号后端、服务端临时上传或 WebDAV 转发。

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## v0.4.23 - 2026-07-08
+
++ [新增] 增加 Go 同域 AI 请求代理 `/api/proxy`，Docker 镜像同时运行 nginx 静态站点和 Go 代理，静态前端可在配置中切换浏览器直连/同域代理以规避上游 CORS 限制。
+
 ## v0.4.22 - 2026-07-08
 
 + [修复] 移除 Vite 手动 vendor 分包，修复线上 Ant Design 依赖初始化时报 `useLayoutEffect` 为空导致首页空白的问题。

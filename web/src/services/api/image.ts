@@ -317,7 +317,7 @@ function withSystemPrompt(config: AiConfig, prompt: string) {
 }
 
 function aiApiUrl(config: AiConfig, path: string) {
-    return buildAiApiUrl(config.baseUrl, path);
+    return buildAiApiUrl(config.baseUrl, path, config.aiProxyEnabled);
 }
 
 function aiHeaders(config: AiConfig, contentType?: string) {
@@ -337,10 +337,10 @@ function geminiModelName(model: string) {
     return model.trim().replace(/^models\//, "");
 }
 
-function geminiApiUrl(config: Pick<AiConfig, "baseUrl" | "model">, action?: "generateContent" | "streamGenerateContent") {
+function geminiApiUrl(config: Pick<AiConfig, "baseUrl" | "model"> & Partial<Pick<AiConfig, "aiProxyEnabled">>, action?: "generateContent" | "streamGenerateContent") {
     const baseUrl = geminiBaseUrl(config);
     const targetUrl = !action ? `${baseUrl}/models` : `${baseUrl}/models/${encodeURIComponent(geminiModelName(config.model))}:${action}`;
-    return buildProxiedUrl(targetUrl);
+    return buildProxiedUrl(targetUrl, config.aiProxyEnabled);
 }
 
 function geminiHeaders(config: Pick<AiConfig, "apiKey">) {

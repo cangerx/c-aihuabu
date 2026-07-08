@@ -557,8 +557,16 @@ export function AppConfigModal() {
                         children: (
                             <Form layout="vertical" requiredMark={false}>
                                 <div className="grid gap-4 md:grid-cols-4">
-                                    <Form.Item label="请求方式" extra="静态前端版本不包含 Next.js 服务端代理，AI 渠道必须支持浏览器 CORS 跨域。" className="mb-4 md:col-span-4">
-                                        <Segmented block value="direct" options={[{ label: "浏览器直连", value: "direct" }]} />
+                                    <Form.Item label="请求方式" extra="浏览器直连要求渠道支持 CORS；同域代理会经由本服务 /api/proxy 转发到上游，适合不支持 CORS 的渠道。" className="mb-4 md:col-span-4">
+                                        <Segmented
+                                            block
+                                            value={config.aiProxyEnabled ? "proxy" : "direct"}
+                                            options={[
+                                                { label: "浏览器直连", value: "direct" },
+                                                { label: "同域代理", value: "proxy" },
+                                            ]}
+                                            onChange={(value) => updateConfig("aiProxyEnabled", value === "proxy")}
+                                        />
                                     </Form.Item>
                                     <Form.Item label="画布默认生图张数" extra="新建画布生图和配置节点默认使用，单个节点仍可单独覆盖。" className="mb-4">
                                         <Input
