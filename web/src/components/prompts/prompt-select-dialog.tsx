@@ -68,7 +68,7 @@ export function PromptSelectDialog({ open, onOpenChange, onSelect }: { open: boo
                 </div>
                 
                 {/* Clean, standardized filter interface inside Dialog */}
-                <div className="grid gap-3 bg-stone-50/50 border border-stone-150 p-4 rounded-xl dark:bg-stone-900/10 dark:border-stone-850">
+                <div className="grid gap-3 bg-stone-50/50 border border-stone-200 p-4 rounded-xl dark:bg-stone-900/10 dark:border-stone-800">
                     <div className="grid gap-2 sm:grid-cols-[56px_minmax(0,1fr)] sm:items-center">
                         <div className="text-xs font-semibold text-stone-500 dark:text-stone-400">分类</div>
                         <div className="flex flex-wrap gap-1 bg-stone-100/80 p-0.5 rounded-lg dark:bg-stone-900/60 w-fit border border-stone-200/30 dark:border-stone-800/20">
@@ -79,10 +79,10 @@ export function PromptSelectDialog({ open, onOpenChange, onSelect }: { open: boo
                                         key={category}
                                         type="button"
                                         className={cn(
-                                            "px-3 py-1 text-xs font-medium rounded-md transition-all duration-155 cursor-pointer",
+                                            "px-3 py-1 text-xs font-medium rounded-md transition-all duration-150 cursor-pointer",
                                             active 
                                                 ? "bg-white text-stone-950 shadow-sm dark:bg-stone-800 dark:text-stone-50 font-semibold" 
-                                                : "text-stone-500 hover:text-stone-855 dark:text-stone-450 dark:hover:text-stone-205"
+                                                : "text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-200"
                                         )}
                                         onClick={() => setSelectedCategory(category)}
                                     >

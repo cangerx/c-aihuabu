@@ -54,6 +54,10 @@ func main() {
 
 func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	writeCors(w, r)
+	if !isSameOrigin(r) {
+		http.Error(w, "origin is not allowed", http.StatusForbidden)
+		return
+	}
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -121,6 +125,18 @@ func copyResponseBody(w http.ResponseWriter, body io.Reader) error {
 	}
 }
 
+func isSameOrigin(r *http.Request) bool {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	return strings.EqualFold(u.Host, r.Host)
+}
+
 func isAllowedMethod(method string) bool {
 	switch method {
 	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
@@ -164,11 +180,8 @@ var upstreamHTTPClient = &http.Client{
 		return err
 	},
 	Transport: &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           safeDialContext,
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          100,
 		MaxIdleConnsPerHost:   20,
@@ -176,6 +189,24 @@ var upstreamHTTPClient = &http.Client{
 		TLSHandshakeTimeout:   20 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 	},
+}
+
+func safeDialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, err
+	}
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
+	if err != nil {
+		return nil, err
+	}
+	for _, ip := range ips {
+		if isPrivateIP(ip) {
+			return nil, errors.New("private target is not allowed")
+		}
+	}
+	dialer := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
+	return dialer.DialContext(ctx, network, net.JoinHostPort(host, port))
 }
 
 func copyRequestHeaders(dst, src http.Header) {

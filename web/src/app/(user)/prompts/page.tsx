@@ -63,7 +63,7 @@ export default function PromptsPage() {
     };
 
     return (
-        <div className="flex h-full flex-col overflow-hidden bg-background text-stone-850 dark:text-stone-100">
+        <div className="flex h-full flex-col overflow-hidden bg-background text-stone-900 dark:text-stone-100">
             <main
                 className="min-h-0 flex-1 overflow-y-auto bg-background bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] px-6 py-8 [background-size:16px_16px] dark:bg-[radial-gradient(rgba(245,245,244,.16)_1px,transparent_1px)]"
                 onScroll={handleListScroll}
@@ -79,7 +79,7 @@ export default function PromptsPage() {
                             <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-400 border border-indigo-100/50 dark:border-indigo-900/20 mb-3 select-none">
                                 ⚡️ Prompt Hub
                             </span>
-                            <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-stone-950 via-stone-850 to-stone-750 bg-clip-text text-transparent dark:from-stone-50 dark:via-stone-200 dark:to-stone-350 sm:text-4xl">
+                            <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-stone-950 via-stone-800 to-stone-700 bg-clip-text text-transparent dark:from-stone-50 dark:via-stone-200 dark:to-stone-300 sm:text-4xl">
                                 提示词中心
                             </h1>
                             <p className="mt-3 text-sm text-stone-500 dark:text-stone-400">
@@ -123,7 +123,7 @@ export default function PromptsPage() {
                                                         "px-3.5 py-1.5 text-xs font-medium rounded-md transition-all duration-150 cursor-pointer",
                                                         active 
                                                             ? "bg-white text-stone-950 shadow-sm dark:bg-stone-800 dark:text-stone-50 font-semibold" 
-                                                            : "text-stone-500 hover:text-stone-850 dark:text-stone-450 dark:hover:text-stone-200"
+                                                            : "text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-200"
                                                     )}
                                                     onClick={() => setSelectedCategory(category)}
                                                 >
@@ -159,7 +159,7 @@ export default function PromptsPage() {
                                         {visibleTags.length > 15 ? (
                                             <button
                                                 type="button"
-                                                className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-750 dark:text-indigo-405 dark:hover:text-indigo-300 cursor-pointer transition-colors"
+                                                className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 cursor-pointer transition-colors"
                                                 onClick={() => setTagsExpanded((value) => !value)}
                                             >
                                                 {tagsExpanded ? "收起标签" : `展开全部 (${visibleTags.length - 1} 个标签)`}

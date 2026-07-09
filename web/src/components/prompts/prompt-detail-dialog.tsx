@@ -25,7 +25,7 @@ export function PromptDetailDialog({ prompt, onClose, onCopy, onSaveAsset }: { p
                     {/* Header Details */}
                     <div className="mb-6 flex flex-col gap-2">
                         <div className="flex items-center gap-2">
-                            <span className="inline-flex items-center gap-1 rounded bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-650 dark:bg-indigo-950/40 dark:text-indigo-400">
+                            <span className="inline-flex items-center gap-1 rounded bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-400">
                                 <Sparkles className="size-3" />
                                 {CATEGORY_MAP[prompt.category] || prompt.category}
                             </span>
@@ -38,7 +38,7 @@ export function PromptDetailDialog({ prompt, onClose, onCopy, onSaveAsset }: { p
                     <div className="grid gap-6 md:grid-cols-[280px_minmax(0,1fr)]">
                         {/* Left Side: Preview Asset & Image */}
                         <div className="flex flex-col gap-4">
-                            <div className="overflow-hidden rounded-xl border border-stone-150 bg-stone-50 dark:border-stone-850 dark:bg-stone-950 shadow-sm">
+                            <div className="overflow-hidden rounded-xl border border-stone-200 bg-stone-50 dark:border-stone-800 dark:bg-stone-950 shadow-sm">
                                 <img src={prompt.coverUrl} alt={prompt.title} className="aspect-[4/3] w-full object-cover" />
                             </div>
                             
@@ -48,7 +48,7 @@ export function PromptDetailDialog({ prompt, onClose, onCopy, onSaveAsset }: { p
                                         <Terminal className="size-3" />
                                         <span>输出预览</span>
                                     </div>
-                                    <pre className="max-h-52 overflow-y-auto rounded-lg border border-stone-100 bg-stone-50 p-2.5 font-mono text-[10px] leading-relaxed text-stone-600 dark:border-stone-850 dark:bg-stone-950/50 dark:text-stone-450 thin-scrollbar whitespace-pre-wrap">
+                                    <pre className="max-h-52 overflow-y-auto rounded-lg border border-stone-100 bg-stone-50 p-2.5 font-mono text-[10px] leading-relaxed text-stone-600 dark:border-stone-800 dark:bg-stone-950/50 dark:text-stone-400 thin-scrollbar whitespace-pre-wrap">
                                         {prompt.preview}
                                     </pre>
                                 </div>
@@ -80,14 +80,14 @@ export function PromptDetailDialog({ prompt, onClose, onCopy, onSaveAsset }: { p
                                 <div className="mb-2 text-[11px] font-bold text-stone-400 dark:text-stone-500 uppercase tracking-wider">
                                     提示词内容
                                 </div>
-                                <div className="whitespace-pre-wrap text-sm leading-relaxed text-stone-850 dark:text-stone-200 select-all max-h-60 overflow-y-auto thin-scrollbar">
+                                <div className="whitespace-pre-wrap text-sm leading-relaxed text-stone-900 dark:text-stone-200 select-all max-h-60 overflow-y-auto thin-scrollbar">
                                     {prompt.prompt}
                                 </div>
                             </div>
 
                             {/* Meta & Actions Footer */}
-                            <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-t border-stone-100 dark:border-stone-850 pt-4">
-                                <div className="text-[11px] text-stone-400 dark:text-stone-550 flex items-center gap-1.5">
+                            <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-t border-stone-100 dark:border-stone-800 pt-4">
+                                <div className="text-[11px] text-stone-400 dark:text-stone-500 flex items-center gap-1.5">
                                     {hasDate ? (
                                         <>
                                             <Calendar className="size-3" />

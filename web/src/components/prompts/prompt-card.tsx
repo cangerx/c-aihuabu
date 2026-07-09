@@ -42,7 +42,7 @@ export function PromptCard({
                 <div className="flex items-start justify-between gap-3">
                     <button 
                         type="button" 
-                        className="text-left font-semibold text-stone-950 hover:text-indigo-650 dark:text-stone-100 dark:hover:text-indigo-400 text-sm line-clamp-1 cursor-pointer transition-colors"
+                        className="text-left font-semibold text-stone-950 hover:text-indigo-600 dark:text-stone-100 dark:hover:text-indigo-400 text-sm line-clamp-1 cursor-pointer transition-colors"
                         onClick={onOpen}
                     >
                         {item.title}

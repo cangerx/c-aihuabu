@@ -9,7 +9,8 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 - Vite 静态前端迁移：`web/` 应通过 `bun run dev` 启动 Vite，通过 `bun run build` 生成 `web/dist`；首页、生图、视频、素材、提示词、画布列表、画布详情和 404 路由都应由 React Router 正常打开，刷新深层路由时 Docker/nginx 应回退到 `index.html`。
 - 静态版运行边界：配置页“请求方式”应显示“浏览器直连 / 同域代理”；升级后默认应选中同域代理，AI 请求应走 `/api/proxy?url=...`；手动切回浏览器直连时才直接请求上游；账号/云端个人渠道操作应提示静态版不包含账号后端；提示词页应由浏览器直拉 GitHub Raw 并写入本地缓存；WebDAV 只支持前端直连；Cai / Seedance / Lingdong / NewToken 等异步视频参考素材使用本地文件时应提示先上传到公网 HTTPS 地址。
-- Docker 静态镜像：`docker compose up -d --build` 应构建 Vite 产物并用 nginx 监听 3000，同时启动 Go 代理监听容器内 8787；`/healthz` 应返回 `ok`，`/api/proxy` 应能转发公网 http/https 上游，静态 JS/CSS 响应应支持 gzip。
+- Docker 静态镜像：`docker compose up -d --build` 应构建 Vite 产物并用 nginx 监听 3000，同时启动 Go 代理监听容器内 8787；`/healthz` 应返回 `ok`，`/api/proxy` 应能转发公网 http/https 上游、拒绝跨站 Origin 和私网目标，静态 JS/CSS 响应应支持 gzip。
+- 依赖与样式审计：`web/` 应只保留 `bun.lock` 作为前端锁文件，不再保留旧 `pnpm-lock.yaml`；提示词中心筛选、卡片和详情弹窗的颜色、hover 样式应正常显示。
 - 重构前核心功能盘点文档：新增 `docs/content/docs/backend/core-capability-inventory.mdx`，梳理当前页面、核心领域对象、本地持久化位置、AI 调用链、服务端能力、性能瓶颈和高性能重构边界；文档索引和开发文档导航应能看到“核心功能盘点”入口。
 - Grok Imagine 新模型：选择 `grok-imagine-image-quality` / `grok-imagine-image` 时，图像设置应切换为 `1k/2k` 和对应宽高比，提交 `/v1/images/generations` 与 `/v1/images/edits` 时应发送 `aspect_ratio` / `resolution` JSON；选择 `grok-imagine-video` / `grok-imagine-video-1.5` 时，视频设置应切换为 `480p/720p/1080p` 和对应宽高比，`grok-imagine-video-1.5` 在画布里不应再显示“图片参考”模式，只允许单图图生视频，1080p 只在允许的模型/模式下提交，多图编辑应按 `images` 数组提交且超过 3 张要直接报错。配置页“填入 Cai 视频模型”也应包含 `grok-imagine-video-1.5`，避免默认模型列表漏项。
 - Grok Imagine 图片结果落盘：Grok 图片生成/编辑请求应优先使用 `response_format=b64_json`，生图工作台和画布节点拿到结果后应转成本地可持久化资源；历史记录或第三方渠道仍返回外链图片 URL 时，应在浏览器 CORS 允许的情况下转存，转存失败也要保留原始 URL 用于显示。
