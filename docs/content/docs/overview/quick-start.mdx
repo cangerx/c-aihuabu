@@ -43,7 +43,7 @@ docker run --rm -p 3000:3000 infinite-canvas
 
 ## 首次使用建议
 
-- 先打开右上角配置弹窗，填入自己的 `Base URL`、`API Key` 和模型名；默认“浏览器直连”，渠道不支持 CORS 时可在 Docker 部署下切到“同域代理”。
+- 先打开右上角配置弹窗，填入自己的 `Base URL`、`API Key` 和模型名；Docker 部署默认“同域代理”，纯静态托管或渠道已开放 CORS 时可切到“浏览器直连”。
 - 如果需要提示词仓库内容，打开 `/prompts` 会由浏览器直拉 GitHub Raw，并缓存在本地 IndexedDB。
 - 如果需要跨设备同步画布、素材和生成记录，可在配置弹窗中填写 WebDAV；静态版只支持 WebDAV 服务自身开放 CORS 的前端直连。
 

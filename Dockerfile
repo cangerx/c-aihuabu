@@ -29,6 +29,12 @@ server {
     root /usr/share/nginx/html;
     index index.html;
     client_max_body_size 200m;
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_comp_level 6;
+    gzip_proxied any;
+    gzip_types text/plain text/css application/javascript application/json image/svg+xml;
 
     location = /api/proxy {
         proxy_pass http://127.0.0.1:8787;

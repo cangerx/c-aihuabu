@@ -66,7 +66,7 @@ const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
 
 export const defaultConfig: AiConfig = {
     channelMode: "local",
-    aiProxyEnabled: false,
+    aiProxyEnabled: true,
     baseUrl: OPENAI_BASE_URL,
     apiKey: "",
     apiFormat: "openai",
@@ -204,7 +204,7 @@ export const useConfigStore = create<ConfigStore>()(
         }),
         {
             name: CONFIG_STORE_KEY,
-            version: 1,
+            version: 2,
             migrate: (persistedState: any, version: number) => {
                 if (version < 1) {
                     if (persistedState && persistedState.config) {
@@ -212,6 +212,9 @@ export const useConfigStore = create<ConfigStore>()(
                             persistedState.config.canvasImageCount = "1";
                         }
                     }
+                }
+                if (version < 2 && persistedState?.config) {
+                    persistedState.config.aiProxyEnabled = true;
                 }
                 return persistedState;
             },
@@ -230,7 +233,7 @@ export const useConfigStore = create<ConfigStore>()(
                     config: {
                         ...config,
                         channelMode: "local",
-                        aiProxyEnabled: Boolean(config.aiProxyEnabled),
+                        aiProxyEnabled: config.aiProxyEnabled !== false,
                         apiFormat: normalizeApiFormat(config.apiFormat),
                         channels,
                         models,

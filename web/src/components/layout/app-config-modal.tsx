@@ -557,7 +557,7 @@ export function AppConfigModal() {
                         children: (
                             <Form layout="vertical" requiredMark={false}>
                                 <div className="grid gap-4 md:grid-cols-4">
-                                    <Form.Item label="请求方式" extra="浏览器直连要求渠道支持 CORS；同域代理会经由本服务 /api/proxy 转发到上游，适合不支持 CORS 的渠道。" className="mb-4 md:col-span-4">
+                                    <Form.Item label="请求方式" extra="默认使用同域代理，经由本服务 /api/proxy 转发到上游，避免渠道 CORS 限制；纯静态托管或渠道已开放 CORS 时可切回浏览器直连。" className="mb-4 md:col-span-4">
                                         <Segmented
                                             block
                                             value={config.aiProxyEnabled ? "proxy" : "direct"}
