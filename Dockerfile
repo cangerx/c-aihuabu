@@ -53,11 +53,28 @@ server {
         proxy_pass http://127.0.0.1:8787;
     }
 
+    location = /index.html {
+        add_header Cache-Control "no-store";
+    }
+
     location / {
+        add_header Cache-Control "no-store";
         try_files $uri $uri/ /index.html;
     }
 
-    location ~* \.(?:js|css|png|jpg|jpeg|gif|svg|webp|ico|woff2?)$ {
+    location ~* \.js$ {
+        try_files $uri @chunk_reload;
+        expires 7d;
+        add_header Cache-Control "public, immutable";
+    }
+
+    location @chunk_reload {
+        default_type application/javascript;
+        add_header Cache-Control "no-store";
+        return 200 'const key="infinite-canvas:missing-chunk-reload:"+location.pathname+":"+import.meta.url;try{if(!sessionStorage.getItem(key)){sessionStorage.setItem(key,"1");location.reload();}}catch{location.reload();}export function AppConfigModal(){return null;}export default function MissingChunk(){return null;}';
+    }
+
+    location ~* \.(?:css|png|jpg|jpeg|gif|svg|webp|ico|woff2?)$ {
         try_files $uri =404;
         expires 7d;
         add_header Cache-Control "public, immutable";

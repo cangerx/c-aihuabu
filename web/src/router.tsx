@@ -3,6 +3,7 @@ import { createBrowserRouter, Outlet } from "react-router-dom";
 
 import UserLayout from "@/app/(user)/layout";
 import NotFound from "@/app/not-found";
+import { RouteErrorBoundary } from "@/components/route-error-boundary";
 
 const HomePage = lazy(() => import("@/app/(user)/page"));
 const ImagePage = lazy(() => import("@/app/(user)/image/page"));
@@ -23,6 +24,7 @@ export const router = createBrowserRouter([
                 <Outlet />
             </UserLayout>
         ),
+        errorElement: <RouteErrorBoundary />,
         children: [
             { path: "/", element: route(<HomePage />) },
             { path: "/image", element: route(<ImagePage />) },
@@ -33,5 +35,5 @@ export const router = createBrowserRouter([
             { path: "/canvas/:id", element: route(<CanvasClientPage />) },
         ],
     },
-    { path: "*", element: <NotFound /> },
+    { path: "*", element: <NotFound />, errorElement: <RouteErrorBoundary /> },
 ]);

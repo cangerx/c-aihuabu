@@ -18,7 +18,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 - StepFun `step-image-edit-2`：选择该模型时，图像设置应切换为文档里的固定尺寸 `1024x1024`、`768x1360`、`896x1184`、`1360x768`、`1184x896`；提交 `/v1/images/generations` 时应自动补上 `cfg_scale=1.0`、`steps=8` 和选中的 `size`，提交 `/v1/images/edits` 时也应走该模型的专用落参，尺寸显示和节点比例要同步归一化，尺寸卡片预览也不能再报 `SizePreview is not defined`。
 - 同步生图请求方式：关闭同域代理时，同步 `/v1/images/generations` 或 `/v1/images/edits` 应直接请求用户配置的 Base URL；开启同域代理时应请求同域 `/api/proxy`，浏览器不应再出现上游 CORS 报错。
 - 同步图片直连稳定性：静态版不再产生 `[ai-proxy-task]` 服务端日志；Network 中不应出现 `/api/ai-proxy` 请求。
-- 前端缓存更新：部署新版本后重新打开页面，Network 里不应再出现旧 `/api/ai-proxy`、`/api/uploads` 或 `/webdav-proxy` 请求；如果浏览器仍加载旧脚本，需要刷新或清理缓存。
+- 前端缓存更新：部署新版本后重新打开页面，Network 里不应再出现旧 `/api/ai-proxy`、`/api/uploads` 或 `/webdav-proxy` 请求；如果旧页面尝试加载已不存在的动态 JS chunk，应由 nginx fallback 或路由错误兜底自动刷新一次并恢复到新入口，不应显示 React Router 默认错误页。
 - 对应提交范围：`d6b430f` 起到当前最新提交，重点覆盖脚本生成器、参考图片托管和视频提交链路。
 - 画布脚本生成器：新建“脚本生成器”节点，测试三种模式“主题分镜 / 参考图文案 / 图文转视频”；点击节点内“上传参考图”后，应自动创建图片节点并连线到脚本生成器；只上传图片不输入文字时，也应能生成文案分析摘要和分镜卡片；点击“拆分镜头”后，应生成“镜头文本 -> 图片节点 -> 视频节点”的工作流。
 - 视频参考图片提交：从画布图片节点连接到视频节点后提交时，Cai / NewToken / duomiapi / Seedance / Lingdong 等需要服务端回源的异步接口应只接受公网 HTTPS URL；本地 `blob:` 或 dataURL 应在前端直接提示先上传到对象存储。
