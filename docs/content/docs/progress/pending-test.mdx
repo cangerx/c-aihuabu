@@ -7,9 +7,18 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 ## 本轮重点测试
 
+- 同域代理 Origin 校验：通过域名、带端口域名、Docker 外层反代和本地 `bun run dev`（Vite → 8787）访问时，开启同域代理后的同步生图不应再出现 `origin is not allowed`；若代理仍 403，前端应提示来源被拒绝而不是笼统鉴权失败。外层反代需透传 `Host`（或 `X-Forwarded-Host`）为浏览器访问域名。
+- 同步生图结果即时展示：`gpt-image-2` 等通用模型应优先按 `response_format=url` 请求；上游返回图片 URL 后工作台和画布应立即结束“生成中”并显示图片，不再等待本地下载完整落盘；若返回 `b64_json` 应转成可展示的 PNG/blob 后立刻显示。
+- Grok Imagine 图片尺寸：选择 `grok-imagine-image` / `grok-imagine-image-lite` / `grok-imagine-image-quality` 时，生图工作台与画布尺寸组件应动态切换为 `1k/2k` + 宽高比（不依赖渠道 apiFormat）；摘要标签同步显示对应比例；提交 `/v1/images/generations` 与 `/v1/images/edits` 时应发送 `aspect_ratio` / `resolution`。
+- 画布一键优化提示词：魔法棒应调用配置的文本模型；输入框有文字时优化提示词；无文字但节点/参考素材有图片时反推图片提示词；两者都没有时应提示先输入或连接参考图；请求走非流式 chat/completions（失败再回退 /responses），约 90s 超时后应提示失败而不是一直转圈；完成后写回输入框。
+- 生图工作台缩略图：生成成功后右侧结果卡与左侧历史记录应显示缩略图；刷新页面后历史记录仍能通过 storageKey 解析出缩略图，不应因 blob: URL 失效而空白。
+- Grok/原生生图结果：上游约十几秒返回后本地应立刻显示；Grok 请求优先 `url`，响应含 `data[].url` / `b64_json` 或顶层 `url` 都能解析；若上游返回 `Generated image rejected by content moderation` 应直接提示该文案。
+- URL 先显后下：远程图片 URL 应立即显示在结果卡/画布节点；浏览器空闲后再后台下载到本地 IndexedDB；下载完成后结果卡切换为本地 blob，刷新后历史缩略图仍可显示。
 - Vite 静态前端迁移：`web/` 应通过 `bun run dev` 启动 Vite，通过 `bun run build` 生成 `web/dist`；首页、生图、视频、素材、提示词、画布列表、画布详情和 404 路由都应由 React Router 正常打开，刷新深层路由时 Docker/nginx 应回退到 `index.html`。
 - 静态版运行边界：配置页“请求方式”应显示“浏览器直连 / 同域代理”；升级后默认应选中同域代理，AI 请求应走 `/api/proxy?url=...`；手动切回浏览器直连时才直接请求上游；账号/云端个人渠道操作应提示静态版不包含账号后端；提示词页应由浏览器直拉 GitHub Raw 并写入本地缓存；WebDAV 只支持前端直连；Cai / Seedance / Lingdong / NewToken 等异步视频参考素材使用本地文件时应提示先上传到公网 HTTPS 地址。
 - Docker 静态镜像：`docker compose up -d --build` 应构建 Vite 产物并用 nginx 监听 3000，同时启动 Go 代理监听容器内 8787；`/healthz` 应返回 `ok`，`/api/proxy` 应能转发公网 http/https 上游、拒绝跨站 Origin 和私网目标，静态 JS/CSS 响应应支持 gzip。
+- 同域 AI 代理请求头清洗：经 CDN/反代访问 `/api/proxy?url=...` 时，不应把 `Cdn-Loop`、`Eo-*`、`X-Forwarded-*`、`X-Real-IP`、`Range` 等边缘节点头继续透传给上游；图片同步请求如果遇到线上代理返回 nginx HTML 403/502/504，应优先自动直连当前渠道 URL 兜底，688.qzz.io 这类已开放 CORS 的渠道不应再因代理链路 403 直接失败。
+- AI 上游错误提示：图片、视频和音频请求遇到上游 JSON 错误时，应优先展示上游返回的 `message` / `msg` / `error.message`，例如 `Invalid token`；只有上游没有返回可读错误正文时，才显示“鉴权失败，请检查 Key、套餐权限或模型权限”等兜底文案。
 - 依赖与样式审计：`web/` 应只保留 `bun.lock` 作为前端锁文件，不再保留旧 `pnpm-lock.yaml`；提示词中心筛选、卡片和详情弹窗的颜色、hover 样式应正常显示。
 - 重构前核心功能盘点文档：新增 `docs/content/docs/backend/core-capability-inventory.mdx`，梳理当前页面、核心领域对象、本地持久化位置、AI 调用链、服务端能力、性能瓶颈和高性能重构边界；文档索引和开发文档导航应能看到“核心功能盘点”入口。
 - Grok Imagine 新模型：选择 `grok-imagine-image-quality` / `grok-imagine-image` 时，图像设置应切换为 `1k/2k` 和对应宽高比，提交 `/v1/images/generations` 与 `/v1/images/edits` 时应发送 `aspect_ratio` / `resolution` JSON；选择 `grok-imagine-video` / `grok-imagine-video-1.5` 时，视频设置应切换为 `480p/720p/1080p` 和对应宽高比，`grok-imagine-video-1.5` 在画布里不应再显示“图片参考”模式，只允许单图图生视频，1080p 只在允许的模型/模式下提交，多图编辑应按 `images` 数组提交且超过 3 张要直接报错。配置页“填入 Cai 视频模型”也应包含 `grok-imagine-video-1.5`，避免默认模型列表漏项。

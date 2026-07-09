@@ -14,14 +14,14 @@ import { imageReferenceLabel } from "@/lib/image-reference-prompt";
 import { modelOptionLabel, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { nanoid } from "nanoid";
-import { formatBytes, formatDuration, getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
+import { formatBytes, formatDuration, getDataUrlByteSize } from "@/lib/image-utils";
 import { requestEdit, requestGeneration } from "@/services/api/image";
-import { deleteStoredImages, persistImageUrl, proxiedImageDisplayUrl, resolveImageUrl, uploadImage } from "@/services/image-storage";
+import { deleteStoredImages, persistImageUrl, persistImageUrlInBackground, prepareImageForDisplay, resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { useAssetStore } from "@/stores/use-asset-store";
 import type { ReferenceImage } from "@/types/image";
 import type { CanvasResourceReference } from "@/app/(user)/canvas/utils/canvas-resource-references";
 import { imageSizeLabel } from "@/components/image-settings-panel";
-import { isGrokImagineImageConfig, normalizeGrokImagineImageResolution } from "@/lib/grok-imagine";
+import { isGrokImagineImageConfig, normalizeGrokImagineImageRatio, normalizeGrokImagineImageResolution } from "@/lib/grok-imagine";
 import { isStepImageEdit2Config, normalizeStepImageEdit2Size } from "@/lib/step-image";
 
 type GeneratedImage = {
@@ -156,6 +156,32 @@ export default function ImagePage() {
         return storedImage;
     };
 
+    const showResultImage = async (image: GeneratedImage, index: number, logId?: string, onLocalStored?: (index: number, image: GeneratedImage) => void) => {
+        // URL 立即展示；有 storageKey 的 b64 结果已落盘；远程 URL 后台慢慢下载
+        if (!logId || (!deletedLogIdsRef.current.has(logId) && !stoppedLogIdsRef.current.has(logId))) {
+            setResults((value) => updateResultAt(value, index, { status: "success", image }));
+        }
+        const remoteSource = /^https?:\/\//i.test(image.dataUrl) ? image.dataUrl : "";
+        if (remoteSource && !image.storageKey) {
+            persistImageUrlInBackground(remoteSource, (stored) => {
+                if (logId && (deletedLogIdsRef.current.has(logId) || stoppedLogIdsRef.current.has(logId))) return;
+                const localImage: GeneratedImage = {
+                    ...image,
+                    dataUrl: stored.url,
+                    storageKey: stored.storageKey,
+                    width: stored.width || image.width,
+                    height: stored.height || image.height,
+                    bytes: stored.bytes || image.bytes,
+                    mimeType: stored.mimeType || image.mimeType,
+                };
+                setResults((value) => updateResultAt(value, index, { status: "success", image: localImage }));
+                onLocalStored?.(index, localImage);
+                if (logId) void patchLogImageLocal(logId, index, localImage);
+            });
+        }
+        return image;
+    };
+
     const generate = async () => {
         const text = prompt.trim();
         if (!text) {
@@ -213,10 +239,13 @@ export default function ImagePage() {
             runGenerationSlot(index, snapshot, pendingLog.id)
                 .then(async (image) => {
                     if (deletedLogIdsRef.current.has(pendingLog.id) || stoppedLogIdsRef.current.has(pendingLog.id)) return image;
-                    const storedImage = await persistResultImage(image, index, pendingLog.id);
-                    slotImages[index] = storedImage;
+                    const shown = await showResultImage(image, index, pendingLog.id, (slotIndex, localImage) => {
+                        slotImages[slotIndex] = localImage;
+                        void updatePendingLog(stoppedLogIdsRef.current.has(pendingLog.id) ? "失败" : "成功");
+                    });
+                    slotImages[index] = shown;
                     await updatePendingLog("生成中");
-                    return storedImage;
+                    return shown;
                 })
                 .catch(async (error) => {
                     slotErrors[index] = error instanceof Error ? error.message : "生成失败";
@@ -395,8 +424,17 @@ export default function ImagePage() {
             if (controller?.signal.aborted || (logId && (deletedLogIdsRef.current.has(logId) || stoppedLogIdsRef.current.has(logId)))) throw new DOMException("Aborted", "AbortError");
             const image = result[0];
             if (!image) throw new Error("接口没有返回图片");
-            const meta = await readImageMeta(image.dataUrl);
-            const nextImage = { id: image.id, dataUrl: image.dataUrl, durationMs: performance.now() - itemStartedAt, width: meta.width, height: meta.height, bytes: getDataUrlByteSize(image.dataUrl) };
+            const display = await prepareImageForDisplay(image.dataUrl);
+            const nextImage = {
+                id: image.id,
+                dataUrl: display.url,
+                storageKey: display.storageKey,
+                durationMs: performance.now() - itemStartedAt,
+                width: display.width,
+                height: display.height,
+                bytes: display.bytes || getDataUrlByteSize(image.dataUrl),
+                mimeType: display.mimeType,
+            };
             if (!logId || !deletedLogIdsRef.current.has(logId)) setResults((value) => updateResultAt(value, index, { status: "success", image: nextImage }));
             return nextImage;
         } catch (error) {
@@ -412,7 +450,7 @@ export default function ImagePage() {
         setPreviewLog(null);
         setResults((value) => updateResultAt(value, index, { status: "pending", error: undefined, image: undefined }));
         void runGenerationSlot(index, snapshot)
-            .then((image) => persistResultImage(image, index))
+            .then((image) => showResultImage(image, index, undefined))
             .catch(() => {});
     };
 
@@ -616,10 +654,28 @@ export default function ImagePage() {
 
 async function persistGeneratedImage(image: GeneratedImage) {
     try {
+        if (image.storageKey) {
+            const url = await resolveImageUrl(image.storageKey, image.dataUrl);
+            return { ...image, dataUrl: url || image.dataUrl };
+        }
         const stored = await persistImageUrl(image.dataUrl);
         return { ...image, dataUrl: stored.url, storageKey: stored.storageKey, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType };
     } catch {
         return image;
+    }
+}
+
+async function patchLogImageLocal(logId: string, index: number, localImage: GeneratedImage) {
+    try {
+        const current = await logStore.getItem<GenerationLog>(logId);
+        if (!current) return;
+        const images = [...(current.images || [])];
+        // 记录里可能只有成功图，按顺序对齐当前槽位
+        while (images.length <= index) images.push(localImage);
+        images[index] = { ...images[index], ...localImage, dataUrl: localImage.storageKey ? "" : localImage.dataUrl };
+        await logStore.setItem(logId, serializeLog({ ...current, images, successCount: images.filter(Boolean).length }));
+    } catch {
+        // 后台回写失败不影响当前展示
     }
 }
 
@@ -660,23 +716,41 @@ function ResultImageCard({
     onDownload: (image: GeneratedImage, index: number) => void;
     onSaveAsset: (image: GeneratedImage, index: number) => void;
 }) {
-    const [displayUrl, setDisplayUrl] = useState(image.dataUrl);
+    const [displayUrl, setDisplayUrl] = useState(image.dataUrl || "");
 
     useEffect(() => {
-        setDisplayUrl(image.dataUrl);
-    }, [image.dataUrl]);
+        let active = true;
+        const source = image.dataUrl || "";
+        if (source && (source.startsWith("blob:") || source.startsWith("data:") || /^https?:\/\//i.test(source))) {
+            setDisplayUrl(source);
+            return () => {
+                active = false;
+            };
+        }
+        void resolveImageUrl(image.storageKey, source).then((url) => {
+            if (active && url) setDisplayUrl(url);
+        });
+        return () => {
+            active = false;
+        };
+    }, [image.dataUrl, image.storageKey]);
 
     return (
         <div className="overflow-hidden rounded-lg border border-stone-200 bg-background dark:border-stone-800">
-            <Image
-                src={displayUrl}
-                alt={`生成结果 ${index + 1}`}
-                className="aspect-square object-cover"
-                onError={() => {
-                    const fallback = proxiedImageDisplayUrl(image.dataUrl);
-                    if (fallback !== displayUrl) setDisplayUrl(fallback);
-                }}
-            />
+            {displayUrl ? (
+                <Image
+                    src={displayUrl}
+                    alt={`生成结果 ${index + 1}`}
+                    className="aspect-square object-cover"
+                    onError={() => {
+                        void resolveImageUrl(image.storageKey, "").then((url) => {
+                            if (url && url !== displayUrl) setDisplayUrl(url);
+                        });
+                    }}
+                />
+            ) : (
+                <div className="flex aspect-square items-center justify-center bg-stone-50 text-xs text-stone-400 dark:bg-stone-900">加载中</div>
+            )}
             <div className="space-y-2 border-t border-stone-200 px-3 py-2.5 dark:border-stone-800">
                 <div className="flex min-w-0 gap-x-2 gap-y-1 text-xs text-stone-500 dark:text-stone-400">
                     <span>
@@ -770,6 +844,7 @@ function buildImageConfig(config: AiConfig, model: string): AiConfig {
         nextConfig = {
             ...nextConfig,
             quality: normalizeGrokImagineImageResolution(nextConfig.quality),
+            size: normalizeGrokImagineImageRatio(nextConfig.size),
         };
     }
     if (isStepImageEdit2Config(nextConfig)) {
@@ -844,7 +919,30 @@ function LogPanel({
 }
 
 function LogCard({ log, selected, active, onSelectedChange, onClick }: { log: GenerationLog; selected: boolean; active: boolean; onSelectedChange: (checked: boolean) => void; onClick: () => void }) {
-    const thumbnails = (log.thumbnails || []).filter(Boolean).slice(0, 4);
+    const [thumbnails, setThumbnails] = useState(() => (log.thumbnails || []).filter(Boolean).slice(0, 4));
+
+    useEffect(() => {
+        let active = true;
+        const cached = (log.thumbnails || []).filter((url) => url && (url.startsWith("blob:") || url.startsWith("data:") || /^https?:\/\//i.test(url))).slice(0, 4);
+        if (cached.length) {
+            setThumbnails(cached);
+            return () => {
+                active = false;
+            };
+        }
+        void Promise.all(
+            (log.images || []).slice(0, 4).map(async (image) => {
+                const url = await resolveImageUrl(image.storageKey, image.dataUrl);
+                if (url && (url.startsWith("blob:") || url.startsWith("data:") || /^https?:\/\//i.test(url))) return url;
+                return "";
+            }),
+        ).then((urls) => {
+            if (active) setThumbnails(urls.filter(Boolean));
+        });
+        return () => {
+            active = false;
+        };
+    }, [log.id, log.images, log.thumbnails]);
 
     return (
         <button
@@ -960,8 +1058,12 @@ function logToResults(log: GenerationLog): GenerationResult[] {
 function serializeLog(log: GenerationLog): GenerationLog {
     return {
         ...log,
-        references: log.references.map((item) => ({ ...item, dataUrl: item.storageKey ? "" : item.dataUrl })),
-        images: log.images.map((image) => ({ ...image, dataUrl: image.storageKey ? "" : image.dataUrl })),
+        references: log.references.map((item) => ({ ...item, dataUrl: item.storageKey ? "" : item.dataUrl.startsWith("blob:") ? "" : item.dataUrl })),
+        // 只持久化 storageKey / 可长期访问的 URL，避免 blob: 写入后失效导致缩略图空白
+        images: log.images.map((image) => ({
+            ...image,
+            dataUrl: image.storageKey ? "" : image.dataUrl.startsWith("blob:") ? "" : /^https?:\/\//i.test(image.dataUrl) || image.dataUrl.startsWith("data:") ? image.dataUrl : "",
+        })),
         thumbnails: [],
     };
 }

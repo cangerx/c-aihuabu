@@ -8,10 +8,12 @@ import { ModelPicker } from "@/components/model-picker";
 import { defaultConfig, modelOptionName, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { requestCreditCost } from "@/constant/credits";
 import { canvasThemes } from "@/lib/canvas-theme";
-import { isGrokImagineImageConfig, normalizeGrokImagineImageCount } from "@/lib/grok-imagine";
+import { isGrokImagineImageConfig, normalizeGrokImagineImageCount, normalizeGrokImagineImageRatio, normalizeGrokImagineImageResolution } from "@/lib/grok-imagine";
 import { isStepImageEdit2Config, normalizeStepImageEdit2Size } from "@/lib/step-image";
 import { caiVideoModelCapabilities, isSeedanceVideoModel } from "@/lib/seedance-video";
 import { useThemeStore } from "@/stores/use-theme-store";
+import { requestTextCompletion, type AiTextMessage } from "@/services/api/image";
+import { imageToDataUrl } from "@/services/image-storage";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
 import { PromptSelectDialog } from "@/components/prompts/prompt-select-dialog";
 import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "./canvas-audio-settings-popover";
@@ -51,7 +53,9 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     const [activeVideoTab, setActiveVideoTab] = useState<string>(node.metadata?.videoMode || "text-to-video");
     const [cameraMovement, setCameraMovement] = useState<string>(node.metadata?.cameraMovement || "自适应");
     const [mentionTriggerKey, setMentionTriggerKey] = useState(0);
+    const [optimizing, setOptimizing] = useState(false);
     const promptInputRef = useRef<HTMLTextAreaElement>(null);
+    const optimizeAbortRef = useRef<AbortController | null>(null);
 
     const imageRefs = mentionReferences.filter((r) => r.kind === "image");
     const videoRefs = mentionReferences.filter((r) => r.kind === "video");
@@ -144,6 +148,12 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
         setPrompt(node.metadata?.prompt || "");
     }, [node.id, node.metadata?.prompt]);
 
+    useEffect(() => {
+        return () => {
+            optimizeAbortRef.current?.abort();
+        };
+    }, [node.id]);
+
     const updatePrompt = (value: string) => {
         setPrompt(value);
         onPromptChange(node.id, value);
@@ -155,19 +165,46 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
         onGenerate(node.id, mode, text);
     };
 
-    const handleOptimizePrompt = () => {
-        if (!prompt.trim()) {
-            message.warning("请输入提示词后再进行优化");
+    const handleOptimizePrompt = async () => {
+        if (optimizing || isRunning) return;
+        const text = prompt.trim();
+        const textModel = globalConfig.textModel || globalConfig.model;
+        const textConfig = { ...globalConfig, model: textModel, imageModel: textModel };
+        if (!useConfigStore.getState().isAiConfigReady(textConfig, textModel)) {
+            message.warning("请先配置文本模型");
+            openConfigDialog(true);
             return;
         }
-        const enrichments = [
-            "cinematic lighting, ultra-detailed, 8k resolution, masterpiece, trending on artstation",
-            "photorealistic, dramatic volumetric lighting, highly detailed textures, depth of field",
-            "concept art style, stunning visual effects, vivid color grading, intricate details",
-        ];
-        const randomEnrich = enrichments[Math.floor(Math.random() * enrichments.length)];
-        updatePrompt(`${prompt.trim()}, ${randomEnrich}`);
-        message.success("已智能优化提示词");
+        setOptimizing(true);
+        let controller: AbortController | null = null;
+        let timeoutId = 0;
+        try {
+            const imageSources = await collectOptimizeImageSources(node, mentionReferences);
+            if (!text && !imageSources.length) {
+                message.warning(mode === "image" || mode === "video" ? "请输入提示词，或先连接/上传参考图后再反推" : "请输入提示词后再优化");
+                return;
+            }
+            optimizeAbortRef.current?.abort();
+            controller = new AbortController();
+            optimizeAbortRef.current = controller;
+            timeoutId = window.setTimeout(() => controller?.abort(), 90000);
+            const messages = await buildOptimizeMessages(mode, text, imageSources);
+            const answer = (await requestTextCompletion(textConfig, messages, { signal: controller.signal })).trim();
+            const next = stripPromptFences(answer);
+            if (!next) throw new Error("文本模型没有返回可用提示词");
+            updatePrompt(next);
+            message.success(text ? "已优化提示词" : "已反推图片提示词");
+        } catch (error) {
+            if (controller?.signal.aborted) {
+                message.error("优化超时或已取消，请检查文本模型配置后重试");
+                return;
+            }
+            message.error(error instanceof Error ? error.message : "优化提示词失败");
+        } finally {
+            if (timeoutId) window.clearTimeout(timeoutId);
+            if (controller && optimizeAbortRef.current === controller) optimizeAbortRef.current = null;
+            setOptimizing(false);
+        }
     };
 
     const handleAppendMention = () => {
@@ -395,13 +432,14 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                     )}
                 </div>
                 <div className="flex items-center gap-2.5 shrink-0 select-none">
-                    <Tooltip title="一键智能优化提示词">
+                    <Tooltip title={prompt.trim() ? "使用文本模型优化提示词" : "无文字时反推参考图提示词"}>
                         <button
                             type="button"
-                            onClick={handleOptimizePrompt}
-                            className="flex size-7 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-violet-500 transition-colors dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-violet-400"
+                            disabled={optimizing || isRunning}
+                            onClick={() => void handleOptimizePrompt()}
+                            className="flex size-7 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-violet-500 transition-colors disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-violet-400"
                         >
-                            <Wand2 className="size-4" />
+                            {optimizing ? <LoaderCircle className="size-4 animate-spin" /> : <Wand2 className="size-4" />}
                         </button>
                     </Tooltip>
                     <span className="inline-flex items-center gap-0.5 text-xs font-semibold tabular-nums text-violet-500 dark:text-violet-400">
@@ -449,6 +487,14 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
         audioInstructions: node.metadata?.audioInstructions || globalConfig.audioInstructions || defaultConfig.audioInstructions,
         count: String(node.metadata?.count || (mode === "image" ? globalConfig.canvasImageCount || globalConfig.count : globalConfig.count) || defaultConfig.count),
     };
+    if (mode === "image" && isGrokImagineImageConfig(nextConfig)) {
+        return {
+            ...nextConfig,
+            quality: normalizeGrokImagineImageResolution(nextConfig.quality),
+            size: normalizeGrokImagineImageRatio(nextConfig.size),
+            count: String(normalizeGrokImagineImageCount(nextConfig.count)),
+        };
+    }
     if (mode === "image" && isStepImageEdit2Config(nextConfig)) {
         return {
             ...nextConfig,
@@ -471,6 +517,74 @@ function videoConfigPatch(key: keyof AiConfig, value: string) {
     if (key === "videoGenerateAudio") return { generateAudio: value };
     if (key === "videoWatermark") return { watermark: value };
     return { [key]: value };
+}
+
+async function collectOptimizeImageSources(node: CanvasNodeData, mentionReferences: CanvasResourceReference[]) {
+    const sources: Array<{ dataUrl: string; storageKey?: string }> = [];
+    if (node.type === CanvasNodeType.Image && node.metadata?.content) {
+        sources.push({ dataUrl: node.metadata.content, storageKey: node.metadata.storageKey });
+    }
+    for (const item of mentionReferences) {
+        if (item.kind !== "image" || !item.previewUrl) continue;
+        sources.push({ dataUrl: item.previewUrl });
+    }
+    const images: Array<{ dataUrl: string }> = [];
+    for (const source of sources.slice(0, 2)) {
+        try {
+            // 远程 URL 直接给多模态接口，避免本地下载卡住
+            if (/^https?:\/\//i.test(source.dataUrl) || source.dataUrl.startsWith("data:") || source.dataUrl.startsWith("blob:")) {
+                if (source.dataUrl.startsWith("blob:") || source.storageKey) {
+                    const dataUrl = await Promise.race([
+                        imageToDataUrl(source),
+                        new Promise<string>((_, reject) => window.setTimeout(() => reject(new Error("read timeout")), 8000)),
+                    ]);
+                    if (dataUrl) images.push({ dataUrl });
+                } else {
+                    images.push({ dataUrl: source.dataUrl });
+                }
+            } else {
+                const dataUrl = await Promise.race([
+                    imageToDataUrl(source),
+                    new Promise<string>((_, reject) => window.setTimeout(() => reject(new Error("read timeout")), 8000)),
+                ]);
+                if (dataUrl) images.push({ dataUrl });
+            }
+        } catch {
+            // 跳过无法读取的参考图
+        }
+    }
+    return images;
+}
+
+async function buildOptimizeMessages(mode: CanvasNodeGenerationMode, prompt: string, images: Array<{ dataUrl: string }>): Promise<AiTextMessage[]> {
+    const target = mode === "video" ? "视频生成" : mode === "audio" ? "音频生成" : "图片生成";
+    if (!prompt && images.length) {
+        const instruction = `你是专业的 ${target} 提示词专家。请根据参考图反推一条可直接用于 ${target} 的高质量提示词。只输出提示词本身，不要解释、不要标题、不要 markdown 代码块。要求：主体明确、构图清晰、光影与材质细节充分，中文优先，必要时可混用关键英文术语。`;
+        return [
+            {
+                role: "user",
+                content: [{ type: "text", text: instruction }, ...images.map((image) => ({ type: "image_url" as const, image_url: { url: image.dataUrl } }))],
+            },
+        ];
+    }
+    const instruction = images.length
+        ? `你是专业的 ${target} 提示词专家。请在保留用户原意的前提下优化下面的提示词，并参考附图主体/风格。只输出优化后的提示词，不要解释、不要标题、不要 markdown 代码块。`
+        : `你是专业的 ${target} 提示词专家。请在保留用户原意的前提下优化下面的提示词，补充构图、光影、材质、镜头和风格细节。只输出优化后的提示词，不要解释、不要标题、不要 markdown 代码块。`;
+    if (images.length) {
+        return [
+            {
+                role: "user",
+                content: [{ type: "text", text: `${instruction}\n\n原始提示词：\n${prompt}` }, ...images.map((image) => ({ type: "image_url" as const, image_url: { url: image.dataUrl } }))],
+            },
+        ];
+    }
+    return [{ role: "user", content: `${instruction}\n\n原始提示词：\n${prompt}` }];
+}
+
+function stripPromptFences(text: string) {
+    const trimmed = text.trim();
+    const fenced = trimmed.match(/^```(?:\w+)?\s*([\s\S]*?)\s*```$/);
+    return (fenced?.[1] || trimmed).trim();
 }
 
 function audioConfigPatch(key: CanvasAudioSettingKey, value: string) {

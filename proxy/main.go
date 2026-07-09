@@ -29,6 +29,11 @@ var hopHeaders = map[string]bool{
 	"Referer":             true,
 	"Cookie":              true,
 	"Set-Cookie":          true,
+	"Cdn-Loop":            true,
+	"Forwarded":           true,
+	"Via":                 true,
+	"Range":               true,
+	"If-Range":            true,
 }
 
 func main() {
@@ -134,7 +139,82 @@ func isSameOrigin(r *http.Request) bool {
 	if err != nil || u.Host == "" {
 		return false
 	}
-	return strings.EqualFold(u.Host, r.Host)
+	originHost := hostNameOnly(u.Host)
+	if originHost == "" {
+		return false
+	}
+	for _, candidate := range requestHosts(r) {
+		if originHost == hostNameOnly(candidate) {
+			return true
+		}
+	}
+	// Host 被外层反代改成内网地址且未透传 X-Forwarded-Host 时，用 Referer 兜底。
+	if isInternalHost(r.Host) {
+		if refererHost := refererHostName(r.Header.Get("Referer")); refererHost != "" && originHost == refererHost {
+			return true
+		}
+	}
+	return false
+}
+
+func requestHosts(r *http.Request) []string {
+	hosts := make([]string, 0, 3)
+	if host := strings.TrimSpace(r.Host); host != "" {
+		hosts = append(hosts, host)
+	}
+	// 仅在 Host 像内网反代地址时，才信任外层反代写入的转发 Host，避免直连 8787 时伪造绕过。
+	if isInternalHost(r.Host) {
+		if host := firstHeaderValue(r.Header.Get("X-Forwarded-Host")); host != "" {
+			hosts = append(hosts, host)
+		}
+		if host := firstHeaderValue(r.Header.Get("X-Original-Host")); host != "" {
+			hosts = append(hosts, host)
+		}
+	}
+	return hosts
+}
+
+func refererHostName(referer string) string {
+	referer = strings.TrimSpace(referer)
+	if referer == "" {
+		return ""
+	}
+	u, err := url.Parse(referer)
+	if err != nil {
+		return ""
+	}
+	return hostNameOnly(u.Host)
+}
+
+func firstHeaderValue(value string) string {
+	parts := strings.Split(value, ",")
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(parts[0])
+}
+
+func hostNameOnly(host string) string {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return ""
+	}
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return strings.ToLower(strings.Trim(h, "[]"))
+	}
+	return strings.ToLower(strings.Trim(host, "[]"))
+}
+
+func isInternalHost(host string) bool {
+	hostname := hostNameOnly(host)
+	if hostname == "" {
+		return true
+	}
+	if hostname == "localhost" || hostname == "127.0.0.1" || hostname == "0.0.0.0" || hostname == "::1" || hostname == "nginx" {
+		return true
+	}
+	ip := net.ParseIP(hostname)
+	return ip != nil && isPrivateIP(ip)
 }
 
 func isAllowedMethod(method string) bool {
@@ -212,7 +292,8 @@ func safeDialContext(ctx context.Context, network, address string) (net.Conn, er
 func copyRequestHeaders(dst, src http.Header) {
 	for key, values := range src {
 		canonical := http.CanonicalHeaderKey(key)
-		if hopHeaders[canonical] || strings.HasPrefix(strings.ToLower(canonical), "sec-") {
+		lower := strings.ToLower(canonical)
+		if hopHeaders[canonical] || strings.HasPrefix(lower, "sec-") || strings.HasPrefix(lower, "eo-") || strings.HasPrefix(lower, "x-forwarded-") || lower == "x-real-ip" {
 			continue
 		}
 		for _, value := range values {

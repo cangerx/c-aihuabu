@@ -3,7 +3,7 @@
 import localforage from "localforage";
 
 import { nanoid } from "nanoid";
-import { readImageMeta } from "@/lib/image-utils";
+import { base64ToBlob, dataUrlMimeType, readImageMeta } from "@/lib/image-utils";
 
 export type UploadedImage = {
     url: string;
@@ -39,6 +39,50 @@ export async function persistImageUrl(input: string) {
         const meta = await readRemoteImageMeta(input);
         return { url: imageDisplayUrl(input), storageKey: "", width: meta.width, height: meta.height, bytes: 0, mimeType: meta.mimeType };
     }
+}
+
+/** 优先立即展示：远程 URL 直接用；b64/dataURL 直接解码成 Blob。 */
+export async function prepareImageForDisplay(input: string): Promise<UploadedImage> {
+    const value = String(input || "").trim();
+    if (!value) throw new Error("没有可展示的图片");
+    if (/^https?:\/\//i.test(value) || value.startsWith("blob:")) {
+        return { url: imageDisplayUrl(value), storageKey: "", width: FALLBACK_IMAGE_META.width, height: FALLBACK_IMAGE_META.height, bytes: 0, mimeType: FALLBACK_IMAGE_META.mimeType };
+    }
+    // dataURL 或裸 b64：一律按 base64 解码，避免误走 fetch 导致“拉取不到图片”
+    try {
+        const mimeType = value.startsWith("data:") ? dataUrlMimeType(value) : "image/png";
+        const blob = base64ToBlob(value, mimeType);
+        if (!blob.size) throw new Error("empty image blob");
+        const storageKey = `image:${nanoid()}`;
+        const url = URL.createObjectURL(blob);
+        objectUrls.set(storageKey, url);
+        // 必须先落盘再返回，否则历史列表只剩 storageKey、缩略图读不到
+        await store.setItem(storageKey, blob);
+        return { url, storageKey, width: FALLBACK_IMAGE_META.width, height: FALLBACK_IMAGE_META.height, bytes: blob.size, mimeType: blob.type || mimeType };
+    } catch (error) {
+        if (value.startsWith("data:")) {
+            return { url: value, storageKey: "", width: FALLBACK_IMAGE_META.width, height: FALLBACK_IMAGE_META.height, bytes: 0, mimeType: dataUrlMimeType(value) };
+        }
+        throw error instanceof Error ? error : new Error("图片解码失败");
+    }
+}
+
+/** 后台把远程 URL 转存到本地；先展示 URL，空闲后再慢慢下载，失败则保留原 URL。 */
+export function persistImageUrlInBackground(input: string, onStored?: (image: UploadedImage) => void) {
+    const value = String(input || "").trim();
+    if (!value || value.startsWith("data:") || value.startsWith("blob:") || !/^https?:\/\//i.test(value)) return;
+    const run = () => {
+        void uploadImage(value)
+            .then((stored) => onStored?.(stored))
+            .catch(() => {
+                // 保留原 URL 展示
+            });
+    };
+    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+        window.requestIdleCallback(() => run(), { timeout: 4000 });
+        return;
+    }
+    window.setTimeout(run, 0);
 }
 
 export function proxiedImageDisplayUrl(url: string) {

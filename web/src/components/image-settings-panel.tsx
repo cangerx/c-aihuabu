@@ -4,7 +4,7 @@ import { type ReactNode, useState } from "react";
 import { ConfigProvider, Switch } from "antd";
 
 import { type CanvasTheme } from "@/lib/canvas-theme";
-import { grokImagineImageMaxCount, grokImagineImageRatioOptions, grokImagineImageResolutionOptions, isGrokImagineImageConfig, normalizeGrokImagineImageRatio, normalizeGrokImagineImageResolution } from "@/lib/grok-imagine";
+import { grokImagineImageMaxCount, grokImagineImageRatioOptions, grokImagineImageResolutionOptions, grokImagineImageRatioLabel, isGrokImagineImageConfig, normalizeGrokImagineImageRatio, normalizeGrokImagineImageResolution } from "@/lib/grok-imagine";
 import { isStepImageEdit2Config, normalizeStepImageEdit2Size, stepImageEdit2SizeOptions, stepImageEdit2SizeLabel } from "@/lib/step-image";
 import type { AiConfig } from "@/stores/use-config-store";
 
@@ -215,6 +215,7 @@ export function imageQualityLabel(value: string) {
 export function imageSizeLabel(size: string) {
     const raw = String(size || "").trim().toLowerCase();
     if (stepImageEdit2SizeOptions.some((item) => item.value === raw)) return stepImageEdit2SizeLabel(raw);
+    if (grokImagineImageRatioOptions.some((item) => item.value === raw)) return grokImagineImageRatioLabel(raw);
     return aspectOptions.find((item) => (item.size || item.value) === size || item.value === size)?.label || size;
 }
 

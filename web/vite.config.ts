@@ -14,7 +14,19 @@ export default defineConfig({
     plugins: [react()],
     server: {
         proxy: {
-            "/api/proxy": "http://127.0.0.1:8787",
+            "/api/proxy": {
+                target: "http://127.0.0.1:8787",
+                changeOrigin: false,
+                configure: (proxy) => {
+                    proxy.on("proxyReq", (proxyReq, req) => {
+                        const host = req.headers.host;
+                        if (typeof host === "string" && host) {
+                            proxyReq.setHeader("Host", host);
+                            proxyReq.setHeader("X-Forwarded-Host", host);
+                        }
+                    });
+                },
+            },
             "/healthz": "http://127.0.0.1:8787",
         },
     },

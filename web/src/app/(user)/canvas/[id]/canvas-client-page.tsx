@@ -9,7 +9,7 @@ import { requestAudioGeneration, storeGeneratedAudio } from "@/services/api/audi
 import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo, type VideoGenerationTask, type VideoGenerationTaskState } from "@/services/api/video";
 import { DOCS_URL } from "@/constant/env";
 import { defaultConfig, modelOptionName, type AiConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
-import { persistImageUrl, resolveImageUrl, uploadImage, type UploadedImage } from "@/services/image-storage";
+import { persistImageUrl, persistImageUrlInBackground, prepareImageForDisplay, resolveImageUrl, uploadImage, type UploadedImage } from "@/services/image-storage";
 import { resolveMediaUrl, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta, sanitizeImageDataUrl } from "@/lib/image-utils";
@@ -2236,9 +2236,14 @@ function InfiniteCanvasPage() {
             const controller = startGenerationRequest(childId, node.id, childId);
             try {
                 const image = await requestEdit(generationConfig, prompt, [source], { id: `${node.id}-mask`, name: "mask.png", type: "image/png", dataUrl: payload.maskDataUrl }, { signal: controller.signal }).then((items) => items[0]);
-                const uploaded = await persistImageUrl(image.dataUrl);
-                const size = fitNodeSize(uploaded.width, uploaded.height, node.width, node.height);
-                setNodes((prev) => prev.map((item) => (item.id === childId ? { ...item, width: size.width, height: size.height, metadata: { ...item.metadata, ...imageMetadata(uploaded), prompt, ...generationMetadata } } : item)));
+                const uploaded = await prepareImageForDisplay(image.dataUrl);
+                const applyUploaded = (next: UploadedImage) => {
+                    const size = fitNodeSize(next.width, next.height, node.width, node.height);
+                    setNodes((prev) => prev.map((item) => (item.id === childId ? { ...item, width: size.width, height: size.height, metadata: { ...item.metadata, ...imageMetadata(next), prompt, ...generationMetadata } } : item)));
+                };
+                applyUploaded(uploaded);
+                const remoteUrl = /^https?:\/\//i.test(image.dataUrl) ? image.dataUrl : "";
+                if (remoteUrl && !uploaded.storageKey) persistImageUrlInBackground(remoteUrl, applyUploaded);
             } catch (error) {
                 if (isGenerationCanceled(error)) return;
                 const errorDetails = error instanceof Error ? error.message : "局部修改失败";
@@ -2314,9 +2319,14 @@ function InfiniteCanvasPage() {
                 const image = await requestEdit(generationConfig, prompt, [{ id: node.id, name: `${node.title || node.id}.png`, type: node.metadata.mimeType || "image/png", dataUrl: node.metadata.content, storageKey: node.metadata.storageKey }], undefined, { signal: controller.signal }).then(
                     (items) => items[0],
                 );
-                const uploaded = await persistImageUrl(image.dataUrl);
-                const size = fitNodeSize(uploaded.width, uploaded.height, imageConfig.width, imageConfig.height);
-                setNodes((prev) => prev.map((item) => (item.id === childId ? { ...item, width: size.width, height: size.height, metadata: { ...item.metadata, ...imageMetadata(uploaded), prompt, ...generationMetadata } } : item)));
+                const uploaded = await prepareImageForDisplay(image.dataUrl);
+                const applyUploaded = (next: UploadedImage) => {
+                    const size = fitNodeSize(next.width, next.height, imageConfig.width, imageConfig.height);
+                    setNodes((prev) => prev.map((item) => (item.id === childId ? { ...item, width: size.width, height: size.height, metadata: { ...item.metadata, ...imageMetadata(next), prompt, ...generationMetadata } } : item)));
+                };
+                applyUploaded(uploaded);
+                const remoteUrl = /^https?:\/\//i.test(image.dataUrl) ? image.dataUrl : "";
+                if (remoteUrl && !uploaded.storageKey) persistImageUrlInBackground(remoteUrl, applyUploaded);
             } catch (error) {
                 if (isGenerationCanceled(error)) return;
                 const errorDetails = error instanceof Error ? error.message : "生成失败";
@@ -2612,32 +2622,37 @@ function InfiniteCanvasPage() {
                                 const image = referenceImages.length
                                     ? await requestEdit({ ...generationConfig, count: "1" }, effectivePrompt, referenceImages, undefined, { signal: controller.signal }).then((items) => items[0])
                                     : await requestGeneration({ ...generationConfig, count: "1" }, effectivePrompt, { signal: controller.signal }).then((items) => items[0]);
-                                const uploaded = await persistImageUrl(image.dataUrl);
-                                const imageSize = fitNodeSize(uploaded.width, uploaded.height, imageConfig.width, imageConfig.height);
-                                setNodes((prev) => {
-                                    const root = prev.find((node) => node.id === rootId);
-                                    return prev.map((node) => {
-                                        if (node.id !== targetId && node.id !== rootId) return node;
-                                        const center = { x: node.position.x + node.width / 2, y: node.position.y + node.height / 2 };
-                                        if (node.id === rootId && (targetId === rootId || !root?.metadata?.primaryImageId))
-                                            return {
-                                                ...node,
-                                                position: { x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2 },
-                                                width: imageSize.width,
-                                                height: imageSize.height,
-                                                metadata: { ...node.metadata, ...imageMetadata(uploaded), primaryImageId: targetId },
-                                            };
-                                        if (node.id === targetId)
-                                            return {
-                                                ...node,
-                                                position: { x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2 },
-                                                width: imageSize.width,
-                                                height: imageSize.height,
-                                                metadata: { ...node.metadata, ...imageMetadata(uploaded) },
-                                            };
-                                        return node;
+                                const uploaded = await prepareImageForDisplay(image.dataUrl);
+                                const applyUploaded = (next: UploadedImage) => {
+                                    const imageSize = fitNodeSize(next.width, next.height, imageConfig.width, imageConfig.height);
+                                    setNodes((prev) => {
+                                        const root = prev.find((node) => node.id === rootId);
+                                        return prev.map((node) => {
+                                            if (node.id !== targetId && node.id !== rootId) return node;
+                                            const center = { x: node.position.x + node.width / 2, y: node.position.y + node.height / 2 };
+                                            if (node.id === rootId && (targetId === rootId || !root?.metadata?.primaryImageId))
+                                                return {
+                                                    ...node,
+                                                    position: { x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2 },
+                                                    width: imageSize.width,
+                                                    height: imageSize.height,
+                                                    metadata: { ...node.metadata, ...imageMetadata(next), primaryImageId: targetId },
+                                                };
+                                            if (node.id === targetId)
+                                                return {
+                                                    ...node,
+                                                    position: { x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2 },
+                                                    width: imageSize.width,
+                                                    height: imageSize.height,
+                                                    metadata: { ...node.metadata, ...imageMetadata(next) },
+                                                };
+                                            return node;
+                                        });
                                     });
-                                });
+                                };
+                                applyUploaded(uploaded);
+                                const remoteUrl = /^https?:\/\//i.test(image.dataUrl) ? image.dataUrl : "";
+                                if (remoteUrl && !uploaded.storageKey) persistImageUrlInBackground(remoteUrl, applyUploaded);
                                 hasSuccess = true;
                                 if (isConfigNode) setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS, errorDetails: undefined } } : node)));
                                 return true;
@@ -2885,25 +2900,30 @@ function InfiniteCanvasPage() {
                 }
 
                 const image = useReferenceImages ? await requestEdit(generationConfig, prompt, retryImages, undefined, { signal: controller.signal }).then((items) => items[0]) : await requestGeneration(generationConfig, prompt, { signal: controller.signal }).then((items) => items[0]);
-                const uploadedImage = await persistImageUrl(image.dataUrl);
+                const uploadedImage = await prepareImageForDisplay(image.dataUrl);
                 const imageConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
-                const imageSize = fitNodeSize(uploadedImage.width, uploadedImage.height, imageConfig.width, imageConfig.height);
                 const generationMetadata = savedImageMetadata?.generationType
                     ? { generationType: savedImageMetadata.generationType, model: generationConfig.model, size: generationConfig.size, quality: generationConfig.quality, count: savedImageMetadata.count || 1, references: savedImageMetadata.references }
                     : buildImageGenerationMetadata(useReferenceImages ? "edit" : "generation", generationConfig, 1, retryImages);
-                setNodes((prev) =>
-                    prev.map((item) =>
-                        item.id === node.id
-                            ? {
-                                  ...item,
-                                  type: CanvasNodeType.Image,
-                                  width: imageSize.width,
-                                  height: imageSize.height,
-                                  metadata: { ...item.metadata, ...imageMetadata(uploadedImage), prompt, ...generationMetadata },
-                              }
-                            : item,
-                    ),
-                );
+                const applyUploadedImage = (next: UploadedImage) => {
+                    const imageSize = fitNodeSize(next.width, next.height, imageConfig.width, imageConfig.height);
+                    setNodes((prev) =>
+                        prev.map((item) =>
+                            item.id === node.id
+                                ? {
+                                      ...item,
+                                      type: CanvasNodeType.Image,
+                                      width: imageSize.width,
+                                      height: imageSize.height,
+                                      metadata: { ...item.metadata, ...imageMetadata(next), prompt, ...generationMetadata },
+                                  }
+                                : item,
+                        ),
+                    );
+                };
+                applyUploadedImage(uploadedImage);
+                const remoteUrl = /^https?:\/\//i.test(image.dataUrl) ? image.dataUrl : "";
+                if (remoteUrl && !uploadedImage.storageKey) persistImageUrlInBackground(remoteUrl, applyUploadedImage);
             } catch (error) {
                 if (isGenerationCanceled(error)) return;
                 const errorDetails = error instanceof Error ? error.message : "生成失败";

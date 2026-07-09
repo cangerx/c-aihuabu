@@ -43,7 +43,9 @@ server {
         proxy_buffering off;
         proxy_read_timeout 2100s;
         proxy_send_timeout 2100s;
-        proxy_set_header Host $host;
+        # 保留浏览器访问 Host；外层若改写 Host，需透传 X-Forwarded-Host 为公网域名。
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-Host $http_x_forwarded_host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;

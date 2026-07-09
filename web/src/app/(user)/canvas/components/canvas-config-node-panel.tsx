@@ -8,7 +8,7 @@ import { ModelPicker } from "@/components/model-picker";
 import { defaultConfig, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { CreditSymbol, requestCreditCost } from "@/constant/credits";
 import { canvasThemes } from "@/lib/canvas-theme";
-import { isGrokImagineImageConfig, normalizeGrokImagineImageCount } from "@/lib/grok-imagine";
+import { isGrokImagineImageConfig, normalizeGrokImagineImageCount, normalizeGrokImagineImageRatio, normalizeGrokImagineImageResolution } from "@/lib/grok-imagine";
 import { isStepImageEdit2Config, normalizeStepImageEdit2Size } from "@/lib/step-image";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
@@ -170,6 +170,14 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
         audioInstructions: node.metadata?.audioInstructions || globalConfig.audioInstructions || defaultConfig.audioInstructions,
         count: String(node.metadata?.count || (mode === "image" ? globalConfig.canvasImageCount || globalConfig.count : globalConfig.count) || defaultConfig.count),
     };
+    if (mode === "image" && isGrokImagineImageConfig(nextConfig)) {
+        return {
+            ...nextConfig,
+            quality: normalizeGrokImagineImageResolution(nextConfig.quality),
+            size: normalizeGrokImagineImageRatio(nextConfig.size),
+            count: String(normalizeGrokImagineImageCount(nextConfig.count)),
+        };
+    }
     if (mode === "image" && isStepImageEdit2Config(nextConfig)) {
         return {
             ...nextConfig,

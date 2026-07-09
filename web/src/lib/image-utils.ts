@@ -22,12 +22,45 @@ export function formatDuration(ms: number) {
 }
 
 export function getDataUrlByteSize(dataUrl: string) {
-    const base64 = dataUrl.split(",", 2)[1];
+    const base64 = dataUrl.includes(",") ? dataUrl.slice(dataUrl.indexOf(",") + 1) : dataUrl;
     if (!base64) {
         return 0;
     }
     const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
     return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
+}
+
+/** 比 dataURL → fetch → blob 快：避免再构造/解析超长 data: 字符串。 */
+export function base64ToBlob(base64: string, mimeType = "image/png") {
+    const normalized = normalizeBase64Payload(base64);
+    if (!normalized) throw new Error("无效的 base64 图片数据");
+    const fromBase64 = (Uint8Array as unknown as { fromBase64?: (value: string, options?: { alphabet?: string }) => Uint8Array }).fromBase64;
+    if (typeof fromBase64 === "function") {
+        try {
+            return new Blob([fromBase64(normalized, { alphabet: "base64" }) as BlobPart], { type: mimeType });
+        } catch {
+            // 部分浏览器 fromBase64 对大串/空白更严格，回退 atob
+        }
+    }
+    const binary = atob(normalized);
+    const len = binary.length;
+    const bytes = new Uint8Array(len);
+    const chunk = 0x8000;
+    for (let offset = 0; offset < len; offset += chunk) {
+        const end = Math.min(offset + chunk, len);
+        for (let i = offset; i < end; i += 1) bytes[i] = binary.charCodeAt(i);
+    }
+    return new Blob([bytes], { type: mimeType });
+}
+
+export function normalizeBase64Payload(value: string) {
+    const raw = value.includes(",") ? value.slice(value.indexOf(",") + 1) : value;
+    // 去空白，兼容 url-safe base64
+    return raw.replace(/\s+/g, "").replace(/-/g, "+").replace(/_/g, "/");
+}
+
+export function dataUrlMimeType(dataUrl: string, fallback = "image/png") {
+    return dataUrl.match(/^data:([^;,]+)/)?.[1] || fallback;
 }
 
 export function readFileAsDataUrl(file: File) {
@@ -51,14 +84,9 @@ export function readImageMeta(dataUrl: string) {
 }
 
 export function dataUrlToFile(image: ReferenceImage) {
-    const [header, content] = image.dataUrl.split(",", 2);
-    const mimeType = header.match(/data:(.*?);base64/)?.[1] || image.type || "image/png";
-    const binary = atob(content || "");
-    const bytes = new Uint8Array(binary.length);
-    for (let index = 0; index < binary.length; index += 1) {
-        bytes[index] = binary.charCodeAt(index);
-    }
-    return new File([bytes], image.name || "reference.png", { type: mimeType });
+    const mimeType = dataUrlMimeType(image.dataUrl, image.type || "image/png");
+    const blob = base64ToBlob(image.dataUrl, mimeType);
+    return new File([blob], image.name || "reference.png", { type: mimeType });
 }
 
 export async function sanitizeImageDataUrl(dataUrl: string, options: { perturb?: boolean } = {}) {

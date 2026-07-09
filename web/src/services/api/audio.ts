@@ -70,11 +70,29 @@ async function assertAudioBlob(blob: Blob) {
 
 function readAxiosError(error: unknown, fallback: string) {
     if (axios.isCancel(error)) return "请求已取消";
-    if (axios.isAxiosError<{ error?: { message?: string }; msg?: string; code?: number }>(error)) {
-        const responseData = error.response?.data;
-        return responseData?.msg || responseData?.error?.message || statusMessage(error.response?.status, fallback);
+    if (axios.isAxiosError(error)) {
+        const data = error.response?.data;
+        const message = typeof data === "string" ? data.slice(0, 300) : responseErrorMessage(data);
+        if (/origin is not allowed/i.test(message) && String(error.config?.url || "").startsWith("/api/proxy")) {
+            return "同域代理拒绝了当前页面来源。请确认通过站点域名访问，或在配置中临时切到浏览器直连。";
+        }
+        return message || statusMessage(error.response?.status, fallback);
     }
     return error instanceof Error ? error.message : fallback;
+}
+
+function responseErrorMessage(value: unknown) {
+    if (typeof value === "string") return value.slice(0, 300);
+    if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+    const record = value as Record<string, unknown>;
+    const error = record.error && typeof record.error === "object" && !Array.isArray(record.error) ? (record.error as Record<string, unknown>) : undefined;
+    const response = record.response && typeof record.response === "object" && !Array.isArray(record.response) ? (record.response as Record<string, unknown>) : undefined;
+    const responseError = response?.error && typeof response.error === "object" && !Array.isArray(response.error) ? (response.error as Record<string, unknown>) : undefined;
+    return stringValue(record.message) || stringValue(record.msg) || stringValue(error?.message) || stringValue(error?.msg) || stringValue(responseError?.message);
+}
+
+function stringValue(value: unknown) {
+    return typeof value === "string" ? value : "";
 }
 
 function statusMessage(status: number | undefined, fallback: string) {

@@ -1,8 +1,8 @@
 import axios from "axios";
 
-import { grokImagineImageEditMaxCount, grokImagineImageMaxCount, isGrokImagineApiFormat, isGrokImagineImageModel, normalizeGrokImagineImageRatio, normalizeGrokImagineImageResolution } from "@/lib/grok-imagine";
+import { grokImagineImageEditMaxCount, grokImagineImageMaxCount, isGrokImagineImageModel, normalizeGrokImagineImageRatio, normalizeGrokImagineImageResolution } from "@/lib/grok-imagine";
 import { isStepImageEdit2Model, normalizeStepImageEdit2Size } from "@/lib/step-image";
-import { buildAiApiUrl, buildProxiedUrl, resolveModelRequestConfig, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
+import { buildAiApiUrl, buildApiUrl, buildProxiedUrl, resolveModelRequestConfig, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { buildImageReferencePromptText } from "@/lib/image-reference-prompt";
@@ -90,10 +90,17 @@ type ChatCompletionPayload = {
 type ResponseStreamState = { buffer: string; text: string; payload?: ResponseApiPayload; error?: string };
 
 type ImageApiResponse = {
-    data?: Array<Record<string, unknown>>;
-    error?: { message?: string };
-    code?: number;
+    data?: Array<Record<string, unknown>> | Record<string, unknown>;
+    images?: Array<Record<string, unknown>>;
+    output?: Array<Record<string, unknown>> | Record<string, unknown>;
+    result?: { data?: Array<Record<string, unknown>>; images?: Array<Record<string, unknown>> };
+    url?: string;
+    image_url?: string;
+    b64_json?: string;
+    error?: string | { message?: string; msg?: string };
+    code?: number | string;
     msg?: string;
+    message?: string;
 };
 type ImageTaskResponse = {
     id?: string;
@@ -223,31 +230,63 @@ function resolveRequestSize(quality: string | undefined, size: string) {
 }
 
 function resolveImageDataUrl(item: Record<string, unknown>) {
-    if (typeof item.b64_json === "string" && item.b64_json) {
-        return `data:image/png;base64,${item.b64_json}`;
-    }
-    if (typeof item.url === "string" && item.url) {
-        return item.url;
-    }
-    if (typeof item.image_url === "string" && item.image_url) {
-        return item.image_url;
-    }
-    if (typeof item.output_url === "string" && item.output_url) {
-        return item.output_url;
-    }
+    // URL 优先：原生接口 12s 出图后响应体小，可立刻展示；b64 作补充。
+    const url = pickString(item.url) || pickString(item.image_url) || pickString(item.output_url) || pickNestedString(item, ["image", "url"]) || pickNestedString(item, ["image_url", "url"]);
+    if (url && (/^https?:\/\//i.test(url) || url.startsWith("data:") || url.startsWith("blob:"))) return url;
+    const b64 = pickString(item.b64_json) || pickString(item.b64) || pickString(item.base64) || pickNestedString(item, ["image", "b64_json"]) || pickNestedString(item, ["image", "b64"]);
+    if (b64) return b64.startsWith("data:") ? b64 : b64;
     return null;
 }
 
-function parseImagePayload(payload: ImageApiResponse) {
-    if (typeof payload.code === "number" && payload.code !== 0) {
-        throw new Error(payload.msg || "请求失败");
+function pickString(value: unknown) {
+    return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+function pickNestedString(item: Record<string, unknown>, path: string[]) {
+    let current: unknown = item;
+    for (const key of path) {
+        if (!current || typeof current !== "object" || Array.isArray(current)) return "";
+        current = (current as Record<string, unknown>)[key];
     }
-    if (payload.error?.message) throw new Error(payload.error.message);
-    const images =
-        payload.data
-            ?.map(resolveImageDataUrl)
-            .filter((value): value is string => Boolean(value))
-            .map((dataUrl) => ({ id: nanoid(), dataUrl })) || [];
+    return pickString(current);
+}
+
+function asImageRows(value: unknown): Array<Record<string, unknown>> {
+    if (Array.isArray(value)) return value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item));
+    if (value && typeof value === "object") return [value as Record<string, unknown>];
+    return [];
+}
+
+function readImageApiError(payload: ImageApiResponse) {
+    if (typeof payload.error === "string" && payload.error.trim()) return payload.error.trim();
+    if (payload.error && typeof payload.error === "object") {
+        const message = pickString(payload.error.message) || pickString(payload.error.msg);
+        if (message) return message;
+    }
+    if (typeof payload.code === "number" && payload.code !== 0) return pickString(payload.msg) || pickString(payload.message) || "请求失败";
+    if (typeof payload.code === "string" && payload.code && !/^(0|ok|success)$/i.test(payload.code)) {
+        return pickString(payload.msg) || pickString(payload.message) || payload.code;
+    }
+    return "";
+}
+
+function parseImagePayload(payload: ImageApiResponse) {
+    const apiError = readImageApiError(payload);
+    if (apiError) throw new Error(apiError);
+    const rows = [
+        ...asImageRows(payload.data),
+        ...asImageRows(payload.images),
+        ...asImageRows(payload.output),
+        ...asImageRows(payload.result?.data),
+        ...asImageRows(payload.result?.images),
+    ];
+    if (!rows.length && (payload.url || payload.image_url || payload.b64_json)) {
+        rows.push(payload as unknown as Record<string, unknown>);
+    }
+    const images = rows
+        .map(resolveImageDataUrl)
+        .filter((value): value is string => Boolean(value))
+        .map((dataUrl) => ({ id: nanoid(), dataUrl }));
 
     if (images.length === 0) {
         throw new Error("接口没有返回图片");
@@ -299,16 +338,33 @@ function readAxiosError(error: unknown, fallback: string) {
     if (axios.isCancel(error)) return "请求已取消";
     if (axios.isAxiosError<{ error?: { message?: string }; msg?: string; code?: number }>(error)) {
         const responseData = error.response?.data;
-        return responseData?.msg || responseData?.error?.message || readStatusError(error.response?.status, fallback);
+        if (isProxyOriginDenied(error)) return "同域代理拒绝了当前页面来源。请确认通过站点域名访问，或在配置中临时切到浏览器直连。";
+        if (isProxyHtmlError(error)) return "同域代理请求被拦截，请切换为浏览器直连或更新代理服务";
+        return responseErrorMessage(responseData) || readStatusError(error.response?.status, fallback, error);
     }
     if (error instanceof DOMException && error.name === "AbortError") return "请求已取消";
     return error instanceof Error ? error.message : fallback;
 }
 
-function readStatusError(status: number | undefined, fallback: string) {
+function readStatusError(status: number | undefined, fallback: string, error?: unknown) {
+    if ((status === 401 || status === 403) && isProxyRequest(error)) {
+        return "同域代理请求失败（401/403）。若刚升级过代理，请重新部署；也可临时切到浏览器直连排查。";
+    }
     if (status === 401 || status === 403) return "鉴权失败，请检查 Key、套餐权限或模型权限";
     if (status === 429) return "请求被限流或额度不足，请稍后重试";
     return status ? `${fallback}：${status}` : fallback;
+}
+
+function isProxyRequest(error: unknown) {
+    if (!axios.isAxiosError(error)) return false;
+    return String(error.config?.url || "").startsWith("/api/proxy");
+}
+
+function isProxyOriginDenied(error: unknown) {
+    if (!isProxyRequest(error) || !axios.isAxiosError(error)) return false;
+    const data = error.response?.data;
+    const text = typeof data === "string" ? data : responseErrorMessage(data);
+    return /origin is not allowed/i.test(text);
 }
 
 function withSystemPrompt(config: AiConfig, prompt: string) {
@@ -424,11 +480,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function responseErrorMessage(value: unknown) {
-    if (!isRecord(value)) return "";
+    if (!isRecord(value)) return typeof value === "string" ? value.slice(0, 300) : "";
+    if (typeof value.error === "string" && value.error.trim()) return value.error.trim().slice(0, 300);
     const error = isRecord(value.error) ? value.error : undefined;
     const response = isRecord(value.response) ? value.response : undefined;
     const responseError = response && isRecord(response.error) ? response.error : undefined;
-    return stringValue(value.msg) || stringValue(error?.message) || stringValue(responseError?.message);
+    return stringValue(value.message) || stringValue(value.msg) || stringValue(error?.message) || stringValue(error?.msg) || stringValue(responseError?.message) || (typeof value.code === "string" ? value.code : "");
 }
 
 function stringValue(value: unknown) {
@@ -816,7 +873,7 @@ function parseGeminiImagePayload(payload: GeminiPayload) {
 
 export async function requestGeneration(config: AiConfig, prompt: string, options?: RequestOptions) {
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
-    const isGrokImagine = isGrokImagineApiFormat(requestConfig) && isGrokImagineImageModel(requestConfig.model);
+    const isGrokImagine = isGrokImagineImageModel(requestConfig.model);
     const isStepImageEdit2 = isStepImageEdit2Model(requestConfig.model);
     const n = Math.max(1, Math.min(isGrokImagine ? grokImagineImageMaxCount : 15, Math.floor(Math.abs(Number(config.count)) || 1)));
     if (isNewTokenAsyncImageModel(requestConfig)) {
@@ -847,6 +904,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
                 n,
                 ...(quality ? { quality } : {}),
                 ...(requestSize ? { size: requestSize } : {}),
+                // 多数中转对 url 格式不稳定；统一要 b64，前端快速转 blob 展示
                 ...(requestConfig.apiFormat === "lingdongapi" ? {} : { response_format: "b64_json", output_format: IMAGE_OUTPUT_FORMAT }),
             },
             "application/json",
@@ -861,7 +919,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
 
 export async function requestEdit(config: AiConfig, prompt: string, references: ReferenceImage[], mask?: ReferenceImage, options?: RequestOptions) {
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
-    const isGrokImagine = isGrokImagineApiFormat(requestConfig) && isGrokImagineImageModel(requestConfig.model);
+    const isGrokImagine = isGrokImagineImageModel(requestConfig.model);
     const isStepImageEdit2 = isStepImageEdit2Model(requestConfig.model);
     const n = Math.max(1, Math.min(isGrokImagine ? grokImagineImageMaxCount : 15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const requestPrompt = buildImageReferencePromptText(prompt, references);
@@ -941,13 +999,14 @@ async function requestLingdongImages(config: AiConfig, prompt: string, reference
 
 async function requestGrokImagineImages(config: AiConfig, prompt: string, count: number, options?: RequestOptions) {
     const aspectRatio = normalizeGrokImagineImageRatio(config.size);
+    // 原生接口优先 url：上游 12s 出图后响应体小，避免 b64 大包传输导致本地一直“生成中”
     const body = {
         model: config.model,
         prompt: withSystemPrompt(config, prompt),
         n: count,
         ...(aspectRatio === "auto" ? {} : { aspect_ratio: aspectRatio }),
         resolution: normalizeGrokImagineImageResolution(config.quality),
-        response_format: "b64_json",
+        response_format: "url",
     };
     try {
         const response = await postWithProxyFallback<ImageApiResponse>(config, "/images/generations", body, "application/json", options);
@@ -965,7 +1024,7 @@ async function requestGrokImagineImageEdits(config: AiConfig, prompt: string, re
         model: config.model,
         prompt: withSystemPrompt(config, prompt),
         n: count,
-        response_format: "b64_json",
+        response_format: "url",
         resolution: normalizeGrokImagineImageResolution(config.quality),
     };
     if (aspectRatio !== "auto") body.aspect_ratio = aspectRatio;
@@ -1038,6 +1097,66 @@ export async function requestImageQuestion(config: AiConfig, messages: AiTextMes
     }
 }
 
+/** 非流式文本补全，优先 chat/completions，适合提示词优化等短请求。 */
+export async function requestTextCompletion(config: AiConfig, messages: AiTextMessage[], options?: RequestOptions) {
+    const requestConfig = resolveModelRequestConfig(config, config.model || config.textModel);
+    const timeoutMs = 90000;
+    try {
+        if (requestConfig.apiFormat === "gemini") {
+            const response = await axios.post<GeminiPayload>(geminiApiUrl(requestConfig, "generateContent"), toGeminiBody(requestConfig, messages), {
+                headers: geminiHeaders(requestConfig),
+                signal: options?.signal,
+                timeout: timeoutMs,
+            });
+            validateGeminiPayload(response.data);
+            const text = (response.data.candidates || [])
+                .flatMap((candidate) => candidate.content?.parts || [])
+                .map((part) => part.text || "")
+                .join("")
+                .trim();
+            if (!text) throw new Error("没有返回内容");
+            return text;
+        }
+        try {
+            const response = await postWithProxyFallback<ChatCompletionPayload>(
+                requestConfig,
+                "/chat/completions",
+                {
+                    model: requestConfig.model,
+                    messages: toChatMessages(withSystemMessage(requestConfig, messages)),
+                    stream: false,
+                },
+                "application/json",
+                { ...options, timeoutMs },
+            );
+            validateChatPayload(response.data);
+            const text = String(response.data.choices?.[0]?.message?.content || "").trim();
+            if (text) return text;
+        } catch (error) {
+            if (options?.signal?.aborted) throw error;
+            // 部分渠道只支持 /responses
+        }
+        const response = await postWithProxyFallback<ResponseApiPayload>(
+            requestConfig,
+            "/responses",
+            {
+                model: requestConfig.model,
+                input: toResponseInput(withSystemMessage(requestConfig, messages)),
+                stream: false,
+            },
+            "application/json",
+            { ...options, timeoutMs },
+        );
+        validateResponsePayload(response.data);
+        const result = parseToolResponse(response.data);
+        const text = String(result.content || response.data.output_text || "").trim();
+        if (!text) throw new Error("没有返回内容");
+        return text;
+    } catch (error) {
+        throw new Error(readAxiosError(error, "文本请求失败"));
+    }
+}
+
 export async function requestToolResponse(config: AiConfig, messages: ResponseInputMessage[], tools: ResponseFunctionTool[], toolChoice: ToolChoice = "auto", onDelta?: (text: string) => void, options?: RequestOptions): Promise<ToolResponseResult> {
     const requestConfig = resolveModelRequestConfig(config, config.model || config.textModel);
     try {
@@ -1092,19 +1211,51 @@ export async function fetchChannelModels(channel: ModelChannel) {
 
 async function getModelsWithProxyFallback(baseUrl: string, apiKey: string) {
     const headers = { Authorization: `Bearer ${apiKey}` };
-    return axios.get<{ data?: Array<{ id?: string }>; error?: { message?: string } }>(buildAiApiUrl(baseUrl, "/models"), { headers });
+    const request = (url: string) => axios.get<{ data?: Array<{ id?: string }>; error?: { message?: string } }>(url, { headers });
+    return withDirectFallback(request(buildAiApiUrl(baseUrl, "/models")), () => request(buildApiUrl(baseUrl, "/models")));
 }
 
 type DataResponse<T> = { data: T };
 
-async function postWithProxyFallback<T>(config: AiConfig, path: string, body: unknown, contentType?: string, options?: RequestOptions): Promise<DataResponse<T>> {
-    const request = (url: string): Promise<DataResponse<T>> => axios.post<T>(url, body, { headers: aiHeaders(config, contentType), signal: options?.signal });
-    return request(aiApiUrl(config, path));
+async function postWithProxyFallback<T>(config: AiConfig, path: string, body: unknown, contentType?: string, options?: RequestOptions & { timeoutMs?: number }): Promise<DataResponse<T>> {
+    const request = (url: string): Promise<DataResponse<T>> => axios.post<T>(url, body, { headers: aiHeaders(config, contentType), signal: options?.signal, timeout: options?.timeoutMs });
+    return withDirectFallback(request(aiApiUrl(config, path)), () => request(buildApiUrl(config.baseUrl, path)));
 }
 
 async function getWithProxyFallback<T>(config: AiConfig, path: string, options?: RequestOptions) {
     const request = (url: string) => axios.get<T>(url, { headers: aiHeaders(config), signal: options?.signal });
-    return request(aiApiUrl(config, path));
+    return withDirectFallback(request(aiApiUrl(config, path)), () => request(buildApiUrl(config.baseUrl, path)));
+}
+
+async function withDirectFallback<T>(proxied: Promise<T>, direct: () => Promise<T>) {
+    try {
+        return await proxied;
+    } catch (error) {
+        if (!shouldRetryDirect(error)) throw error;
+        try {
+            return await direct();
+        } catch (directError) {
+            if (axios.isAxiosError(directError) && directError.response) throw directError;
+            throw error;
+        }
+    }
+}
+
+function shouldRetryDirect(error: unknown) {
+    if (!axios.isAxiosError(error)) return false;
+    const url = String(error.config?.url || "");
+    if (!url.startsWith("/api/proxy")) return false;
+    if (!error.response) return true;
+    const status = error.response.status;
+    return status === 403 || status === 502 || status === 504 || isProxyHtmlError(error);
+}
+
+function isProxyHtmlError(error: unknown) {
+    if (!axios.isAxiosError(error)) return false;
+    const url = String(error.config?.url || "");
+    if (!url.startsWith("/api/proxy")) return false;
+    const contentType = String(error.response?.headers?.["content-type"] || "");
+    return contentType.includes("text/html") || (typeof error.response?.data === "string" && /<html|forbidden|nginx/i.test(error.response.data));
 }
 
 async function resolveNewTokenReferenceImageUrl(image: ReferenceImage, options?: RequestOptions) {

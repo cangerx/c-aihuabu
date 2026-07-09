@@ -2,6 +2,17 @@
 
 ## Unreleased
 
++ [修复] 同域 AI 代理同源校验兼容反代/Vite 开发转发后的 Host 差异，避免生图请求误报 `origin is not allowed` 或被前端兜底成鉴权失败。
++ [优化] 同步生图结果优先 b64 快速转 Blob 立即展示，完整落盘后台进行；兼容上游只返回 b64 或 URL 的多种字段结构。
++ [修复] 回退不稳定的 `response_format=url` 强求，避免中转返回空/不可拉取 URL；b64 解码去空白并兼容 url-safe，避免“拉取不到图片”。
++ [适配] `grok-imagine-image-lite` 图片尺寸与 `grok-imagine-image` 对齐，支持相同 `1k/2k` 与宽高比设置。
++ [优化] Grok Imagine 图片尺寸面板按模型名动态切换，不依赖渠道 `apiFormat`，切换模型后设置组件与摘要标签同步刷新。
++ [新增] 画布输入框魔法棒接入文本模型：有提示词时优化文案；无文字但有参考图时反推图片提示词。
++ [修复] 魔法棒改为非流式 chat/completions（失败再回退 /responses），并增加 90s 超时，避免一直转圈无结果。
++ [修复] 生图工作台成功记录缩略图：b64 落盘后再返回 storageKey，历史列表按 storageKey 解析显示，避免 blob 失效导致空白。
++ [优化] Grok Imagine 原生生图优先 `response_format=url`，解析兼容 URL/b64 与多种返回结构；审核失败时展示上游 `error` 原文，避免上游已出图本地仍卡住。
++ [优化] 生图拿到远程 URL 后立即展示，再在空闲时后台下载到本地 IndexedDB，并回写 storageKey 供历史缩略图使用。
+
 ## v0.4.26 - 2026-07-09
 
 + [修复] 清理 Web 旧 `pnpm-lock.yaml`，避免残留 Next / Ant Design Pro 依赖误导安装和审计。

@@ -1,6 +1,6 @@
 import { modelOptionName, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 
-export const grokImagineImageModels = ["grok-imagine-image-quality", "grok-imagine-image"] as const;
+export const grokImagineImageModels = ["grok-imagine-image-quality", "grok-imagine-image", "grok-imagine-image-lite"] as const;
 export const grokImagineVideoModels = ["grok-imagine-video", "grok-imagine-video-1.5"] as const;
 
 export const grokImagineImageRatioOptions = [
@@ -45,8 +45,9 @@ export const grokImagineImageMaxCount = 10;
 export const grokImagineImageEditMaxCount = 3;
 
 export function isGrokImagineImageConfig(config: AiConfig | Pick<AiConfig, "model" | "imageModel" | "baseUrl" | "apiFormat">) {
-    const requestConfig = "channels" in config ? resolveModelRequestConfig(config, config.model || config.imageModel) : config;
-    return isGrokImagineApiFormat(requestConfig) && isGrokImagineImageModel(modelOptionName(requestConfig.model || requestConfig.imageModel));
+    // 尺寸/分辨率面板按模型名切换，不依赖渠道 apiFormat，避免 lite 等同族模型 UI 不刷新。
+    const model = "channels" in config ? modelOptionName(config.model || config.imageModel) : modelOptionName(config.model || config.imageModel || "");
+    return isGrokImagineImageModel(model);
 }
 
 export function isGrokImagineVideoConfig(config: AiConfig | Pick<AiConfig, "model" | "videoModel" | "baseUrl" | "apiFormat">) {
@@ -60,7 +61,7 @@ export function isGrokImagineApiFormat(config: Pick<AiConfig, "baseUrl" | "apiFo
 
 export function isGrokImagineImageModel(model: string) {
     const value = model.toLowerCase();
-    return value === "grok-imagine-image-quality" || value === "grok-imagine-image";
+    return value === "grok-imagine-image-quality" || value === "grok-imagine-image" || value === "grok-imagine-image-lite" || value.startsWith("grok-imagine-image");
 }
 
 export function isGrokImagineImageQualityModel(model: string) {
