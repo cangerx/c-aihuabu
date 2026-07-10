@@ -1247,7 +1247,7 @@ function shouldRetryDirect(error: unknown) {
     if (!url.startsWith("/api/proxy")) return false;
     if (!error.response) return true;
     const status = error.response.status;
-    return status === 403 || status === 502 || status === 504 || isProxyHtmlError(error);
+    return status === 403 || status === 408 || status === 502 || status === 504 || (status >= 520 && status <= 524) || isProxyHtmlError(error);
 }
 
 function isProxyHtmlError(error: unknown) {

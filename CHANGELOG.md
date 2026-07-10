@@ -2,6 +2,10 @@
 
 ## Unreleased
 
++ [修复] 视频参考图若已是公网 HTTPS URL 时不再误走已移除的本地上传接口；本地素材仍明确提示需公网链接。
++ [优化] 视频/图片请求在同域代理 403/408/502/504/520-524（含 Cloudflare 超时）时自动直连兜底。
++ [优化] OpenAI 格式 Grok Imagine 视频（含 1.5）参考图优先传公网 HTTPS URL；本地图过大时压缩为 JPEG 再提交，降低 `/videos/generations` 经代理 524 超时。
+
 ## v0.4.27 - 2026-07-10
 
 + [修复] 同域 AI 代理同源校验兼容反代/Vite 开发转发后的 Host 差异，避免生图请求误报 `origin is not allowed` 或被前端兜底成鉴权失败。

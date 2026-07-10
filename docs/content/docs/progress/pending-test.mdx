@@ -7,6 +7,8 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 ## 本轮重点测试
 
+- 视频创建请求失败修复：Cai / Duomi / Lingdong / NewToken / Seedance 等异步视频接口，参考图若已是公网 HTTPS URL，应直接提交上游，不再误报“静态前端版本没有服务端临时上传能力”；本地 blob/dataURL 参考素材仍应明确提示需公网 HTTPS。视频创建与轮询在同域代理 403/408/502/504/520-524（含 Cloudflare 524）时应与生图一致自动直连兜底。
+- OpenAI 格式 Grok Imagine 视频（`grok-imagine-video` / `1.5`）：创建仍走 `POST /v1/videos/generations`；图生视频参考图优先公网 HTTPS URL，本地图超过约 1.5MB 应压缩为 JPEG 后再提交；代理 524 后应自动直连 `euee.eu.cc` 等渠道 URL 重试。
 - 画布新建视频节点：在全局尺寸为图片比例（如 `2:1`）或像素尺寸（如 `1280x720`）时，点击「新建视频」应正常打开节点与底部提示词面板，不再出现 `Cannot read properties of undefined (reading 'value')` / 页面加载失败；视频设置摘要应回退到可用宽高比（如 `16:9`）。
 - 同域代理 Origin 校验：通过域名、带端口域名、Docker 外层反代和本地 `bun run dev`（Vite → 8787）访问时，开启同域代理后的同步生图不应再出现 `origin is not allowed`；若代理仍 403，前端应提示来源被拒绝而不是笼统鉴权失败。外层反代需透传 `Host`（或 `X-Forwarded-Host`）为浏览器访问域名。
 - 同步生图结果即时展示：`gpt-image-2` 等通用模型应优先按 `response_format=url` 请求；上游返回图片 URL 后工作台和画布应立即结束“生成中”并显示图片，不再等待本地下载完整落盘；若返回 `b64_json` 应转成可展示的 PNG/blob 后立刻显示。

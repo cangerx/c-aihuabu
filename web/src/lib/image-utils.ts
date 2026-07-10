@@ -101,6 +101,21 @@ export async function sanitizeImageDataUrl(dataUrl: string, options: { perturb?:
     return canvas.toDataURL("image/png");
 }
 
+/** 压缩参考图为较小 JPEG dataURL，降低代理超时概率。 */
+export async function compressImageDataUrl(dataUrl: string, maxEdge = 1280, quality = 0.82) {
+    const image = await loadImage(dataUrl);
+    const width = image.naturalWidth || image.width || 1;
+    const height = image.naturalHeight || image.height || 1;
+    const scale = Math.min(1, maxEdge / Math.max(width, height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(width * scale));
+    canvas.height = Math.max(1, Math.round(height * scale));
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("无法压缩图片");
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", quality);
+}
+
 function loadImage(src: string) {
     return new Promise<HTMLImageElement>((resolve, reject) => {
         const image = new Image();

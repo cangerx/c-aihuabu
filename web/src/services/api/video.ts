@@ -1,7 +1,7 @@
 import axios from "axios";
 
-import { dataUrlToFile } from "@/lib/image-utils";
-import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
+import { compressImageDataUrl, dataUrlToFile, getDataUrlByteSize } from "@/lib/image-utils";
+import { uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { isGrokImagineApiFormat, isGrokImagineVideo15Model, isGrokImagineVideoModel, normalizeGrokImagineVideoDuration, normalizeGrokImagineVideoRatio, normalizeGrokImagineVideoResolution } from "@/lib/grok-imagine";
 import { boolConfig, buildSeedancePromptText, caiVideoModelCapabilities, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
@@ -126,7 +126,7 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
     const files = await Promise.all(references.slice(0, 7).map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
     files.forEach((file) => body.append("input_reference[]", file));
     try {
-        const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos"), body, { headers: aiHeaders(config), signal: options?.signal })).data);
+        const created = unwrapVideoResponse((await postWithProxyFallback<ApiVideoResponse>(config, "/videos", body, undefined, options)).data);
         const taskId = readVideoTaskId(created);
         if (!taskId) throw new Error("视频接口没有返回任务 ID");
         return { id: taskId, provider: "openai", model };
@@ -142,7 +142,7 @@ async function createGrokImagineVideoTask(config: AiConfig, model: string, promp
 
     const modelName = modelOptionName(model);
     const requestPrompt = buildSeedancePromptText(prompt, references, [], []);
-    const imageUrls = await Promise.all(references.map(async (image) => imageToDataUrl(image)));
+    const imageUrls = await Promise.all(references.map((image) => resolveGrokImagineImageUrl(image)));
     const videoMode = options?.videoMode || "text-to-video";
     const aspectRatio = normalizeGrokImagineVideoRatio(config.size);
     const resolution = normalizeGrokImagineVideoResolution(config.vquality, modelName);
@@ -173,13 +173,30 @@ async function createGrokImagineVideoTask(config: AiConfig, model: string, promp
     }
 
     try {
-        const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos/generations"), payload, { headers: aiHeaders(config, "application/json"), signal: options?.signal })).data);
+        const created = unwrapVideoResponse((await postWithProxyFallback<ApiVideoResponse>(config, "/videos/generations", payload, "application/json", options)).data);
         const requestId = readVideoTaskId(created);
         if (!requestId) throw new Error("Grok Imagine 接口没有返回 request_id");
         return { id: requestId, provider: "openai", model };
     } catch (error) {
         throw new Error(readAxiosError(error, "Grok Imagine 视频任务创建失败"));
     }
+}
+
+async function resolveGrokImagineImageUrl(image: ReferenceImage) {
+    const directUrl = String(image.url || image.dataUrl || "").trim();
+    // 公网 HTTPS 直接传 URL，避免 base64 撑爆代理请求体触发 Cloudflare 524。
+    if (/^https:\/\//i.test(directUrl)) {
+        try {
+            const host = new URL(directUrl).hostname.toLowerCase();
+            if (host && host !== "localhost" && host !== "127.0.0.1" && !host.endsWith(".local")) return directUrl;
+        } catch {
+            // fall through
+        }
+    }
+    const dataUrl = await imageToDataUrl(image);
+    if (!dataUrl) throw new Error("参考图读取失败，请换一张图片或重新上传");
+    if (getDataUrlByteSize(dataUrl) <= 1.5 * 1024 * 1024) return dataUrl;
+    return compressImageDataUrl(dataUrl, 1280, 0.82);
 }
 
 async function createNewTokenVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
@@ -191,7 +208,7 @@ async function createNewTokenVideoTask(config: AiConfig, model: string, prompt: 
     const payload = buildNewTokenVideoPayload(config, model, requestPrompt, imageUrls, videoUrls, audioUrls, options?.videoMode);
 
     try {
-        const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos"), payload, { headers: aiHeaders(config, "application/json"), signal: options?.signal })).data);
+        const created = unwrapVideoResponse((await postWithProxyFallback<ApiVideoResponse>(config, "/videos", payload, "application/json", options)).data);
         const taskId = readVideoTaskId(created);
         if (!taskId) throw new Error("NewToken 接口没有返回任务 ID");
         return { id: taskId, provider: "openai", model };
@@ -213,7 +230,7 @@ async function createDuomiVideoTask(config: AiConfig, model: string, prompt: str
     const path = isGrok ? "/videos/generations" : "/contents/generations/tasks";
 
     try {
-        const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, path), payload, { headers: aiHeaders(config, "application/json"), signal: options?.signal })).data);
+        const created = unwrapVideoResponse((await postWithProxyFallback<ApiVideoResponse>(config, path, payload, "application/json", options)).data);
         const taskId = readVideoTaskId(created);
         if (!taskId) throw new Error("duomiapi 接口没有返回任务 ID");
         return { id: taskId, provider: "openai", model };
@@ -237,7 +254,7 @@ async function createLingdongVideoTask(config: AiConfig, model: string, prompt: 
     if (audioUrls.length) payload.audios = audioUrls;
 
     try {
-        const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/video/generations"), payload, { headers: aiHeaders(config, "application/json"), signal: options?.signal })).data);
+        const created = unwrapVideoResponse((await postWithProxyFallback<ApiVideoResponse>(config, "/video/generations", payload, "application/json", options)).data);
         const taskId = readVideoTaskId(created);
         if (!taskId) throw new Error("Lingdong 接口没有返回任务 ID");
         return { id: taskId, provider: "openai", model };
@@ -267,7 +284,7 @@ async function createCaiStandardVideoTask(config: AiConfig, model: string, promp
     appendCaiReferences(payload, model, imageUrls, videoUrls, audioUrls, options?.videoMode);
 
     try {
-        const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos"), payload, { headers: aiHeaders(config, "application/json"), signal: options?.signal })).data);
+        const created = unwrapVideoResponse((await postWithProxyFallback<ApiVideoResponse>(config, "/videos", payload, "application/json", options)).data);
         const taskId = readVideoTaskId(created);
         if (!taskId) throw new Error("视频接口没有返回任务 ID");
         return { id: taskId, provider: "openai", model };
@@ -311,7 +328,7 @@ async function createCaiSdVideoTask(config: AiConfig, model: string, prompt: str
     appendCaiReferences(payload, model, imageUrls, videoUrls, audioUrls, options?.videoMode);
 
     try {
-        const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/video/generations"), payload, { headers: aiHeaders(config, "application/json"), signal: options?.signal })).data);
+        const created = unwrapVideoResponse((await postWithProxyFallback<ApiVideoResponse>(config, "/video/generations", payload, "application/json", options)).data);
         const taskId = readVideoTaskId(created);
         if (!taskId) throw new Error("视频接口没有返回任务 ID");
         return { id: taskId, provider: "openai", model };
@@ -322,13 +339,13 @@ async function createCaiSdVideoTask(config: AiConfig, model: string, prompt: str
 
 async function pollNewTokenVideoTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
     try {
-        const video = unwrapVideoResponse((await axios.get<ApiVideoResponse>(aiApiUrl(config, `/videos/${task.id}`), { headers: aiHeaders(config), signal: options?.signal })).data);
+        const video = unwrapVideoResponse((await getWithProxyFallback<ApiVideoResponse>(config, `/videos/${task.id}`, options)).data);
         const status = normalizeTaskStatus(video.status || video.state || video.task_status);
         if (status === "completed") {
             const directUrl = readVideoUrl(video);
             if (directUrl) return { status: "completed", result: await videoResultFromUrl(resolveProviderUrl(config, directUrl), options) };
             try {
-                const content = await axios.get<Blob>(aiApiUrl(config, `/videos/${task.id}/content`), { headers: aiHeaders(config), responseType: "blob", signal: options?.signal });
+                const content = await getBlobWithProxyFallback(config, `/videos/${task.id}/content`, options);
                 await assertVideoBlob(content.data);
                 return { status: "completed", result: { blob: content.data } };
             } catch (err) {
@@ -346,7 +363,7 @@ async function pollDuomiVideoTask(config: AiConfig, task: VideoGenerationTask, o
     const isGrok = modelOptionName(task.model).toLowerCase().includes("grok");
     const path = isGrok ? `/videos/tasks/${task.id}` : `/contents/generations/tasks/${task.id}`;
     try {
-        const video = unwrapVideoResponse((await axios.get<ApiVideoResponse>(aiApiUrl(config, path), { headers: aiHeaders(config), signal: options?.signal })).data);
+        const video = unwrapVideoResponse((await getWithProxyFallback<ApiVideoResponse>(config, path, options)).data);
         const status = normalizeTaskStatus(video.status || video.state || video.task_status);
         if (status === "completed") {
             const directUrl = readVideoUrl(video);
@@ -362,7 +379,7 @@ async function pollDuomiVideoTask(config: AiConfig, task: VideoGenerationTask, o
 
 async function pollLingdongVideoTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
     try {
-        const video = unwrapVideoResponse((await axios.get<ApiVideoResponse>(aiApiUrl(config, `/video/generations/${task.id}`), { headers: aiHeaders(config), signal: options?.signal })).data);
+        const video = unwrapVideoResponse((await getWithProxyFallback<ApiVideoResponse>(config, `/video/generations/${task.id}`, options)).data);
         const status = normalizeTaskStatus(video.status || video.state || video.task_status);
         const directUrl = readVideoUrl(video);
         if (status === "completed" || directUrl) {
@@ -378,13 +395,13 @@ async function pollLingdongVideoTask(config: AiConfig, task: VideoGenerationTask
 
 async function pollCaiSdVideoTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
     try {
-        const video = unwrapVideoResponse((await axios.get<ApiVideoResponse>(aiApiUrl(config, `/video/generations/${task.id}`), { headers: aiHeaders(config), signal: options?.signal })).data);
+        const video = unwrapVideoResponse((await getWithProxyFallback<ApiVideoResponse>(config, `/video/generations/${task.id}`, options)).data);
         const status = normalizeTaskStatus(video.status);
         if (status === "completed") {
             const directUrl = readVideoUrl(video);
             if (directUrl) return { status: "completed", result: await videoResultFromUrl(directUrl, options) };
             try {
-                const content = await axios.get<Blob>(aiApiUrl(config, `/videos/${task.id}/content`), { headers: aiHeaders(config), responseType: "blob", signal: options?.signal });
+                const content = await getBlobWithProxyFallback(config, `/videos/${task.id}/content`, options);
                 await assertVideoBlob(content.data);
                 return { status: "completed", result: { blob: content.data } };
             } catch (err) {
@@ -402,11 +419,11 @@ async function pollCaiSdVideoTask(config: AiConfig, task: VideoGenerationTask, o
 
 async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
     try {
-        const video = unwrapVideoResponse((await axios.get<ApiVideoResponse>(aiApiUrl(config, `/videos/${task.id}`), { headers: aiHeaders(config), signal: options?.signal })).data);
+        const video = unwrapVideoResponse((await getWithProxyFallback<ApiVideoResponse>(config, `/videos/${task.id}`, options)).data);
         const status = normalizeTaskStatus(video.status);
         if (status === "completed") {
             try {
-                const content = await axios.get<Blob>(aiApiUrl(config, `/videos/${task.id}/content`), { headers: aiHeaders(config), responseType: "blob", signal: options?.signal });
+                const content = await getBlobWithProxyFallback(config, `/videos/${task.id}/content`, options);
                 await assertVideoBlob(content.data);
                 return { status: "completed", result: { blob: content.data } };
             } catch (err) {
@@ -428,13 +445,13 @@ async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, 
 
 async function pollGrokImagineVideoTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
     try {
-        const video = unwrapVideoResponse((await axios.get<ApiVideoResponse>(aiApiUrl(config, `/videos/${task.id}`), { headers: aiHeaders(config), signal: options?.signal })).data);
+        const video = unwrapVideoResponse((await getWithProxyFallback<ApiVideoResponse>(config, `/videos/${task.id}`, options)).data);
         const status = normalizeTaskStatus(video.status || video.state || video.task_status);
         if (status === "completed") {
             const directUrl = readVideoUrl(video);
             if (directUrl) return { status: "completed", result: await videoResultFromUrl(resolveProviderUrl(config, directUrl), options) };
             try {
-                const content = await axios.get<Blob>(aiApiUrl(config, `/videos/${task.id}/content`), { headers: aiHeaders(config), responseType: "blob", signal: options?.signal });
+                const content = await getBlobWithProxyFallback(config, `/videos/${task.id}/content`, options);
                 await assertVideoBlob(content.data);
                 return { status: "completed", result: { blob: content.data } };
             } catch (error) {
@@ -471,7 +488,7 @@ async function createSeedanceTask(config: AiConfig, model: string, prompt: strin
     };
 
     try {
-        const created = unwrapSeedanceTask((await axios.post<ApiEnvelope<SeedanceTask>>(seedanceApiUrl(config), payload, { headers: aiHeaders(config, "application/json"), signal: options?.signal })).data);
+        const created = unwrapSeedanceTask((await postSeedanceWithProxyFallback(config, payload, options)).data);
         if (!created.id) throw new Error("Seedance 接口没有返回任务 ID");
         return { id: created.id, provider: "seedance", model };
     } catch (error) {
@@ -481,7 +498,7 @@ async function createSeedanceTask(config: AiConfig, model: string, prompt: strin
 
 async function pollSeedanceTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
     try {
-        const state = unwrapSeedanceTask((await axios.get<ApiEnvelope<SeedanceTask>>(seedanceApiUrl(config, task.id), { headers: aiHeaders(config), signal: options?.signal })).data);
+        const state = unwrapSeedanceTask((await getSeedanceWithProxyFallback(config, task.id, options)).data);
         if (state.status === "succeeded") {
             const url = state.content?.video_url;
             if (!url) return { status: "failed", error: "Seedance 任务成功但没有返回视频 URL" };
@@ -537,35 +554,22 @@ async function buildSeedanceContent(config: AiConfig, prompt: string, references
 }
 
 async function resolveSeedanceImageUrl(image: ReferenceImage, options?: RequestOptions) {
-    const directUrl = image.url || image.dataUrl;
+    const directUrl = String(image.url || image.dataUrl || "").trim();
     if (directUrl.startsWith("asset://")) return directUrl;
     if (isPublicMediaUrl(directUrl)) return assertPublicReferenceReachable(directUrl, image.type || "image/*", "参考图", options);
-    const dataUrl = await imageToDataUrl(image);
-    if (!dataUrl) throw new Error("参考图读取失败，请换一张图片或重新上传");
-    const file = await dataUrlToFile({ ...image, dataUrl });
-    return uploadCaiReferenceFile(file, options);
+    throw new Error("静态前端版本没有服务端临时上传能力。Seedance 参考图需要公网 HTTPS URL，请先上传到对象存储或使用公网链接。");
 }
 
 async function resolveSeedanceVideoUrl(video: ReferenceVideo, options?: RequestOptions) {
     if (video.url.startsWith("asset://")) return video.url;
     if (isPublicMediaUrl(video.url)) return assertPublicReferenceReachable(video.url, video.type || "video/*", "参考视频", options);
-    let blob: Blob | null = null;
-    if (video.storageKey) blob = await getMediaBlob(video.storageKey);
-    if (!blob && video.url?.startsWith("blob:")) blob = await (await fetch(video.url)).blob();
-    if (!blob) throw new Error("参考视频必须是公网 URL、素材 ID，或本地已保存的视频");
-    const file = new File([blob], video.name || "参考视频.mp4", { type: video.type || blob.type || "video/mp4" });
-    return uploadCaiReferenceFile(file, options);
+    throw new Error("静态前端版本没有服务端临时上传能力。Seedance 参考视频需要公网 HTTPS URL，请先上传到对象存储或使用公网链接。");
 }
 
 async function resolveSeedanceAudioUrl(audio: ReferenceAudio, options?: RequestOptions) {
     if (audio.url.startsWith("asset://")) return audio.url;
     if (isPublicMediaUrl(audio.url)) return assertPublicReferenceReachable(audio.url, audio.type || "audio/*", "参考音频", options);
-    let blob: Blob | null = null;
-    if (audio.storageKey) blob = await getMediaBlob(audio.storageKey);
-    if (!blob && audio.url?.startsWith("blob:")) blob = await (await fetch(audio.url)).blob();
-    if (!blob) throw new Error("参考音频必须是公网 URL、素材 ID，或本地已保存的音频");
-    const file = new File([blob], audio.name || "参考音频.mp3", { type: audio.type || blob.type || "audio/mpeg" });
-    return uploadCaiReferenceFile(file, options);
+    throw new Error("静态前端版本没有服务端临时上传能力。Seedance 参考音频需要公网 HTTPS URL，请先上传到对象存储或使用公网链接。");
 }
 
 async function videoResultFromUrl(url: string, options?: RequestOptions): Promise<VideoGenerationResult> {
@@ -854,41 +858,36 @@ async function resolveCaiPublicUrl(value: string | undefined, label: string, mim
 }
 
 async function resolveCaiImageUrl(image: ReferenceImage, options?: RequestOptions) {
-    const file = await dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) });
-    return uploadCaiReferenceFile(file, options);
+    const directUrl = String(image.url || image.dataUrl || "").trim();
+    if (isCaiReachableUrl(directUrl)) return assertPublicReferenceReachable(directUrl, image.type || "image/*", "参考图片", options);
+    if (/^https?:\/\//i.test(directUrl) || directUrl.startsWith("blob:") || directUrl.startsWith("data:") || image.storageKey) {
+        throw new Error("静态前端版本没有服务端临时上传能力。Cai / Seedance / Lingdong 等异步视频参考素材需要公网 HTTPS URL，请先上传到对象存储或使用公网链接。");
+    }
+    throw new Error("Cai 专用接口要求参考图片必须是服务器可访问的公网 URL，当前本地素材不能直接提交。请先上传到对象存储或使用公网链接。");
 }
 
 async function resolveCaiMediaUrl(media: ReferenceVideo | ReferenceAudio, label: string, options?: RequestOptions) {
     const directUrl = String(media.url || "").trim();
     if (isCaiReachableUrl(directUrl)) return assertPublicReferenceReachable(directUrl, media.type || (label.includes("音频") ? "audio/*" : "video/*"), label, options);
-    let blob: Blob | null = null;
-    if (media.storageKey) blob = await getMediaBlob(media.storageKey);
-    if (!blob && directUrl.startsWith("blob:")) blob = await (await fetch(directUrl)).blob();
-    if (!blob) return resolveCaiPublicUrl(directUrl, label, media.type || (label.includes("音频") ? "audio/*" : "video/*"), options);
-    const file = new File([blob], media.name || `${label}.${media.type.includes("audio") ? "mp3" : "mp4"}`, { type: media.type || blob.type || "application/octet-stream" });
-    return uploadCaiReferenceFile(file, options);
-}
-
-async function uploadCaiReferenceFile(file: File, options?: RequestOptions): Promise<string> {
-    void file;
-    void options;
-    throw new Error("静态前端版本没有服务端临时上传能力。Cai / Seedance / Lingdong 等异步视频参考素材需要公网 HTTPS URL，请先上传到对象存储或使用公网链接。");
+    if (media.storageKey || directUrl.startsWith("blob:") || directUrl.startsWith("data:")) {
+        throw new Error("静态前端版本没有服务端临时上传能力。Cai / Seedance / Lingdong 等异步视频参考素材需要公网 HTTPS URL，请先上传到对象存储或使用公网链接。");
+    }
+    return resolveCaiPublicUrl(directUrl, label, media.type || (label.includes("音频") ? "audio/*" : "video/*"), options);
 }
 
 async function resolveNewTokenImageUrl(image: ReferenceImage, options?: RequestOptions) {
-    const file = await dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) });
-    return uploadNewTokenReferenceFile(file, options);
+    const directUrl = String(image.url || image.dataUrl || "").trim();
+    if (isCaiReachableUrl(directUrl)) return assertPublicReferenceReachable(directUrl, image.type || "image/*", "NewToken 参考图片", options);
+    throw new Error("静态前端版本没有 NewToken 媒体中转上传能力。请先把参考素材上传到公网 HTTPS 地址后再提交。");
 }
 
 async function resolveNewTokenMediaUrl(media: ReferenceVideo | ReferenceAudio, label: string, options?: RequestOptions) {
     const directUrl = String(media.url || "").trim();
     if (isCaiReachableUrl(directUrl)) return uploadNewTokenReferenceUrl(directUrl, media.type || (label.includes("音频") ? "audio/*" : "video/*"), options);
-    let blob: Blob | null = null;
-    if (media.storageKey) blob = await getMediaBlob(media.storageKey);
-    if (!blob && directUrl.startsWith("blob:")) blob = await (await fetch(directUrl)).blob();
-    if (!blob) return resolveCaiPublicUrl(directUrl, label, media.type || (label.includes("音频") ? "audio/*" : "video/*"), options);
-    const file = new File([blob], media.name || `${label}.${media.type.includes("audio") ? "mp3" : "mp4"}`, { type: media.type || blob.type || "application/octet-stream" });
-    return uploadNewTokenReferenceFile(file, options);
+    if (media.storageKey || directUrl.startsWith("blob:") || directUrl.startsWith("data:")) {
+        throw new Error("静态前端版本没有 NewToken 媒体中转上传能力。请先把参考素材上传到公网 HTTPS 地址后再提交。");
+    }
+    return resolveCaiPublicUrl(directUrl, label, media.type || (label.includes("音频") ? "audio/*" : "video/*"), options);
 }
 
 async function uploadNewTokenReferenceUrl(remoteUrl: string, mimeType: string, options?: RequestOptions): Promise<string> {
@@ -896,10 +895,76 @@ async function uploadNewTokenReferenceUrl(remoteUrl: string, mimeType: string, o
     return assertPublicReferenceReachable(remoteUrl, mimeType, "NewToken 参考素材", options);
 }
 
-async function uploadNewTokenReferenceFile(file: File, options?: RequestOptions): Promise<string> {
-    void file;
-    void options;
-    throw new Error("静态前端版本没有 NewToken 媒体中转上传能力。请先把参考素材上传到公网 HTTPS 地址后再提交。");
+type DataResponse<T> = { data: T };
+
+function directApiUrl(config: AiConfig, path: string) {
+    if (config.apiFormat === "duomiapi") {
+        const baseUrl = config.baseUrl
+            .trim()
+            .replace(/\/+$/, "")
+            .replace(/\/v1$/i, "")
+            .replace(/\/api\/v3$/i, "");
+        const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+        const prefix = normalizedPath.startsWith("/contents/") ? "/api/v3" : "/v1";
+        return `${baseUrl}${prefix}${normalizedPath}`;
+    }
+    return buildAiApiUrl(config.baseUrl, path, false);
+}
+
+async function postWithProxyFallback<T>(config: AiConfig, path: string, body: unknown, contentType?: string, options?: RequestOptions): Promise<DataResponse<T>> {
+    const request = (url: string): Promise<DataResponse<T>> => axios.post<T>(url, body, { headers: aiHeaders(config, contentType), signal: options?.signal });
+    return withDirectFallback(request(aiApiUrl(config, path)), () => request(directApiUrl(config, path)));
+}
+
+async function getWithProxyFallback<T>(config: AiConfig, path: string, options?: RequestOptions): Promise<DataResponse<T>> {
+    const request = (url: string): Promise<DataResponse<T>> => axios.get<T>(url, { headers: aiHeaders(config), signal: options?.signal });
+    return withDirectFallback(request(aiApiUrl(config, path)), () => request(directApiUrl(config, path)));
+}
+
+async function getBlobWithProxyFallback(config: AiConfig, path: string, options?: RequestOptions): Promise<DataResponse<Blob>> {
+    const request = (url: string): Promise<DataResponse<Blob>> => axios.get<Blob>(url, { headers: aiHeaders(config), responseType: "blob", signal: options?.signal });
+    return withDirectFallback(request(aiApiUrl(config, path)), () => request(directApiUrl(config, path)));
+}
+
+async function postSeedanceWithProxyFallback(config: AiConfig, payload: unknown, options?: RequestOptions) {
+    const request = (url: string) => axios.post<ApiEnvelope<SeedanceTask>>(url, payload, { headers: aiHeaders(config, "application/json"), signal: options?.signal });
+    return withDirectFallback(request(seedanceApiUrl(config)), () => request(seedanceApiUrl({ ...config, aiProxyEnabled: false })));
+}
+
+async function getSeedanceWithProxyFallback(config: AiConfig, taskId: string, options?: RequestOptions) {
+    const request = (url: string) => axios.get<ApiEnvelope<SeedanceTask>>(url, { headers: aiHeaders(config), signal: options?.signal });
+    return withDirectFallback(request(seedanceApiUrl(config, taskId)), () => request(seedanceApiUrl({ ...config, aiProxyEnabled: false }, taskId)));
+}
+
+async function withDirectFallback<T>(proxied: Promise<T>, direct: () => Promise<T>) {
+    try {
+        return await proxied;
+    } catch (error) {
+        if (!shouldRetryDirect(error)) throw error;
+        try {
+            return await direct();
+        } catch (directError) {
+            if (axios.isAxiosError(directError) && directError.response) throw directError;
+            throw error;
+        }
+    }
+}
+
+function shouldRetryDirect(error: unknown) {
+    if (!axios.isAxiosError(error)) return false;
+    const url = String(error.config?.url || "");
+    if (!url.startsWith("/api/proxy")) return false;
+    if (!error.response) return true;
+    const status = error.response.status;
+    return status === 403 || status === 408 || status === 502 || status === 504 || (status >= 520 && status <= 524) || isProxyHtmlError(error);
+}
+
+function isProxyHtmlError(error: unknown) {
+    if (!axios.isAxiosError(error)) return false;
+    const url = String(error.config?.url || "");
+    if (!url.startsWith("/api/proxy")) return false;
+    const contentType = String(error.response?.headers?.["content-type"] || "");
+    return contentType.includes("text/html") || (typeof error.response?.data === "string" && /<html|forbidden|nginx/i.test(error.response.data));
 }
 
 async function assertPublicReferenceReachable(url: string, mimeType: string, label: string, options?: RequestOptions): Promise<string> {
