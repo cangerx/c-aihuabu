@@ -127,5 +127,15 @@ function normalizeRatio<T extends readonly { value: string; width?: number; heig
     if (!width || !height) return fallback;
     const ratio = width / height;
     const candidates = options.filter((item) => item.width && item.height);
+    if (!candidates.length) {
+        const byToken = options
+            .map((item) => {
+                const parts = String(item.value).split(/[:x]/i).map(Number);
+                return parts.length === 2 && parts[0] > 0 && parts[1] > 0 ? { item, ratio: parts[0] / parts[1] } : null;
+            })
+            .filter((item): item is { item: T[number]; ratio: number } => Boolean(item));
+        if (!byToken.length) return fallback;
+        return byToken.reduce((best, item) => (Math.abs(item.ratio - ratio) < Math.abs(best.ratio - ratio) ? item : best), byToken[0]).item.value;
+    }
     return candidates.reduce((best, item) => (Math.abs((item.width! / item.height!) - ratio) < Math.abs((best.width! / best.height!) - ratio) ? item : best), candidates[0]).value;
 }
