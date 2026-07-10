@@ -51,7 +51,8 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    location /api/uploads/ {
+    # ^~ 优先于静态资源正则，避免 .png/.mp4 被 try_files 直接 404
+    location ^~ /api/uploads/ {
         proxy_pass http://127.0.0.1:8787;
         proxy_http_version 1.1;
         proxy_request_buffering off;
