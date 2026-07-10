@@ -4,6 +4,7 @@ import { App, Button, Form, Input, Modal, Progress, Segmented, Select, Tabs } fr
 import { CircleAlert, Cloud, Plus, RefreshCw, Trash2, Wifi } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { DebugLogPreference } from "@/components/layout/debug-log-panel";
 import { ModelPicker } from "@/components/model-picker";
 import { createCloudChannel, fetchAccountMe, fetchCloudChannels, loginAccount, logoutAccount, registerAccount, type AccountUser, type CloudModelChannel } from "@/services/api/account";
 import { fetchChannelModels } from "@/services/api/image";
@@ -567,6 +568,9 @@ export function AppConfigModal() {
                                             ]}
                                             onChange={(value) => updateConfig("aiProxyEnabled", value === "proxy")}
                                         />
+                                    </Form.Item>
+                                    <Form.Item label="开发调试" className="mb-4 md:col-span-4">
+                                        <DebugLogPreference />
                                     </Form.Item>
                                     <Form.Item label="画布默认生图张数" extra="新建画布生图和配置节点默认使用，单个节点仍可单独覆盖。" className="mb-4">
                                         <Input

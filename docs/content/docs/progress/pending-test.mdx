@@ -7,6 +7,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 ## 本轮重点测试
 
+- 开发调试日志：配置 → 生成偏好 → 开启「调试日志」后，发起视频/生图应出现右下角「调试日志」入口；日志含模型、apiFormat、请求 URL、payload 大小、代理失败直连、错误 status/message；复制内容不含 Key/Authorization/完整 base64；关闭开关后入口消失并可清空。
 - 视频创建请求失败修复：Cai / Duomi / Lingdong / NewToken / Seedance 等异步视频接口，参考图若已是公网 HTTPS URL，应直接提交上游，不再误报“静态前端版本没有服务端临时上传能力”；本地 blob/dataURL 参考素材仍应明确提示需公网 HTTPS。视频创建与轮询在同域代理 403/408/502/504/520-524（含 Cloudflare 524）时应与生图一致自动直连兜底。
 - OpenAI 格式 Grok Imagine 视频（`grok-imagine-video` / `1.5`）：创建仍走 `POST /v1/videos/generations`；图生视频参考图优先公网 HTTPS URL，本地图超过约 1.5MB 应压缩为 JPEG 后再提交；代理 524 后应自动直连 `euee.eu.cc` 等渠道 URL 重试。
 - 画布新建视频节点：在全局尺寸为图片比例（如 `2:1`）或像素尺寸（如 `1280x720`）时，点击「新建视频」应正常打开节点与底部提示词面板，不再出现 `Cannot read properties of undefined (reading 'value')` / 页面加载失败；视频设置摘要应回退到可用宽高比（如 `16:9`）。

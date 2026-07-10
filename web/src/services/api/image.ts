@@ -2,6 +2,7 @@ import axios from "axios";
 
 import { grokImagineImageEditMaxCount, grokImagineImageMaxCount, isGrokImagineImageModel, normalizeGrokImagineImageRatio, normalizeGrokImagineImageResolution } from "@/lib/grok-imagine";
 import { isStepImageEdit2Model, normalizeStepImageEdit2Size } from "@/lib/step-image";
+import { debugError, debugLog, debugWarn, estimatePayloadBytes, summarizeAxiosError } from "@/lib/debug-log";
 import { buildAiApiUrl, buildApiUrl, buildProxiedUrl, resolveModelRequestConfig, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
@@ -1218,23 +1219,36 @@ async function getModelsWithProxyFallback(baseUrl: string, apiKey: string) {
 type DataResponse<T> = { data: T };
 
 async function postWithProxyFallback<T>(config: AiConfig, path: string, body: unknown, contentType?: string, options?: RequestOptions & { timeoutMs?: number }): Promise<DataResponse<T>> {
+    const proxyUrl = aiApiUrl(config, path);
+    const directUrl = buildApiUrl(config.baseUrl, path);
+    debugLog("image", "POST 图片接口", { path, proxyUrl, directUrl, contentType, payloadBytes: estimatePayloadBytes(body) });
     const request = (url: string): Promise<DataResponse<T>> => axios.post<T>(url, body, { headers: aiHeaders(config, contentType), signal: options?.signal, timeout: options?.timeoutMs });
-    return withDirectFallback(request(aiApiUrl(config, path)), () => request(buildApiUrl(config.baseUrl, path)));
+    return withDirectFallback(request(proxyUrl), () => request(directUrl), { method: "POST", path });
 }
 
 async function getWithProxyFallback<T>(config: AiConfig, path: string, options?: RequestOptions) {
+    const proxyUrl = aiApiUrl(config, path);
+    const directUrl = buildApiUrl(config.baseUrl, path);
+    debugLog("image", "GET 图片接口", { path, proxyUrl, directUrl });
     const request = (url: string) => axios.get<T>(url, { headers: aiHeaders(config), signal: options?.signal });
-    return withDirectFallback(request(aiApiUrl(config, path)), () => request(buildApiUrl(config.baseUrl, path)));
+    return withDirectFallback(request(proxyUrl), () => request(directUrl), { method: "GET", path });
 }
 
-async function withDirectFallback<T>(proxied: Promise<T>, direct: () => Promise<T>) {
+async function withDirectFallback<T>(proxied: Promise<T>, direct: () => Promise<T>, meta?: { method?: string; path?: string }) {
     try {
         return await proxied;
     } catch (error) {
-        if (!shouldRetryDirect(error)) throw error;
+        if (!shouldRetryDirect(error)) {
+            debugError("image", "请求失败", { ...(meta || {}), error: summarizeAxiosError(error) });
+            throw error;
+        }
+        debugWarn("image", "代理失败，尝试直连", { ...(meta || {}), error: summarizeAxiosError(error) });
         try {
-            return await direct();
+            const result = await direct();
+            debugLog("image", "直连成功", { ...(meta || {}) });
+            return result;
         } catch (directError) {
+            debugError("image", "直连也失败", { ...(meta || {}), proxyError: summarizeAxiosError(error), directError: summarizeAxiosError(directError) });
             if (axios.isAxiosError(directError) && directError.response) throw directError;
             throw error;
         }

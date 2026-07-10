@@ -5,6 +5,7 @@ import { App, ConfigProvider } from "antd";
 import zhCN from "antd/locale/zh_CN";
 
 import { ClientRootInit } from "@/components/layout/client-root-init";
+import { DebugLogFab } from "@/components/layout/debug-log-panel";
 import { getAntThemeConfig } from "@/lib/app-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
 
@@ -32,6 +33,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
             <App>
                 <QueryClientProvider client={queryClient}>
                     <ClientRootInit>{children}</ClientRootInit>
+                    <DebugLogFab />
                 </QueryClientProvider>
             </App>
         </ConfigProvider>

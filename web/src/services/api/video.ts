@@ -1,6 +1,7 @@
 import axios from "axios";
 
 import { compressImageDataUrl, dataUrlToFile, getDataUrlByteSize } from "@/lib/image-utils";
+import { debugError, debugLog, debugWarn, estimatePayloadBytes, summarizeAxiosError } from "@/lib/debug-log";
 import { uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { isGrokImagineApiFormat, isGrokImagineVideo15Model, isGrokImagineVideoModel, normalizeGrokImagineVideoDuration, normalizeGrokImagineVideoRatio, normalizeGrokImagineVideoResolution } from "@/lib/grok-imagine";
@@ -72,28 +73,45 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
     const selectedModel = (config.model || config.videoModel).trim();
     const requestConfig = resolveModelRequestConfig(config, selectedModel);
     assertVideoConfig(requestConfig, requestConfig.model);
-    if (isGrokImagineApiFormat(requestConfig) && isGrokImagineVideoModel(requestConfig.model)) {
-        return createGrokImagineVideoTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
+    debugLog("video", "创建视频任务", {
+        model: selectedModel,
+        resolvedModel: requestConfig.model,
+        apiFormat: requestConfig.apiFormat,
+        baseUrl: requestConfig.baseUrl,
+        proxy: requestConfig.aiProxyEnabled !== false,
+        videoMode: options?.videoMode || "text-to-video",
+        references: references.length,
+        videoReferences: videoReferences.length,
+        audioReferences: audioReferences.length,
+        promptChars: prompt.length,
+    });
+    try {
+        if (isGrokImagineApiFormat(requestConfig) && isGrokImagineVideoModel(requestConfig.model)) {
+            return await createGrokImagineVideoTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
+        }
+        if (requestConfig.apiFormat === "duomiapi") {
+            return await createDuomiVideoTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
+        }
+        if (requestConfig.apiFormat === "lingdongapi") {
+            return await createLingdongVideoTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
+        }
+        if (requestConfig.apiFormat === "newtoken") {
+            return await createNewTokenVideoTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
+        }
+        if (requestConfig.apiFormat === "volcengine") {
+            return await createSeedanceTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
+        }
+        if (requestConfig.apiFormat === "openai-json" || isLikelyCaiVideoChannel(requestConfig.baseUrl)) {
+            return await (isCaiSdModel(requestConfig.model) ? createCaiSdVideoTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options) : createCaiStandardVideoTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options));
+        }
+        if (videoReferences.length || audioReferences.length) {
+            throw new Error("当前视频接口不支持参考视频或参考音频，请切换到 Seedance 2.0 / 火山 Agent Plan 模型，或移除参考素材");
+        }
+        return await createOpenAIVideoTask(requestConfig, selectedModel, prompt, references, options);
+    } catch (error) {
+        debugError("video", "创建视频任务失败", { model: selectedModel, apiFormat: requestConfig.apiFormat, error: summarizeAxiosError(error), message: error instanceof Error ? error.message : String(error) });
+        throw error;
     }
-    if (requestConfig.apiFormat === "duomiapi") {
-        return createDuomiVideoTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
-    }
-    if (requestConfig.apiFormat === "lingdongapi") {
-        return createLingdongVideoTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
-    }
-    if (requestConfig.apiFormat === "newtoken") {
-        return createNewTokenVideoTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
-    }
-    if (requestConfig.apiFormat === "volcengine") {
-        return createSeedanceTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
-    }
-    if (requestConfig.apiFormat === "openai-json" || isLikelyCaiVideoChannel(requestConfig.baseUrl)) {
-        return isCaiSdModel(requestConfig.model) ? createCaiSdVideoTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options) : createCaiStandardVideoTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
-    }
-    if (videoReferences.length || audioReferences.length) {
-        throw new Error("当前视频接口不支持参考视频或参考音频，请切换到 Seedance 2.0 / 火山 Agent Plan 模型，或移除参考素材");
-    }
-    return createOpenAIVideoTask(requestConfig, selectedModel, prompt, references, options);
 }
 
 export async function pollVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
@@ -188,15 +206,24 @@ async function resolveGrokImagineImageUrl(image: ReferenceImage) {
     if (/^https:\/\//i.test(directUrl)) {
         try {
             const host = new URL(directUrl).hostname.toLowerCase();
-            if (host && host !== "localhost" && host !== "127.0.0.1" && !host.endsWith(".local")) return directUrl;
+            if (host && host !== "localhost" && host !== "127.0.0.1" && !host.endsWith(".local")) {
+                debugLog("video", "Grok 参考图使用公网 URL", { host });
+                return directUrl;
+            }
         } catch {
             // fall through
         }
     }
     const dataUrl = await imageToDataUrl(image);
     if (!dataUrl) throw new Error("参考图读取失败，请换一张图片或重新上传");
-    if (getDataUrlByteSize(dataUrl) <= 1.5 * 1024 * 1024) return dataUrl;
-    return compressImageDataUrl(dataUrl, 1280, 0.82);
+    const bytes = getDataUrlByteSize(dataUrl);
+    if (bytes <= 1.5 * 1024 * 1024) {
+        debugLog("video", "Grok 参考图使用 dataURL", { bytes });
+        return dataUrl;
+    }
+    const compressed = await compressImageDataUrl(dataUrl, 1280, 0.82);
+    debugWarn("video", "Grok 参考图已压缩", { beforeBytes: bytes, afterBytes: getDataUrlByteSize(compressed) });
+    return compressed;
 }
 
 async function createNewTokenVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
@@ -912,38 +939,62 @@ function directApiUrl(config: AiConfig, path: string) {
 }
 
 async function postWithProxyFallback<T>(config: AiConfig, path: string, body: unknown, contentType?: string, options?: RequestOptions): Promise<DataResponse<T>> {
+    const proxyUrl = aiApiUrl(config, path);
+    const directUrl = directApiUrl(config, path);
+    debugLog("video", "POST 视频接口", { path, proxyUrl, directUrl, contentType: contentType || "multipart/form-data", payloadBytes: estimatePayloadBytes(body) });
     const request = (url: string): Promise<DataResponse<T>> => axios.post<T>(url, body, { headers: aiHeaders(config, contentType), signal: options?.signal });
-    return withDirectFallback(request(aiApiUrl(config, path)), () => request(directApiUrl(config, path)));
+    return withDirectFallback(request(proxyUrl), () => request(directUrl), { method: "POST", path });
 }
 
 async function getWithProxyFallback<T>(config: AiConfig, path: string, options?: RequestOptions): Promise<DataResponse<T>> {
+    const proxyUrl = aiApiUrl(config, path);
+    const directUrl = directApiUrl(config, path);
+    debugLog("video", "GET 视频接口", { path, proxyUrl, directUrl });
     const request = (url: string): Promise<DataResponse<T>> => axios.get<T>(url, { headers: aiHeaders(config), signal: options?.signal });
-    return withDirectFallback(request(aiApiUrl(config, path)), () => request(directApiUrl(config, path)));
+    return withDirectFallback(request(proxyUrl), () => request(directUrl), { method: "GET", path });
 }
 
 async function getBlobWithProxyFallback(config: AiConfig, path: string, options?: RequestOptions): Promise<DataResponse<Blob>> {
+    const proxyUrl = aiApiUrl(config, path);
+    const directUrl = directApiUrl(config, path);
+    debugLog("video", "GET 视频内容", { path, proxyUrl, directUrl });
     const request = (url: string): Promise<DataResponse<Blob>> => axios.get<Blob>(url, { headers: aiHeaders(config), responseType: "blob", signal: options?.signal });
-    return withDirectFallback(request(aiApiUrl(config, path)), () => request(directApiUrl(config, path)));
+    return withDirectFallback(request(proxyUrl), () => request(directUrl), { method: "GET-BLOB", path });
 }
 
 async function postSeedanceWithProxyFallback(config: AiConfig, payload: unknown, options?: RequestOptions) {
+    const proxyUrl = seedanceApiUrl(config);
+    const directUrl = seedanceApiUrl({ ...config, aiProxyEnabled: false });
+    debugLog("video", "POST Seedance", { proxyUrl, directUrl, payloadBytes: estimatePayloadBytes(payload) });
     const request = (url: string) => axios.post<ApiEnvelope<SeedanceTask>>(url, payload, { headers: aiHeaders(config, "application/json"), signal: options?.signal });
-    return withDirectFallback(request(seedanceApiUrl(config)), () => request(seedanceApiUrl({ ...config, aiProxyEnabled: false })));
+    return withDirectFallback(request(proxyUrl), () => request(directUrl), { method: "POST", path: "seedance" });
 }
 
 async function getSeedanceWithProxyFallback(config: AiConfig, taskId: string, options?: RequestOptions) {
+    const proxyUrl = seedanceApiUrl(config, taskId);
+    const directUrl = seedanceApiUrl({ ...config, aiProxyEnabled: false }, taskId);
+    debugLog("video", "GET Seedance", { taskId, proxyUrl, directUrl });
     const request = (url: string) => axios.get<ApiEnvelope<SeedanceTask>>(url, { headers: aiHeaders(config), signal: options?.signal });
-    return withDirectFallback(request(seedanceApiUrl(config, taskId)), () => request(seedanceApiUrl({ ...config, aiProxyEnabled: false }, taskId)));
+    return withDirectFallback(request(proxyUrl), () => request(directUrl), { method: "GET", path: "seedance" });
 }
 
-async function withDirectFallback<T>(proxied: Promise<T>, direct: () => Promise<T>) {
+async function withDirectFallback<T>(proxied: Promise<T>, direct: () => Promise<T>, meta?: { method?: string; path?: string }) {
     try {
-        return await proxied;
+        const result = await proxied;
+        debugLog("video", "请求成功", { ...(meta || {}), via: "proxy-or-direct-url" });
+        return result;
     } catch (error) {
-        if (!shouldRetryDirect(error)) throw error;
+        if (!shouldRetryDirect(error)) {
+            debugError("video", "请求失败", { ...(meta || {}), error: summarizeAxiosError(error) });
+            throw error;
+        }
+        debugWarn("video", "代理失败，尝试直连", { ...(meta || {}), error: summarizeAxiosError(error) });
         try {
-            return await direct();
+            const result = await direct();
+            debugLog("video", "直连成功", { ...(meta || {}) });
+            return result;
         } catch (directError) {
+            debugError("video", "直连也失败", { ...(meta || {}), proxyError: summarizeAxiosError(error), directError: summarizeAxiosError(directError) });
             if (axios.isAxiosError(directError) && directError.response) throw directError;
             throw error;
         }
