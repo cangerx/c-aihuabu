@@ -78,11 +78,11 @@ export function persistImageUrlInBackground(input: string, onStored?: (image: Up
                 // 保留原 URL 展示
             });
     };
-    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+    if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
         window.requestIdleCallback(() => run(), { timeout: 4000 });
         return;
     }
-    window.setTimeout(run, 0);
+    setTimeout(run, 0);
 }
 
 export function proxiedImageDisplayUrl(url: string) {
