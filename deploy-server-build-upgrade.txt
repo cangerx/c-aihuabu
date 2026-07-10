@@ -16,12 +16,15 @@ git pull --ff-only origin main
 cat > .env <<'EOF2'
 C_AI_HOST_PORT=23423
 C_AI_PUBLIC_BASE_URL=https://ai.gaochengpengfei.com
+C_AI_UPLOAD_DIR=/data/uploads/references
+C_AI_UPLOAD_TTL_DAYS=15
+C_AI_UPLOAD_HOST_DIR=./data/uploads
 AI_HUABU_DATA_DIR=/app/web/data/account
 C_AI_NEWTOKEN_MEDIA_UPLOAD_URL=https://www.aimh8.com/agent/openapi/fpbrowser2api/v1/media/upload
 C_AI_NEWTOKEN_MEDIA_UPLOAD_KEY=4f4d1159234c4a00a51a570162f12a816b5b618df16ac95e942481dad4965661
 EOF2
 
-mkdir -p data/account data/uploads
+mkdir -p data/account data/uploads/references
 
 # 这里是关键：在服务器代码目录内用当前代码和 Dockerfile 编译镜像，不再 docker compose pull 远端 latest。
 docker rm -f infinite-canvas 2>/dev/null || true

@@ -2,7 +2,7 @@ import axios from "axios";
 
 import { compressImageDataUrl, dataUrlToFile, getDataUrlByteSize } from "@/lib/image-utils";
 import { debugError, debugLog, debugWarn, estimatePayloadBytes, summarizeAxiosError } from "@/lib/debug-log";
-import { uploadMediaFile, type UploadedFile } from "@/services/file-storage";
+import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { isGrokImagineApiFormat, isGrokImagineVideo15Model, isGrokImagineVideoModel, normalizeGrokImagineVideoDuration, normalizeGrokImagineVideoRatio, normalizeGrokImagineVideoResolution } from "@/lib/grok-imagine";
 import { boolConfig, buildSeedancePromptText, caiVideoModelCapabilities, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
@@ -160,7 +160,7 @@ async function createGrokImagineVideoTask(config: AiConfig, model: string, promp
 
     const modelName = modelOptionName(model);
     const requestPrompt = buildSeedancePromptText(prompt, references, [], []);
-    const imageUrls = await Promise.all(references.map((image) => resolveGrokImagineImageUrl(image)));
+    const imageUrls = await Promise.all(references.map((image) => resolveGrokImagineImageUrl(image, options)));
     const videoMode = options?.videoMode || "text-to-video";
     const aspectRatio = normalizeGrokImagineVideoRatio(config.size);
     const resolution = normalizeGrokImagineVideoResolution(config.vquality, modelName);
@@ -200,30 +200,30 @@ async function createGrokImagineVideoTask(config: AiConfig, model: string, promp
     }
 }
 
-async function resolveGrokImagineImageUrl(image: ReferenceImage) {
+async function resolveGrokImagineImageUrl(image: ReferenceImage, options?: RequestOptions) {
     const directUrl = String(image.url || image.dataUrl || "").trim();
-    // 公网 HTTPS 直接传 URL，避免 base64 撑爆代理请求体触发 Cloudflare 524。
-    if (/^https:\/\//i.test(directUrl)) {
-        try {
-            const host = new URL(directUrl).hostname.toLowerCase();
-            if (host && host !== "localhost" && host !== "127.0.0.1" && !host.endsWith(".local")) {
-                debugLog("video", "Grok 参考图使用公网 URL", { host });
-                return directUrl;
-            }
-        } catch {
-            // fall through
+    if (isCaiReachableUrl(directUrl)) {
+        debugLog("video", "Grok 参考图使用公网 URL", { host: safeHost(directUrl) });
+        return directUrl;
+    }
+    try {
+        const file = await dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) });
+        return await uploadReferenceFile(file, options);
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        // 仅在无上传服务时回退 dataURL；配置错误或上传失败应直接抛出，避免再塞超大 base64。
+        if (!/没有参考素材临时上传服务|没有临时上传|404/.test(reason)) throw error instanceof Error ? error : new Error(reason);
+        const dataUrl = await imageToDataUrl(image);
+        if (!dataUrl) throw error instanceof Error ? error : new Error("参考图读取失败");
+        const bytes = getDataUrlByteSize(dataUrl);
+        if (bytes <= 1.5 * 1024 * 1024) {
+            debugWarn("video", "Grok 参考图回退 dataURL", { bytes, reason });
+            return dataUrl;
         }
+        const compressed = await compressImageDataUrl(dataUrl, 1280, 0.82);
+        debugWarn("video", "Grok 参考图回退压缩 dataURL", { beforeBytes: bytes, afterBytes: getDataUrlByteSize(compressed) });
+        return compressed;
     }
-    const dataUrl = await imageToDataUrl(image);
-    if (!dataUrl) throw new Error("参考图读取失败，请换一张图片或重新上传");
-    const bytes = getDataUrlByteSize(dataUrl);
-    if (bytes <= 1.5 * 1024 * 1024) {
-        debugLog("video", "Grok 参考图使用 dataURL", { bytes });
-        return dataUrl;
-    }
-    const compressed = await compressImageDataUrl(dataUrl, 1280, 0.82);
-    debugWarn("video", "Grok 参考图已压缩", { beforeBytes: bytes, afterBytes: getDataUrlByteSize(compressed) });
-    return compressed;
 }
 
 async function createNewTokenVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
@@ -583,20 +583,31 @@ async function buildSeedanceContent(config: AiConfig, prompt: string, references
 async function resolveSeedanceImageUrl(image: ReferenceImage, options?: RequestOptions) {
     const directUrl = String(image.url || image.dataUrl || "").trim();
     if (directUrl.startsWith("asset://")) return directUrl;
-    if (isPublicMediaUrl(directUrl)) return assertPublicReferenceReachable(directUrl, image.type || "image/*", "参考图", options);
-    throw new Error("静态前端版本没有服务端临时上传能力。Seedance 参考图需要公网 HTTPS URL，请先上传到对象存储或使用公网链接。");
+    if (isPublicMediaUrl(directUrl) && isCaiReachableUrl(directUrl)) return assertPublicReferenceReachable(directUrl, image.type || "image/*", "参考图", options);
+    const file = await dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) });
+    return uploadReferenceFile(file, options);
 }
 
 async function resolveSeedanceVideoUrl(video: ReferenceVideo, options?: RequestOptions) {
     if (video.url.startsWith("asset://")) return video.url;
-    if (isPublicMediaUrl(video.url)) return assertPublicReferenceReachable(video.url, video.type || "video/*", "参考视频", options);
-    throw new Error("静态前端版本没有服务端临时上传能力。Seedance 参考视频需要公网 HTTPS URL，请先上传到对象存储或使用公网链接。");
+    if (isPublicMediaUrl(video.url) && isCaiReachableUrl(video.url)) return assertPublicReferenceReachable(video.url, video.type || "video/*", "参考视频", options);
+    let blob: Blob | null = null;
+    if (video.storageKey) blob = await getMediaBlob(video.storageKey);
+    if (!blob && video.url?.startsWith("blob:")) blob = await (await fetch(video.url)).blob();
+    if (!blob) throw new Error("参考视频必须是公网 URL、素材 ID，或本地已保存的视频");
+    const file = new File([blob], video.name || "参考视频.mp4", { type: video.type || blob.type || "video/mp4" });
+    return uploadReferenceFile(file, options);
 }
 
 async function resolveSeedanceAudioUrl(audio: ReferenceAudio, options?: RequestOptions) {
     if (audio.url.startsWith("asset://")) return audio.url;
-    if (isPublicMediaUrl(audio.url)) return assertPublicReferenceReachable(audio.url, audio.type || "audio/*", "参考音频", options);
-    throw new Error("静态前端版本没有服务端临时上传能力。Seedance 参考音频需要公网 HTTPS URL，请先上传到对象存储或使用公网链接。");
+    if (isPublicMediaUrl(audio.url) && isCaiReachableUrl(audio.url)) return assertPublicReferenceReachable(audio.url, audio.type || "audio/*", "参考音频", options);
+    let blob: Blob | null = null;
+    if (audio.storageKey) blob = await getMediaBlob(audio.storageKey);
+    if (!blob && audio.url?.startsWith("blob:")) blob = await (await fetch(audio.url)).blob();
+    if (!blob) throw new Error("参考音频必须是公网 URL、素材 ID，或本地已保存的音频");
+    const file = new File([blob], audio.name || "参考音频.mp3", { type: audio.type || blob.type || "audio/mpeg" });
+    return uploadReferenceFile(file, options);
 }
 
 async function videoResultFromUrl(url: string, options?: RequestOptions): Promise<VideoGenerationResult> {
@@ -887,39 +898,64 @@ async function resolveCaiPublicUrl(value: string | undefined, label: string, mim
 async function resolveCaiImageUrl(image: ReferenceImage, options?: RequestOptions) {
     const directUrl = String(image.url || image.dataUrl || "").trim();
     if (isCaiReachableUrl(directUrl)) return assertPublicReferenceReachable(directUrl, image.type || "image/*", "参考图片", options);
-    if (/^https?:\/\//i.test(directUrl) || directUrl.startsWith("blob:") || directUrl.startsWith("data:") || image.storageKey) {
-        throw new Error("静态前端版本没有服务端临时上传能力。Cai / Seedance / Lingdong 等异步视频参考素材需要公网 HTTPS URL，请先上传到对象存储或使用公网链接。");
-    }
-    throw new Error("Cai 专用接口要求参考图片必须是服务器可访问的公网 URL，当前本地素材不能直接提交。请先上传到对象存储或使用公网链接。");
+    const file = await dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) });
+    return uploadReferenceFile(file, options);
 }
 
 async function resolveCaiMediaUrl(media: ReferenceVideo | ReferenceAudio, label: string, options?: RequestOptions) {
     const directUrl = String(media.url || "").trim();
     if (isCaiReachableUrl(directUrl)) return assertPublicReferenceReachable(directUrl, media.type || (label.includes("音频") ? "audio/*" : "video/*"), label, options);
-    if (media.storageKey || directUrl.startsWith("blob:") || directUrl.startsWith("data:")) {
-        throw new Error("静态前端版本没有服务端临时上传能力。Cai / Seedance / Lingdong 等异步视频参考素材需要公网 HTTPS URL，请先上传到对象存储或使用公网链接。");
-    }
-    return resolveCaiPublicUrl(directUrl, label, media.type || (label.includes("音频") ? "audio/*" : "video/*"), options);
+    let blob: Blob | null = null;
+    if (media.storageKey) blob = await getMediaBlob(media.storageKey);
+    if (!blob && directUrl.startsWith("blob:")) blob = await (await fetch(directUrl)).blob();
+    if (!blob) return resolveCaiPublicUrl(directUrl, label, media.type || (label.includes("音频") ? "audio/*" : "video/*"), options);
+    const file = new File([blob], media.name || `${label}.${media.type.includes("audio") ? "mp3" : "mp4"}`, { type: media.type || blob.type || "application/octet-stream" });
+    return uploadReferenceFile(file, options);
 }
 
 async function resolveNewTokenImageUrl(image: ReferenceImage, options?: RequestOptions) {
     const directUrl = String(image.url || image.dataUrl || "").trim();
     if (isCaiReachableUrl(directUrl)) return assertPublicReferenceReachable(directUrl, image.type || "image/*", "NewToken 参考图片", options);
-    throw new Error("静态前端版本没有 NewToken 媒体中转上传能力。请先把参考素材上传到公网 HTTPS 地址后再提交。");
+    const file = await dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) });
+    return uploadReferenceFile(file, options);
 }
 
 async function resolveNewTokenMediaUrl(media: ReferenceVideo | ReferenceAudio, label: string, options?: RequestOptions) {
     const directUrl = String(media.url || "").trim();
-    if (isCaiReachableUrl(directUrl)) return uploadNewTokenReferenceUrl(directUrl, media.type || (label.includes("音频") ? "audio/*" : "video/*"), options);
-    if (media.storageKey || directUrl.startsWith("blob:") || directUrl.startsWith("data:")) {
-        throw new Error("静态前端版本没有 NewToken 媒体中转上传能力。请先把参考素材上传到公网 HTTPS 地址后再提交。");
-    }
-    return resolveCaiPublicUrl(directUrl, label, media.type || (label.includes("音频") ? "audio/*" : "video/*"), options);
+    if (isCaiReachableUrl(directUrl)) return assertPublicReferenceReachable(directUrl, media.type || (label.includes("音频") ? "audio/*" : "video/*"), label, options);
+    let blob: Blob | null = null;
+    if (media.storageKey) blob = await getMediaBlob(media.storageKey);
+    if (!blob && directUrl.startsWith("blob:")) blob = await (await fetch(directUrl)).blob();
+    if (!blob) return resolveCaiPublicUrl(directUrl, label, media.type || (label.includes("音频") ? "audio/*" : "video/*"), options);
+    const file = new File([blob], media.name || `${label}.${media.type.includes("audio") ? "mp3" : "mp4"}`, { type: media.type || blob.type || "application/octet-stream" });
+    return uploadReferenceFile(file, options);
 }
 
-async function uploadNewTokenReferenceUrl(remoteUrl: string, mimeType: string, options?: RequestOptions): Promise<string> {
-    if (!isCaiReachableUrl(remoteUrl)) throw new Error("NewToken 参考素材需要公网 HTTPS URL。静态前端版本没有 NewToken 媒体中转上传能力。");
-    return assertPublicReferenceReachable(remoteUrl, mimeType, "NewToken 参考素材", options);
+async function uploadReferenceFile(file: File, options?: RequestOptions): Promise<string> {
+    const form = new FormData();
+    form.append("file", file);
+    debugLog("video", "上传参考素材", { name: file.name, type: file.type, bytes: file.size });
+    try {
+        const response = await axios.post<{ code?: number; data?: { url?: string }; msg?: string }>("/api/uploads/references", form, { signal: options?.signal });
+        const url = response.data?.data?.url;
+        if (!url) throw new Error(response.data?.msg || "参考素材上传失败");
+        if (!isCaiReachableUrl(url)) throw new Error("参考素材已上传，但返回地址不是公网 HTTPS URL。请配置 C_AI_PUBLIC_BASE_URL 为当前站点公网 HTTPS 域名。");
+        debugLog("video", "参考素材上传成功", { host: safeHost(url), bytes: file.size });
+        return assertPublicReferenceReachable(url, file.type, "参考素材", options);
+    } catch (error) {
+        if (axios.isAxiosError(error) && (error.response?.status === 404 || !error.response)) {
+            throw new Error("当前部署没有参考素材临时上传服务。Docker 版需启用 /api/uploads，并配置 C_AI_PUBLIC_BASE_URL。");
+        }
+        throw new Error(readAxiosError(error, "参考素材上传失败"));
+    }
+}
+
+function safeHost(url: string) {
+    try {
+        return new URL(url).hostname;
+    } catch {
+        return "";
+    }
 }
 
 type DataResponse<T> = { data: T };

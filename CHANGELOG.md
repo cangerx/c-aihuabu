@@ -6,6 +6,8 @@
 + [优化] 视频/图片请求在同域代理 403/408/502/504/520-524（含 Cloudflare 超时）时自动直连兜底。
 + [优化] OpenAI 格式 Grok Imagine 视频（含 1.5）参考图优先传公网 HTTPS URL；本地图过大时压缩为 JPEG 再提交，降低 `/videos/generations` 经代理 524 超时。
 + [新增] 开发调试日志：配置页「生成偏好」可开启；记录视频/图片请求路径、状态码、payload 大小、代理回退与错误摘要，支持复制/清空，右下角悬浮入口查看。
++ [新增] Docker 版恢复参考素材临时上传：`POST/GET /api/uploads/references`，支持图片/视频/音频，默认 15 天清理；需配置 `C_AI_PUBLIC_BASE_URL` 并挂载上传目录。
++ [优化] Grok/Cai/Seedance/NewToken/Lingdong 本地参考素材优先上传为公网 HTTPS 直链再提交上游，减少 base64 大包与 524。
 
 ## v0.4.27 - 2026-07-10
 

@@ -51,4 +51,4 @@ docker compose -f docker-compose.local.yml up -d --build
 
 当前主应用镜像提供静态文件和可选 AI 请求代理。画布、我的素材、生成记录和 AI API Key 默认保存在浏览器本地；第三方提示词由浏览器直拉 GitHub Raw 后缓存在本地 IndexedDB，不需要额外挂载数据目录。
 
-Docker 运行时环境变量不会注入已构建的前端页面；需要变更文档链接等前端变量时，请在构建前使用 `VITE_*` 环境变量。镜像内置的 `/api/proxy` 只转发用户配置的 AI 上游请求，不提供账号后端、服务端临时上传或 WebDAV 转发。
+Docker 运行时环境变量不会注入已构建的前端页面；需要变更文档链接等前端变量时，请在构建前使用 `VITE_*` 环境变量。镜像内置 `/api/proxy` 转发 AI 上游请求，以及 `/api/uploads/references` 参考素材临时上传（默认 15 天清理）；不提供账号后端或 WebDAV 转发。参考素材公网地址依赖 `C_AI_PUBLIC_BASE_URL` 与上传目录挂载。

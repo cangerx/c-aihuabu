@@ -7,4 +7,10 @@ services:
     container_name: infinite-canvas
     ports:
       - "${C_AI_HOST_PORT:-3000}:3000"
+    environment:
+      C_AI_PUBLIC_BASE_URL: ${C_AI_PUBLIC_BASE_URL:-}
+      C_AI_UPLOAD_DIR: ${C_AI_UPLOAD_DIR:-/data/uploads/references}
+      C_AI_UPLOAD_TTL_DAYS: ${C_AI_UPLOAD_TTL_DAYS:-15}
+    volumes:
+      - ${C_AI_UPLOAD_HOST_DIR:-./data/uploads}:/data/uploads
     restart: unless-stopped

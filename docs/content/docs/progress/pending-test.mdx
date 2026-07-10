@@ -7,6 +7,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 ## 本轮重点测试
 
+- 参考素材临时上传（Docker）：配置 `C_AI_PUBLIC_BASE_URL=https://你的域名` 并挂载 `data/uploads` 后，本地图片/视频/音频提交视频或 NewToken/Lingdong 生图时应先 `POST /api/uploads/references` 成功，返回公网 HTTPS URL；`HEAD/GET` 该 URL 可读；Grok 1.5 图生视频 payload 应使用直链而不是超大 base64；文件默认保留 15 天后清理。
 - 开发调试日志：配置 → 生成偏好 → 开启「调试日志」后，发起视频/生图应出现右下角「调试日志」入口；日志含模型、apiFormat、请求 URL、payload 大小、代理失败直连、错误 status/message；复制内容不含 Key/Authorization/完整 base64；关闭开关后入口消失并可清空。
 - 视频创建请求失败修复：Cai / Duomi / Lingdong / NewToken / Seedance 等异步视频接口，参考图若已是公网 HTTPS URL，应直接提交上游，不再误报“静态前端版本没有服务端临时上传能力”；本地 blob/dataURL 参考素材仍应明确提示需公网 HTTPS。视频创建与轮询在同域代理 403/408/502/504/520-524（含 Cloudflare 524）时应与生图一致自动直连兜底。
 - OpenAI 格式 Grok Imagine 视频（`grok-imagine-video` / `1.5`）：创建仍走 `POST /v1/videos/generations`；图生视频参考图优先公网 HTTPS URL，本地图超过约 1.5MB 应压缩为 JPEG 后再提交；代理 524 后应自动直连 `euee.eu.cc` 等渠道 URL 重试。
@@ -19,8 +20,8 @@ description: 当前版本已实现但仍需人工验证的变更项
 - Grok/原生生图结果：上游约十几秒返回后本地应立刻显示；Grok 请求优先 `url`，响应含 `data[].url` / `b64_json` 或顶层 `url` 都能解析；若上游返回 `Generated image rejected by content moderation` 应直接提示该文案。
 - URL 先显后下：远程图片 URL 应立即显示在结果卡/画布节点；浏览器空闲后再后台下载到本地 IndexedDB；下载完成后结果卡切换为本地 blob，刷新后历史缩略图仍可显示。
 - Vite 静态前端迁移：`web/` 应通过 `bun run dev` 启动 Vite，通过 `bun run build` 生成 `web/dist`；首页、生图、视频、素材、提示词、画布列表、画布详情和 404 路由都应由 React Router 正常打开，刷新深层路由时 Docker/nginx 应回退到 `index.html`。
-- 静态版运行边界：配置页“请求方式”应显示“浏览器直连 / 同域代理”；升级后默认应选中同域代理，AI 请求应走 `/api/proxy?url=...`；手动切回浏览器直连时才直接请求上游；账号/云端个人渠道操作应提示静态版不包含账号后端；提示词页应由浏览器直拉 GitHub Raw 并写入本地缓存；WebDAV 只支持前端直连；Cai / Seedance / Lingdong / NewToken 等异步视频参考素材使用本地文件时应提示先上传到公网 HTTPS 地址。
-- Docker 静态镜像：`docker compose up -d --build` 应构建 Vite 产物并用 nginx 监听 3000，同时启动 Go 代理监听容器内 8787；`/healthz` 应返回 `ok`，`/api/proxy` 应能转发公网 http/https 上游、拒绝跨站 Origin 和私网目标，静态 JS/CSS 响应应支持 gzip。
+- 静态版运行边界：配置页“请求方式”应显示“浏览器直连 / 同域代理”；升级后默认应选中同域代理，AI 请求应走 `/api/proxy?url=...`；手动切回浏览器直连时才直接请求上游；账号/云端个人渠道操作应提示静态版不包含账号后端；提示词页应由浏览器直拉 GitHub Raw 并写入本地缓存；WebDAV 只支持前端直连；纯静态托管下本地参考素材无法临时上传，Docker 版应走 `/api/uploads/references`。
+- Docker 静态镜像：`docker compose up -d --build` 应构建 Vite 产物并用 nginx 监听 3000，同时启动 Go 代理监听容器内 8787；`/healthz` 应返回 `ok`，`/api/proxy` 应能转发公网 http/https 上游、拒绝跨站 Origin 和私网目标，`/api/uploads/references` 可上传与读取参考素材，静态 JS/CSS 响应应支持 gzip。
 - 同域 AI 代理请求头清洗：经 CDN/反代访问 `/api/proxy?url=...` 时，不应把 `Cdn-Loop`、`Eo-*`、`X-Forwarded-*`、`X-Real-IP`、`Range` 等边缘节点头继续透传给上游；图片同步请求如果遇到线上代理返回 nginx HTML 403/502/504，应优先自动直连当前渠道 URL 兜底，688.qzz.io 这类已开放 CORS 的渠道不应再因代理链路 403 直接失败。
 - AI 上游错误提示：图片、视频和音频请求遇到上游 JSON 错误时，应优先展示上游返回的 `message` / `msg` / `error.message`，例如 `Invalid token`；只有上游没有返回可读错误正文时，才显示“鉴权失败，请检查 Key、套餐权限或模型权限”等兜底文案。
 - 依赖与样式审计：`web/` 应只保留 `bun.lock` 作为前端锁文件，不再保留旧 `pnpm-lock.yaml`；提示词中心筛选、卡片和详情弹窗的颜色、hover 样式应正常显示。
@@ -37,7 +38,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 - 画布脚本生成器：新建“脚本生成器”节点，测试三种模式“主题分镜 / 参考图文案 / 图文转视频”；点击节点内“上传参考图”后，应自动创建图片节点并连线到脚本生成器；只上传图片不输入文字时，也应能生成文案分析摘要和分镜卡片；点击“拆分镜头”后，应生成“镜头文本 -> 图片节点 -> 视频节点”的工作流。
 - 视频参考图片提交：从画布图片节点连接到视频节点后提交时，Cai / NewToken / duomiapi / Seedance / Lingdong 等需要服务端回源的异步接口应只接受公网 HTTPS URL；本地 `blob:` 或 dataURL 应在前端直接提示先上传到对象存储。
 - Grok 1.5 预览图生视频：选择 `grok-imagine-video-1.5-preview` 并连接 1 张图片后提交，Cai 专用接口、NewToken 和 duomiapi payload 应使用 `input_reference` 提交参考图，不应再因缺少 `input_reference` 返回 `requires one input_reference image`。
-- 参考素材公网读取：用户手填的公网 HTTPS 参考素材应能通过 `HEAD` 或 `GET Range` 自检；静态版不再提供 `/api/uploads/references` 文件读取接口。
+- 参考素材公网读取：用户手填的公网 HTTPS 参考素材应能通过 `HEAD` 或 `GET Range` 自检；Docker 版本站临时上传文件同样应支持 `HEAD`/`GET`/`Range`。
 - 参考素材强制公网校验：Cai、NewToken、Duomi、Lingdong 和 Seedance 视频参考素材提交前必须是可公网读取的 HTTPS URL，并通过 `HEAD` 或 `GET Range` 自检；本地素材不再尝试上传到本服务。
 - 生图/视频工作台并发提交：生图工作台和视频创作台在已有任务生成中时，提交按钮不再锁死，可继续提交新的生成任务；历史记录应保留每次提交，视频任务会继续后台轮询多个任务；视频创作台需重点确认连续点击提交不会被旧 `setRunning` 状态阻断。
 - 全能参考模式：支持全能参考的模型连接图片/视频素材时应能切换到“全能参考”；只连接音频素材时应提示需要配合图片或视频素材，避免提交空参考 payload。

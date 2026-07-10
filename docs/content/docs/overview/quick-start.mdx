@@ -51,4 +51,4 @@ docker run --rm -p 3000:3000 infinite-canvas
 
 - 当前画布项目和“我的素材”主要保存在浏览器本地，WebDAV 同步需要用户自行配置。
 - AI API Key 保存在浏览器本地；浏览器直连时由前端直接请求 OpenAI 兼容接口，同域代理时会经由当前部署的 `/api/proxy` 转发。
-- 纯静态部署没有账号后端、AI 请求代理、服务端临时上传和 WebDAV 转发；Docker 部署仅补充 AI 请求代理，异步视频参考素材仍需要先上传到公网 HTTPS 地址。
+- 纯静态部署没有账号后端、AI 请求代理、服务端临时上传和 WebDAV 转发；Docker 部署补充 AI 请求代理与参考素材临时上传（需配置 `C_AI_PUBLIC_BASE_URL`）。

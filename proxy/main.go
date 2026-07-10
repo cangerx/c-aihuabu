@@ -40,6 +40,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 	mux.HandleFunc("/api/proxy", proxyHandler)
+	registerUploadRoutes(mux)
 
 	addr := ":8787"
 	if port := strings.TrimSpace(os.Getenv("PROXY_PORT")); port != "" {
@@ -49,9 +50,10 @@ func main() {
 		Addr:              addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 15 * time.Second,
+		ReadTimeout:       10 * time.Minute,
 		IdleTimeout:       120 * time.Second,
 	}
-	log.Printf("proxy listening on %s", addr)
+	log.Printf("proxy listening on %s (uploads=%s ttl=%s)", addr, uploadDir(), uploadTTL())
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}

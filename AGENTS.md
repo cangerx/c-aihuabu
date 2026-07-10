@@ -92,5 +92,5 @@
 
 - 当前画布项目和“我的素材”主要保存在浏览器本地，不要在文档中误写成已支持云同步。
 - 当前 AI API Key 存在浏览器本地，Docker 部署默认经 `/api/proxy` 转发，浏览器直连模式才由前端直接请求 OpenAI 兼容接口；涉及安全说明时要写清楚。
-- 当前主应用没有内置账号后端、服务端临时上传或 WebDAV 转发；纯静态托管没有 AI 请求代理，Docker 镜像内置 `/api/proxy` 可选同域 AI 请求代理。
-- Docker 主应用镜像是 nginx 静态站点 + Go AI 代理，运行时环境变量和数据卷不参与前端配置；用户配置保存在浏览器本地。
+- 当前主应用没有内置账号后端或 WebDAV 转发；纯静态托管没有 AI 请求代理与临时上传，Docker 镜像内置 `/api/proxy` 同域 AI 代理和 `/api/uploads/references` 参考素材临时上传（默认 15 天清理）。
+- Docker 主应用镜像是 nginx 静态站点 + Go AI 代理/上传，参考素材需配置 `C_AI_PUBLIC_BASE_URL` 公网 HTTPS 域名并挂载 `data/uploads`；用户配置仍保存在浏览器本地。

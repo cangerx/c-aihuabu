@@ -1273,18 +1273,37 @@ function isProxyHtmlError(error: unknown) {
 }
 
 async function resolveNewTokenReferenceImageUrl(image: ReferenceImage, options?: RequestOptions) {
-    return resolveStaticPublicReferenceImageUrl(image, "NewToken 参考图片", options);
+    return resolveOrUploadReferenceImageUrl(image, "NewToken 参考图片", options);
 }
 
 async function resolveLingdongReferenceImageUrl(image: ReferenceImage, options?: RequestOptions) {
-    return resolveStaticPublicReferenceImageUrl(image, "Lingdong 参考图片", options);
+    return resolveOrUploadReferenceImageUrl(image, "Lingdong 参考图片", options);
 }
 
-async function resolveStaticPublicReferenceImageUrl(image: ReferenceImage, label: string, options?: RequestOptions) {
+async function resolveOrUploadReferenceImageUrl(image: ReferenceImage, label: string, options?: RequestOptions) {
     const url = String(image.url || image.dataUrl || "").trim();
-    if (!isReachableHttpsUrl(url)) throw new Error(`${label}需要公网 HTTPS 图片 URL。静态前端版本没有服务端临时上传能力，请先把参考图上传到对象存储或使用公网链接。`);
-    await assertUploadedReferenceReachable(url, options);
-    return url;
+    if (isReachableHttpsUrl(url)) {
+        await assertUploadedReferenceReachable(url, options);
+        return url;
+    }
+    const file = await dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) });
+    const form = new FormData();
+    form.append("file", file);
+    debugLog("image", "上传参考图", { label, name: file.name, type: file.type, bytes: file.size });
+    try {
+        const response = await axios.post<{ code?: number; data?: { url?: string }; msg?: string }>("/api/uploads/references", form, { signal: options?.signal });
+        const uploaded = response.data?.data?.url;
+        if (!uploaded) throw new Error(response.data?.msg || `${label}上传失败`);
+        if (!isReachableHttpsUrl(uploaded)) throw new Error(`${label}已上传，但返回地址不是公网 HTTPS URL。请配置 C_AI_PUBLIC_BASE_URL。`);
+        await assertUploadedReferenceReachable(uploaded, options);
+        debugLog("image", "参考图上传成功", { label, url: uploaded });
+        return uploaded;
+    } catch (error) {
+        if (axios.isAxiosError(error) && (error.response?.status === 404 || !error.response)) {
+            throw new Error(`${label}需要公网 HTTPS 图片 URL。当前部署没有临时上传服务，请使用 Docker 并配置 C_AI_PUBLIC_BASE_URL。`);
+        }
+        throw new Error(readAxiosError(error, `${label}上传失败`));
+    }
 }
 
 async function assertUploadedReferenceReachable(url: string, options?: RequestOptions) {

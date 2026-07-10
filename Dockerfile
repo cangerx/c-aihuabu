@@ -14,7 +14,7 @@ FROM golang:1.22-alpine AS proxy-build
 
 WORKDIR /app/proxy
 COPY proxy/go.mod ./
-COPY proxy/main.go ./
+COPY proxy/*.go ./
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /c-aihuabu-proxy .
 
 # 运行镜像：nginx 提供静态文件，Go 代理提供可选同域 AI 转发。
@@ -44,6 +44,19 @@ server {
         proxy_read_timeout 2100s;
         proxy_send_timeout 2100s;
         # 保留浏览器访问 Host；外层若改写 Host，需透传 X-Forwarded-Host 为公网域名。
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-Host $http_x_forwarded_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /api/uploads/ {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+        proxy_request_buffering off;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
         proxy_set_header Host $http_host;
         proxy_set_header X-Forwarded-Host $http_x_forwarded_host;
         proxy_set_header X-Real-IP $remote_addr;
