@@ -3,6 +3,8 @@
 ## Unreleased
 
 + [修复] HTTPS 页面展示上游 `http://IP` 图片时改为同域 `/api/proxy` 转发，避免 Mixed Content 拦截导致画布/结果卡空白。
++ [修复] 远程图片后台落盘改为经 `/api/proxy` 拉取（规避 imgen.x.ai 等 CORS），打开画布时补写 storageKey，避免“显示成功后再打开变成加载中”。
++ [修复] 画布/生图/素材下载远程图片时先经代理拉取为 blob 再保存，避免跨域或 http 直链下载失败。
 + [新增] 渠道调用格式「Cai 二号」：按 aicost 视频插件文档适配 Firefly Veo3.1 / Grok Imagine / Omni Flash / Sora 2.0 的 chat 流式与 `/v1/videos` 异步创建/轮询；Base URL 需自行填写。
 + [优化] 本地 C-ai Agent 侧边栏画布写操作确认支持队列：连续工具调用依次排队，可逐条或全部批准/拒绝，执行中新到的操作也会入队。
 + [适配] Cai/OpenAI 兼容渠道接入文档图片模型：`gpt-image-2` 文生图 `/images/generations` 与参考图编辑 `/images/edits`（`image[]` 失败回退 `image`），支持 1K/2K/4K 与宽高比尺寸映射；`gemini-3-pro-image-preview` / `gemini-3.1-flash-image-preview` 走 `/v1beta/models/{model}:generateContent` 并提交 `imageConfig`。

@@ -2,14 +2,16 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ChangeEvent as ReactChangeEvent, DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Bot, Home, ImageIcon, Images, Key, List, Menu, Music2, Plus, Redo2, Settings2, Trash2, Undo2, Upload, Video } from "lucide-react";
-import { saveAs } from "file-saver";
+import { downloadMediaFile, mediaFileExtension } from "@/lib/download-media";
+
 
 import { requestEdit, requestGeneration, requestImageQuestion } from "@/services/api/image";
 import { requestAudioGeneration, storeGeneratedAudio } from "@/services/api/audio";
 import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo, type VideoGenerationTask, type VideoGenerationTaskState } from "@/services/api/video";
 import { DOCS_URL } from "@/constant/env";
 import { defaultConfig, modelOptionName, type AiConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
-import { persistImageUrl, persistImageUrlInBackground, prepareImageForDisplay, resolveImageUrl, uploadImage, type UploadedImage } from "@/services/image-storage";
+import { persistImageUrl, persistImageUrlInBackground, prepareImageForDisplay, proxiedImageDisplayUrl, resolveImageUrl, uploadImage, type UploadedImage } from "@/services/image-storage";
+
 import { resolveMediaUrl, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta, sanitizeImageDataUrl } from "@/lib/image-utils";
@@ -428,8 +430,44 @@ function InfiniteCanvasPage() {
             };
             setHistoryState({ canUndo: false, canRedo: false });
             setProjectLoaded(true);
+
+            // 打开画布后：对仍只有远程 URL、没有本地 storageKey 的图片后台补落盘，写回节点，避免下次打开空白
+            restoredNodes.forEach((node) => {
+                if (node.type !== CanvasNodeType.Image || node.metadata?.storageKey) return;
+                const remote = node.metadata?.content || "";
+                if (!/^https?:\/\//i.test(remote) && !remote.startsWith("/api/proxy?")) return;
+                persistImageUrlInBackground(remote, (stored) => {
+                    setNodes((prev) =>
+                        prev.map((item) =>
+                            item.id === node.id
+                                ? {
+                                      ...item,
+                                      metadata: {
+                                          ...item.metadata,
+                                          ...imageMetadata(stored),
+                                          prompt: item.metadata?.prompt,
+                                          generationType: item.metadata?.generationType,
+                                          model: item.metadata?.model,
+                                          size: item.metadata?.size,
+                                          quality: item.metadata?.quality,
+                                          count: item.metadata?.count,
+                                          references: item.metadata?.references,
+                                          isBatchRoot: item.metadata?.isBatchRoot,
+                                          batchChildIds: item.metadata?.batchChildIds,
+                                          batchRootId: item.metadata?.batchRootId,
+                                          primaryImageId: item.metadata?.primaryImageId,
+                                          imageBatchExpanded: item.metadata?.imageBatchExpanded,
+                                          batchUsesReferenceImages: item.metadata?.batchUsesReferenceImages,
+                                      },
+                                  }
+                                : item,
+                        ),
+                    );
+                });
+            });
         };
         void restore();
+
     }, [hydrated, openProject, projectId, navigate]);
 
     useEffect(() => {
@@ -1966,10 +2004,21 @@ function InfiniteCanvasPage() {
         setConnections((prev) => prev.filter((c) => !(c.fromNodeId === refNodeId && c.toNodeId === targetNodeId)));
     }, []);
 
-    const downloadNodeImage = useCallback((node: CanvasNodeData) => {
+    const downloadNodeImage = useCallback(async (node: CanvasNodeData) => {
         if ((node.type !== CanvasNodeType.Image && node.type !== CanvasNodeType.Video && node.type !== CanvasNodeType.Audio) || !node.metadata?.content) return;
-        saveAs(node.metadata.content, `canvas-${node.type}-${node.id}.${node.type === CanvasNodeType.Video ? "mp4" : node.type === CanvasNodeType.Audio ? audioExtension(node.metadata.mimeType) : imageExtension(node.metadata.content)}`);
-    }, []);
+        const ext =
+            node.type === CanvasNodeType.Video
+                ? mediaFileExtension(node.metadata.content, node.metadata.mimeType, "mp4")
+                : node.type === CanvasNodeType.Audio
+                  ? mediaFileExtension(node.metadata.content, node.metadata.mimeType, audioExtension(node.metadata.mimeType))
+                  : mediaFileExtension(node.metadata.content, node.metadata.mimeType, imageExtension(node.metadata.content));
+        try {
+            await downloadMediaFile(node.metadata.content, `canvas-${node.type}-${node.id}.${ext}`, node.metadata.storageKey);
+            message.success("已开始下载");
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "下载失败");
+        }
+    }, [message]);
 
     const copyNodeImage = useCallback(async (node: CanvasNodeData) => {
         if (!node.metadata?.content) {
@@ -1978,8 +2027,9 @@ function InfiniteCanvasPage() {
         }
 
         try {
-            const content = node.metadata.content;
+            const content = proxiedImageDisplayUrl(node.metadata.content);
             const response = await fetch(content);
+            if (!response.ok) throw new Error(`读取图片失败（${response.status}）`);
             const blob = await response.blob();
 
             let pngBlob = blob;
@@ -2018,6 +2068,7 @@ function InfiniteCanvasPage() {
             message.error("复制图片失败，请检查浏览器权限");
         }
     }, [message]);
+
 
     const sanitizeNodeImageMetadata = useCallback(
         async (node: CanvasNodeData) => {
@@ -3905,15 +3956,63 @@ async function resolveMetadataReferences(metadata: CanvasNodeMetadata) {
 async function hydrateCanvasImages(nodes: CanvasNodeData[]) {
     return Promise.all(
         nodes.map(async (node) => {
-            const content = node.metadata?.content;
-            if ((node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio) && node.metadata?.storageKey) return { ...node, metadata: { ...node.metadata, content: await resolveMediaUrl(node.metadata.storageKey, content) } };
-            if (node.type !== CanvasNodeType.Image || !content) return node;
-            if (node.metadata?.storageKey) return { ...node, metadata: { ...node.metadata, content: await resolveImageUrl(node.metadata.storageKey, content) } };
-            if (!content.startsWith("data:image/")) return node;
-            return { ...node, metadata: { ...node.metadata, ...imageMetadata(await persistImageUrl(content)) } };
+            const content = node.metadata?.content || "";
+            if ((node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio) && node.metadata?.storageKey) {
+                return { ...node, metadata: { ...node.metadata, content: await resolveMediaUrl(node.metadata.storageKey, content) } };
+            }
+            if (node.type !== CanvasNodeType.Image) return node;
+
+            if (node.metadata?.storageKey) {
+                const local = await resolveImageUrl(node.metadata.storageKey, content);
+                if (local) {
+                    return {
+                        ...node,
+                        metadata: {
+                            ...node.metadata,
+                            content: local,
+                            // 已有可展示内容时，避免仍停在 loading
+                            status: node.metadata.status === "loading" ? "success" : node.metadata.status,
+                        },
+                    };
+                }
+            }
+
+            if (!content) return node;
+
+            // 失效 blob 且无本地缓存
+            if (content.startsWith("blob:") && !node.metadata?.storageKey) {
+                return {
+                    ...node,
+                    metadata: {
+                        ...node.metadata,
+                        content: "",
+                        status: "error",
+                        errorDetails: "本地图片缓存已失效，请重新生成",
+                    },
+                };
+            }
+
+            if (content.startsWith("data:image/")) {
+                return { ...node, metadata: { ...node.metadata, ...imageMetadata(await persistImageUrl(content)) } };
+            }
+
+            // 远程地址：保持可展示，status 修正为 success（展示层会代理）
+            if (/^https?:\/\//i.test(content) || content.startsWith("/api/proxy?")) {
+                return {
+                    ...node,
+                    metadata: {
+                        ...node.metadata,
+                        status: node.metadata?.status === "loading" ? "success" : node.metadata?.status || "success",
+                    },
+                };
+            }
+
+            return node;
         }),
     );
 }
+
+
 
 async function hydrateAssistantImages(sessions: CanvasAssistantSession[]) {
     const hydrateItem = async <T extends { dataUrl?: string; storageKey?: string }>(item: T) => {
@@ -4044,18 +4143,21 @@ function supportsRichVideoReferences(config: AiConfig) {
 }
 
 function resetInterruptedGeneration(nodes: CanvasNodeData[]) {
-    return nodes.map((node) =>
-        node.metadata?.status === "loading"
-            ? {
-                  ...node,
-                  metadata: {
-                      ...node.metadata,
-                      status: "error" as const,
-                      errorDetails: node.type === CanvasNodeType.Video && node.metadata.videoTaskId ? "页面刷新后生成轮询已中断，可手动拉取结果。" : "页面刷新后生成已中断，请重新生成。",
-                  },
-              }
-            : node,
-    );
+    return nodes.map((node) => {
+        if (node.metadata?.status !== "loading") return node;
+        // 图片已有可展示内容时（远程 URL 已返回），不要当成中断失败
+        if (node.type === CanvasNodeType.Image && node.metadata?.content && !node.metadata.content.startsWith("blob:")) {
+            return { ...node, metadata: { ...node.metadata, status: "success" as const, errorDetails: undefined } };
+        }
+        return {
+            ...node,
+            metadata: {
+                ...node.metadata,
+                status: "error" as const,
+                errorDetails: node.type === CanvasNodeType.Video && node.metadata.videoTaskId ? "页面刷新后生成轮询已中断，可手动拉取结果。" : "页面刷新后生成已中断，请重新生成。",
+            },
+        };
+    });
 }
 
 function isGenerationCanceled(error: unknown) {

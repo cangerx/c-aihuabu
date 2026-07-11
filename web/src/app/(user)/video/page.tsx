@@ -3,7 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { App, Button, Checkbox, Drawer, Empty, Modal, Tag, Tooltip, Typography } from "antd";
 import localforage from "localforage";
 import { nanoid } from "nanoid";
-import { saveAs } from "file-saver";
+import { downloadMediaFile, mediaFileExtension } from "@/lib/download-media";
+
 
 import { AssetPickerModal, type InsertAssetPayload } from "@/app/(user)/canvas/components/asset-picker-modal";
 import { CanvasResourceMentionTextarea } from "@/app/(user)/canvas/components/canvas-resource-mention-textarea";
@@ -253,9 +254,16 @@ export default function VideoPage() {
         void generate();
     };
 
-    const downloadVideo = (video: GeneratedVideo) => {
-        saveAs(video.url, "video.mp4");
+    const downloadVideo = async (video: GeneratedVideo) => {
+        try {
+            const ext = mediaFileExtension(video.url, video.mimeType, "mp4");
+            await downloadMediaFile(video.url, `video.${ext}`, video.storageKey);
+            message.success("已开始下载");
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "下载失败");
+        }
     };
+
 
     const saveResultToAssets = (video: GeneratedVideo) => {
         addAsset({
@@ -733,7 +741,7 @@ function ResultVideoCard({ video, onDownload, onSaveAsset }: { video: GeneratedV
                     <Button size="small" icon={<FolderPlus className="size-3.5" />} onClick={() => onSaveAsset(video)}>
                         添加到素材
                     </Button>
-                    <Button size="small" icon={<Download className="size-3.5" />} onClick={() => onDownload(video)}>
+                    <Button size="small" icon={<Download className="size-3.5" />} onClick={() => void onDownload(video)}>
                         下载
                     </Button>
                 </div>

@@ -7,7 +7,8 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 ## 本轮重点测试
 
-- HTTPS 画布/生图结果展示：上游若返回 `http://IP:端口/...` 图片地址，页面不应再出现 Mixed Content 拦截；浏览器请求应走同域 `/api/proxy?url=...` 再拉取上游；本地 blob/dataURL/HTTPS 正常地址不受影响。
+- HTTPS 画布/生图结果展示：上游若返回 `http://IP:端口/...` 或跨域 `https://imgen.x.ai/...` 图片地址，页面应先展示；后台经 `/api/proxy` 落盘 IndexedDB 后写回 storageKey；关闭再打开应能从本地恢复，不再一直“生成中/加载中”。
+- 远程图片下载：画布节点、生图工作台、素材库下载远程 `http://IP` 或跨域图片时，应先经代理拉成 blob 再保存；失败时提示“下载失败”，成功提示“已开始下载”。
 - Cai 二号视频接口：配置页调用格式选「Cai 二号」，Base URL 需自行填写，可恢复 Firefly Veo3.1 / Grok Imagine / Omni Flash / Sora 2.0 模型列表。Firefly、Omni 应走 `/v1/chat/completions` 流式并解析 `video_url` 或文本中的视频链接；普通 Grok 走非流式 chat 并带 `duration/aspect_ratio/image_reference`；Grok 1.5 Preview 与 Sora 2.0 走 `/v1/videos` 异步任务并轮询；若只返回 task_id，Firefly/Omni 轮询 `/v1/tasks/{id}`，其余轮询 `/v1/videos/{id}`。
 - 本地 Agent 工具确认队列：开启「工具确认」后，Codex 连续多次 `canvas_apply_ops` 应依次入队，不再因「仍有待确认」直接失败；确认卡显示 `1/N` 与队列数量，支持「批准/拒绝当前」和「全部批准/全部拒绝」；执行中新到的写操作仍会入队，断开连接或清会话时队列清空。
 - Cai 图片模型：渠道选择 Cai/OpenAI 兼容后填入 `gpt-image-2`，文生图应 POST `/v1/images/generations` 并带 `size/quality=auto/output_format/moderation`；连接参考图后应 POST `/v1/images/edits` multipart（优先 `image[]`）；设置面板应显示 1K/2K/4K 与宽高比。选择 `gemini-3-pro-image-preview` / `gemini-3.1-flash-image-preview` 应请求 `/v1beta/models/{model}:generateContent`，并带 `imageConfig.imageSize` / `aspectRatio`。

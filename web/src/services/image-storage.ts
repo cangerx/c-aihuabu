@@ -41,12 +41,13 @@ export async function persistImageUrl(input: string) {
     }
 }
 
-/** 优先立即展示：远程 URL 直接用；b64/dataURL 直接解码成 Blob。 */
+/** 优先立即展示：远程 URL 保留原地址（展示层再代理）；b64/dataURL 直接解码成 Blob。 */
 export async function prepareImageForDisplay(input: string): Promise<UploadedImage> {
     const value = String(input || "").trim();
     if (!value) throw new Error("没有可展示的图片");
     if (/^https?:\/\//i.test(value) || value.startsWith("blob:")) {
-        return { url: imageDisplayUrl(value), storageKey: "", width: FALLBACK_IMAGE_META.width, height: FALLBACK_IMAGE_META.height, bytes: 0, mimeType: FALLBACK_IMAGE_META.mimeType };
+        // 远程 URL 不改写成 /api/proxy，便于落盘/重开时仍拿得到原始地址；展示走 proxiedImageDisplayUrl
+        return { url: value, storageKey: "", width: FALLBACK_IMAGE_META.width, height: FALLBACK_IMAGE_META.height, bytes: 0, mimeType: FALLBACK_IMAGE_META.mimeType };
     }
     // dataURL 或裸 b64：一律按 base64 解码，避免误走 fetch 导致“拉取不到图片”
     try {
@@ -67,12 +68,15 @@ export async function prepareImageForDisplay(input: string): Promise<UploadedIma
     }
 }
 
+
 /** 后台把远程 URL 转存到本地；先展示 URL，空闲后再慢慢下载，失败则保留原 URL。 */
 export function persistImageUrlInBackground(input: string, onStored?: (image: UploadedImage) => void) {
     const value = String(input || "").trim();
-    if (!value || value.startsWith("data:") || value.startsWith("blob:") || !/^https?:\/\//i.test(value)) return;
+    // 兼容节点 content 已是 /api/proxy?url= 的情况，落盘时还原真实上游地址再下载
+    const remote = unwrapProxiedMediaUrl(value);
+    if (!remote || remote.startsWith("data:") || remote.startsWith("blob:") || !/^https?:\/\//i.test(remote)) return;
     const run = () => {
-        void uploadImage(value)
+        void uploadImage(remote)
             .then((stored) => onStored?.(stored))
             .catch(() => {
                 // 保留原 URL 展示
@@ -85,18 +89,17 @@ export function persistImageUrlInBackground(input: string, onStored?: (image: Up
     setTimeout(run, 0);
 }
 
-/** HTTPS 页面不能直接加载 http://IP 图片（Mixed Content），走同域代理展示。 */
-export function proxiedImageDisplayUrl(url: string) {
+export function unwrapProxiedMediaUrl(url: string) {
     const value = String(url || "").trim();
-    if (!value || value.startsWith("data:") || value.startsWith("blob:") || value.startsWith("/") || value.startsWith("/api/proxy")) return value;
-    if (!/^https?:\/\//i.test(value)) return value;
+    if (!value) return value;
     try {
-        const parsed = new URL(value);
-        const pageIsHttps = typeof window !== "undefined" && window.location.protocol === "https:";
-        const hostIsIp = netIsIpHost(parsed.hostname);
-        // 页面 HTTPS 时，任何 http 资源都必须代理；http + IP 主机即使在 http 页也优先代理，避免后续升级 HTTPS 再挂。
-        if (parsed.protocol === "http:" && (pageIsHttps || hostIsIp)) {
-            return `/api/proxy?url=${encodeURIComponent(value)}`;
+        if (value.startsWith("/api/proxy?")) {
+            const params = new URLSearchParams(value.slice(value.indexOf("?") + 1));
+            return params.get("url") || value;
+        }
+        if (typeof window !== "undefined" && value.startsWith(`${window.location.origin}/api/proxy?`)) {
+            const parsed = new URL(value);
+            return parsed.searchParams.get("url") || value;
         }
     } catch {
         return value;
@@ -104,21 +107,34 @@ export function proxiedImageDisplayUrl(url: string) {
     return value;
 }
 
-function netIsIpHost(host: string) {
-    const value = String(host || "").replace(/^\[|\]$/g, "");
-    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(value)) return true;
-    return value.includes(":");
+/** HTTPS 页面不能直接加载 http://IP 图片（Mixed Content）；跨域远程图 fetch 常被 CORS 拦截。展示与拉取统一经同域代理。 */
+export function proxiedImageDisplayUrl(url: string) {
+    const value = String(url || "").trim();
+    if (!value || value.startsWith("data:") || value.startsWith("blob:") || value.startsWith("/api/proxy")) return value;
+    if (value.startsWith("/") && !value.startsWith("//")) return value;
+    if (!/^https?:\/\//i.test(value)) return value;
+    try {
+        const parsed = new URL(value);
+        if (typeof window !== "undefined" && parsed.origin === window.location.origin) return value;
+        return `/api/proxy?url=${encodeURIComponent(value)}`;
+    } catch {
+        return value;
+    }
 }
 
+
 export async function resolveImageUrl(storageKey?: string, fallback = "") {
-    if (!storageKey) return fallback;
-    const cached = objectUrls.get(storageKey);
-    if (cached) return cached;
-    const blob = await store.getItem<Blob>(storageKey);
-    if (!blob) return fallback;
-    const url = URL.createObjectURL(blob);
-    objectUrls.set(storageKey, url);
-    return url;
+    if (storageKey) {
+        const cached = objectUrls.get(storageKey);
+        if (cached) return cached;
+        const blob = await store.getItem<Blob>(storageKey);
+        if (blob) {
+            const url = URL.createObjectURL(blob);
+            objectUrls.set(storageKey, url);
+            return url;
+        }
+    }
+    return proxiedImageDisplayUrl(fallback);
 }
 
 export async function getImageBlob(storageKey: string) {

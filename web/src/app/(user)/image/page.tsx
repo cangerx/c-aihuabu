@@ -2,7 +2,8 @@ import { ArrowLeft, ArrowRight, BookOpen, CheckSquare, CircleStop, ClipboardPast
 import { useEffect, useRef, useState } from "react";
 import { App, Button, Checkbox, Drawer, Empty, Image, Modal, Tag, Tooltip, Typography } from "antd";
 import localforage from "localforage";
-import { saveAs } from "file-saver";
+import { downloadMediaFile, mediaFileExtension } from "@/lib/download-media";
+
 
 import { ImageSettingsPanel } from "@/components/image-settings-panel";
 import { ModelPicker } from "@/components/model-picker";
@@ -272,9 +273,16 @@ export default function ImagePage() {
         }
     };
 
-    const downloadImage = (image: GeneratedImage, index: number) => {
-        saveAs(image.dataUrl, `image-${index + 1}.png`);
+    const downloadImage = async (image: GeneratedImage, index: number) => {
+        try {
+            const ext = mediaFileExtension(image.dataUrl, image.mimeType, "png");
+            await downloadMediaFile(image.dataUrl, `image-${index + 1}.${ext}`, image.storageKey);
+            appMessage.success("已开始下载");
+        } catch (error) {
+            appMessage.error(error instanceof Error ? error.message : "下载失败");
+        }
     };
+
 
     const addResultToReferences = async (image: GeneratedImage, index: number) => {
         const stored = await persistGeneratedImage(image);
@@ -772,10 +780,11 @@ function ResultImageCard({
                         </Button>
                     </Tooltip>
                     <Tooltip title="下载">
-                        <Button className={RESULT_ACTION_BUTTON_CLASS} size="small" icon={<Download className="size-3.5" />} onClick={() => onDownload(image, index)}>
+                        <Button className={RESULT_ACTION_BUTTON_CLASS} size="small" icon={<Download className="size-3.5" />} onClick={() => void onDownload(image, index)}>
                             下载
                         </Button>
                     </Tooltip>
+
                 </div>
             </div>
         </div>

@@ -1,7 +1,8 @@
 import { Copy, Download, PencilLine, Search, Trash2, Upload } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { App, Button, Card, Drawer, Empty, Form, Image, Input, Modal, Pagination, Select, Space, Tag, Typography } from "antd";
-import { saveAs } from "file-saver";
+import { downloadMediaFile, mediaFileExtension } from "@/lib/download-media";
+
 
 import { useCopyText } from "@/hooks/use-copy-text";
 import { formatBytes, readFileAsDataUrl } from "@/lib/image-utils";
@@ -146,10 +147,18 @@ export default function AssetsPage() {
         copyText(asset.data.content, "文本已复制");
     };
 
-    const downloadImage = (asset: Asset) => {
+    const downloadImage = async (asset: Asset) => {
         if (asset.kind !== "image" && asset.kind !== "video") return;
-        saveAs(asset.kind === "video" ? asset.data.url : asset.data.dataUrl, `${asset.title || "asset"}.${asset.data.mimeType.split("/")[1] || "png"}`);
+        try {
+            const source = asset.kind === "video" ? asset.data.url : asset.data.dataUrl;
+            const ext = mediaFileExtension(source, asset.data.mimeType, asset.kind === "video" ? "mp4" : "png");
+            await downloadMediaFile(source, `${asset.title || "asset"}.${ext}`, asset.data.storageKey);
+            message.success("已开始下载");
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "下载失败");
+        }
     };
+
 
     const exportAllAssets = async () => {
         if (!validAssets.length) {
