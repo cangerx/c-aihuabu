@@ -3953,9 +3953,9 @@ async function resolveMetadataReferences(metadata: CanvasNodeMetadata) {
     return references.every(Boolean) ? (references as ReferenceImage[]) : null;
 }
 
-async function hydrateCanvasImages(nodes: CanvasNodeData[]) {
+async function hydrateCanvasImages(nodes: CanvasNodeData[]): Promise<CanvasNodeData[]> {
     return Promise.all(
-        nodes.map(async (node) => {
+        nodes.map(async (node): Promise<CanvasNodeData> => {
             const content = node.metadata?.content || "";
             if ((node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio) && node.metadata?.storageKey) {
                 return { ...node, metadata: { ...node.metadata, content: await resolveMediaUrl(node.metadata.storageKey, content) } };
@@ -3970,8 +3970,7 @@ async function hydrateCanvasImages(nodes: CanvasNodeData[]) {
                         metadata: {
                             ...node.metadata,
                             content: local,
-                            // 已有可展示内容时，避免仍停在 loading
-                            status: node.metadata.status === "loading" ? "success" : node.metadata.status,
+                            status: node.metadata.status === "loading" ? NODE_STATUS_SUCCESS : node.metadata.status,
                         },
                     };
                 }
@@ -3979,14 +3978,13 @@ async function hydrateCanvasImages(nodes: CanvasNodeData[]) {
 
             if (!content) return node;
 
-            // 失效 blob 且无本地缓存
             if (content.startsWith("blob:") && !node.metadata?.storageKey) {
                 return {
                     ...node,
                     metadata: {
                         ...node.metadata,
                         content: "",
-                        status: "error",
+                        status: NODE_STATUS_ERROR,
                         errorDetails: "本地图片缓存已失效，请重新生成",
                     },
                 };
@@ -3996,13 +3994,12 @@ async function hydrateCanvasImages(nodes: CanvasNodeData[]) {
                 return { ...node, metadata: { ...node.metadata, ...imageMetadata(await persistImageUrl(content)) } };
             }
 
-            // 远程地址：保持可展示，status 修正为 success（展示层会代理）
             if (/^https?:\/\//i.test(content) || content.startsWith("/api/proxy?")) {
                 return {
                     ...node,
                     metadata: {
                         ...node.metadata,
-                        status: node.metadata?.status === "loading" ? "success" : node.metadata?.status || "success",
+                        status: node.metadata?.status === "loading" ? NODE_STATUS_SUCCESS : node.metadata?.status || NODE_STATUS_SUCCESS,
                     },
                 };
             }
@@ -4142,23 +4139,24 @@ function supportsRichVideoReferences(config: AiConfig) {
     return config.apiFormat === "newtoken" || config.apiFormat === "duomiapi" || config.apiFormat === "lingdongapi" || config.apiFormat === "cai2" || isSeedanceVideoConfig(config);
 }
 
-function resetInterruptedGeneration(nodes: CanvasNodeData[]) {
-    return nodes.map((node) => {
+function resetInterruptedGeneration(nodes: CanvasNodeData[]): CanvasNodeData[] {
+    return nodes.map((node): CanvasNodeData => {
         if (node.metadata?.status !== "loading") return node;
         // 图片已有可展示内容时（远程 URL 已返回），不要当成中断失败
         if (node.type === CanvasNodeType.Image && node.metadata?.content && !node.metadata.content.startsWith("blob:")) {
-            return { ...node, metadata: { ...node.metadata, status: "success" as const, errorDetails: undefined } };
+            return { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS, errorDetails: undefined } };
         }
         return {
             ...node,
             metadata: {
                 ...node.metadata,
-                status: "error" as const,
+                status: NODE_STATUS_ERROR,
                 errorDetails: node.type === CanvasNodeType.Video && node.metadata.videoTaskId ? "页面刷新后生成轮询已中断，可手动拉取结果。" : "页面刷新后生成已中断，请重新生成。",
             },
         };
     });
 }
+
 
 function isGenerationCanceled(error: unknown) {
     return error instanceof Error && (error.message === "请求已取消" || error.name === "AbortError");
