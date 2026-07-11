@@ -9,6 +9,7 @@ import { defaultConfig, modelOptionName, useConfigStore, useEffectiveConfig, typ
 import { requestCreditCost } from "@/constant/credits";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { isGrokImagineImageConfig, normalizeGrokImagineImageCount, normalizeGrokImagineImageRatio, normalizeGrokImagineImageResolution } from "@/lib/grok-imagine";
+import { isGptImage2StyleConfig, normalizeGptImage2Ratio, normalizeGptImage2Resolution } from "@/lib/gpt-image-2";
 import { isStepImageEdit2Config, normalizeStepImageEdit2Size } from "@/lib/step-image";
 import { caiVideoModelCapabilities, isSeedanceVideoModel } from "@/lib/seedance-video";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -493,6 +494,13 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
             quality: normalizeGrokImagineImageResolution(nextConfig.quality),
             size: normalizeGrokImagineImageRatio(nextConfig.size),
             count: String(normalizeGrokImagineImageCount(nextConfig.count)),
+        };
+    }
+    if (mode === "image" && isGptImage2StyleConfig(nextConfig)) {
+        return {
+            ...nextConfig,
+            quality: normalizeGptImage2Resolution(nextConfig.quality),
+            size: normalizeGptImage2Ratio(nextConfig.size),
         };
     }
     if (mode === "image" && isStepImageEdit2Config(nextConfig)) {

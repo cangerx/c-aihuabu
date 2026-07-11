@@ -1,9 +1,10 @@
 import axios from "axios";
 
 import { grokImagineImageEditMaxCount, grokImagineImageMaxCount, isGrokImagineImageModel, normalizeGrokImagineImageRatio, normalizeGrokImagineImageResolution } from "@/lib/grok-imagine";
+import { isGeminiImagePreviewModel, isGptImage2Model, normalizeGptImage2Ratio, normalizeGptImage2Resolution, resolveGptImage2Size } from "@/lib/gpt-image-2";
 import { isStepImageEdit2Model, normalizeStepImageEdit2Size } from "@/lib/step-image";
 import { debugError, debugLog, debugWarn, estimatePayloadBytes, summarizeAxiosError } from "@/lib/debug-log";
-import { buildAiApiUrl, buildApiUrl, buildProxiedUrl, resolveModelRequestConfig, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
+import { buildAiApiUrl, buildApiUrl, buildProxiedUrl, modelOptionName, resolveModelRequestConfig, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { buildImageReferencePromptText } from "@/lib/image-reference-prompt";
@@ -232,9 +233,9 @@ function resolveRequestSize(quality: string | undefined, size: string) {
 
 function resolveImageDataUrl(item: Record<string, unknown>) {
     // URL 优先：原生接口 12s 出图后响应体小，可立刻展示；b64 作补充。
-    const url = pickString(item.url) || pickString(item.image_url) || pickString(item.output_url) || pickNestedString(item, ["image", "url"]) || pickNestedString(item, ["image_url", "url"]);
+    const url = pickString(item.url) || pickString(item.image_url) || pickString(item.output_url) || pickString(item.image_base64) || pickNestedString(item, ["image", "url"]) || pickNestedString(item, ["image_url", "url"]);
     if (url && (/^https?:\/\//i.test(url) || url.startsWith("data:") || url.startsWith("blob:"))) return url;
-    const b64 = pickString(item.b64_json) || pickString(item.b64) || pickString(item.base64) || pickNestedString(item, ["image", "b64_json"]) || pickNestedString(item, ["image", "b64"]);
+    const b64 = pickString(item.b64_json) || pickString(item.b64) || pickString(item.base64) || pickString(item.image_base64) || pickNestedString(item, ["image", "b64_json"]) || pickNestedString(item, ["image", "b64"]) || (typeof item.image === "string" ? item.image : "");
     if (b64) return b64.startsWith("data:") ? b64 : b64;
     return null;
 }
@@ -314,7 +315,7 @@ function readImageTaskId(payload: ImageTaskResponse) {
 function normalizeImageTaskStatus(status: string | undefined) {
     const value = String(status || "").toLowerCase();
     if (["completed", "complete", "succeeded", "success", "done"].includes(value)) return "completed";
-    if (["failed", "failure", "error", "cancelled", "canceled", "expired"].includes(value)) return "failed";
+    if (["failed", "failure", "error", "cancelled", "canceled", "expired", "rejected", "content_filter"].includes(value)) return "failed";
     return "pending";
 }
 
@@ -387,7 +388,10 @@ function aiHeaders(config: AiConfig, contentType?: string) {
 function geminiBaseUrl(config: Pick<AiConfig, "baseUrl">) {
     const normalizedBaseUrl = config.baseUrl.trim().replace(/\/+$/, "");
     const lowerBaseUrl = normalizedBaseUrl.toLowerCase();
-    return lowerBaseUrl.endsWith("/v1") || lowerBaseUrl.endsWith("/v1beta") ? normalizedBaseUrl : `${normalizedBaseUrl}/v1beta`;
+    // 兼容 aicost/Cai：Base 以 /v1 结尾时改为 /v1beta
+    if (lowerBaseUrl.endsWith("/v1beta")) return normalizedBaseUrl;
+    if (lowerBaseUrl.endsWith("/v1")) return `${normalizedBaseUrl.slice(0, -3)}v1beta`;
+    return `${normalizedBaseUrl}/v1beta`;
 }
 
 function geminiModelName(model: string) {
@@ -400,9 +404,16 @@ function geminiApiUrl(config: Pick<AiConfig, "baseUrl" | "model"> & Partial<Pick
     return buildProxiedUrl(targetUrl, config.aiProxyEnabled);
 }
 
-function geminiHeaders(config: Pick<AiConfig, "apiKey">) {
+function geminiHeaders(config: Pick<AiConfig, "apiKey" | "apiFormat">): Record<string, string> {
+    // 官方 Gemini 常用 x-goog-api-key；Cai/aicost 等中转文档使用 Bearer。
+    if (config.apiFormat === "gemini") {
+        return {
+            "x-goog-api-key": config.apiKey,
+            "Content-Type": "application/json",
+        };
+    }
     return {
-        "x-goog-api-key": config.apiKey,
+        Authorization: `Bearer ${config.apiKey}`,
         "Content-Type": "application/json",
     };
 }
@@ -789,19 +800,112 @@ async function requestGeminiImages(config: AiConfig, prompt: string, references:
 }
 
 async function requestGeminiImagesOnce(config: AiConfig, prompt: string, references: ReferenceImage[], options?: RequestOptions) {
-    const parts: GeminiPart[] = [{ text: prompt }];
+    const parts: GeminiPart[] = [{ text: withSystemPrompt(config, prompt) }];
     for (const image of references) {
         parts.push(toGeminiImagePart(await imageToDataUrl(image)));
     }
+    const imageSize = normalizeGptImage2Resolution(config.quality).toUpperCase();
+    const aspectRatio = normalizeGptImage2Ratio(config.size);
     const response = await axios.post<GeminiPayload>(
         geminiApiUrl(config, "generateContent"),
         {
-            ...toGeminiBody(config, [{ role: "user", content: prompt }], { generationConfig: { responseModalities: ["TEXT", "IMAGE"] } }),
+            ...toGeminiBody(config, [{ role: "user", content: prompt }], {
+                generationConfig: {
+                    responseModalities: ["TEXT", "IMAGE"],
+                    imageConfig: { imageSize, aspectRatio },
+                },
+            }),
             contents: [{ role: "user", parts }],
         },
         { headers: geminiHeaders(config), signal: options?.signal },
     );
     return parseGeminiImagePayload(response.data);
+}
+
+async function requestGptImage2Generation(config: AiConfig, prompt: string, count: number, options?: RequestOptions) {
+    const size = resolveGptImage2Size(config.quality, config.size);
+    const body = {
+        model: modelOptionName(config.model),
+        prompt: withSystemPrompt(config, prompt),
+        n: Math.max(1, Math.min(count, 1)),
+        size,
+        quality: "auto",
+        output_format: "jpeg",
+        moderation: "auto",
+    };
+    debugLog("image", "gpt-image-2 文生图", { size, model: body.model });
+    try {
+        const response = await postWithProxyFallback<ImageApiResponse>(config, "/images/generations", body, "application/json", options);
+        return await parseImagePayloadOrPoll(config, response.data, options);
+    } catch (error) {
+        throw new Error(readAxiosError(error, "gpt-image-2 图片生成失败"));
+    }
+}
+
+async function requestGptImage2Edit(config: AiConfig, prompt: string, references: ReferenceImage[], count: number, options?: RequestOptions) {
+    if (!references.length) throw new Error("gpt-image-2 图片编辑需要至少 1 张参考图");
+    const size = resolveGptImage2Size(config.quality, config.size);
+    const formData = new FormData();
+    formData.set("model", modelOptionName(config.model));
+    formData.set("prompt", withSystemPrompt(config, prompt));
+    formData.set("n", String(Math.max(1, Math.min(count, 1))));
+    formData.set("size", size);
+    formData.set("quality", "auto");
+    formData.set("output_format", "jpeg");
+    formData.set("moderation", "auto");
+    const files = await Promise.all(references.map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
+    files.forEach((file) => formData.append("image[]", file));
+    debugLog("image", "gpt-image-2 图片编辑", { size, references: files.length });
+    try {
+        const response = await postWithProxyFallback<ImageApiResponse>(config, "/images/edits", formData, undefined, options);
+        return await parseImagePayloadOrPoll(config, response.data, options);
+    } catch (error) {
+        // 部分中转只接受 image 字段
+        if (axios.isAxiosError(error) && error.response?.status && error.response.status >= 400 && error.response.status < 500) {
+            const retry = new FormData();
+            formData.forEach((value, key) => {
+                if (key !== "image[]") retry.append(key, value);
+            });
+            files.forEach((file) => retry.append("image", file));
+            try {
+                const response = await postWithProxyFallback<ImageApiResponse>(config, "/images/edits", retry, undefined, options);
+                return await parseImagePayloadOrPoll(config, response.data, options);
+            } catch (retryError) {
+                throw new Error(readAxiosError(retryError, "gpt-image-2 图片编辑失败"));
+            }
+        }
+        throw new Error(readAxiosError(error, "gpt-image-2 图片编辑失败"));
+    }
+}
+
+async function parseImagePayloadOrPoll(config: AiConfig, payload: ImageApiResponse | ImageTaskResponse, options?: RequestOptions) {
+    try {
+        return parseImagePayload(payload as ImageApiResponse);
+    } catch (error) {
+        const task = unwrapImageTask(payload as ImageTaskResponse);
+        const taskId = readImageTaskId(task);
+        if (!taskId) throw error;
+        const imageUrl = await pollOpenAiCompatibleImageTask(config, taskId, options);
+        return [{ id: nanoid(), dataUrl: imageUrl }];
+    }
+}
+
+async function pollOpenAiCompatibleImageTask(config: AiConfig, taskId: string, options?: RequestOptions) {
+    const maxAttempts = Math.ceil(NEW_TOKEN_IMAGE_TIMEOUT_MS / NEW_TOKEN_IMAGE_POLL_MS);
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+        const task = unwrapImageTask((await getWithProxyFallback<ImageTaskResponse>(config, `/images/generations/${taskId}`, options)).data);
+        const status = normalizeImageTaskStatus(task.status || task.state || task.task_status);
+        const imageUrl = readAsyncImageUrl(task);
+        if (status === "completed" || imageUrl) {
+            if (!imageUrl) throw new Error("图片任务成功但没有返回图片 URL");
+            return imageUrl;
+        }
+        if (status === "failed") throw new Error(task.error?.message || task.msg || "图片生成失败");
+        if (attempt === maxAttempts - 1) throw new Error("图片生成超时，请稍后重试");
+        await delay(NEW_TOKEN_IMAGE_POLL_MS, options?.signal);
+    }
+    throw new Error("图片生成超时，请稍后重试");
 }
 
 async function requestNewTokenAsyncImages(config: AiConfig, prompt: string, references: ReferenceImage[], count: number, options?: RequestOptions) {
@@ -876,11 +980,13 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
     const isGrokImagine = isGrokImagineImageModel(requestConfig.model);
     const isStepImageEdit2 = isStepImageEdit2Model(requestConfig.model);
+    const isGptImage2 = isGptImage2Model(requestConfig.model);
+    const isGeminiPreview = isGeminiImagePreviewModel(requestConfig.model);
     const n = Math.max(1, Math.min(isGrokImagine ? grokImagineImageMaxCount : 15, Math.floor(Math.abs(Number(config.count)) || 1)));
     if (isNewTokenAsyncImageModel(requestConfig)) {
         return requestNewTokenAsyncImages(requestConfig, prompt, [], n, options);
     }
-    if (requestConfig.apiFormat === "gemini") {
+    if (requestConfig.apiFormat === "gemini" || isGeminiPreview) {
         try {
             return await requestGeminiImages(requestConfig, prompt, [], n, options);
         } catch (error) {
@@ -892,6 +998,9 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
     }
     if (isGrokImagine) {
         return requestGrokImagineImages(requestConfig, prompt, n, options);
+    }
+    if (isGptImage2) {
+        return requestGptImage2Generation(requestConfig, prompt, n, options);
     }
     const quality = normalizeQuality(config.quality);
     const requestSize = resolveRequestSize(quality, config.size);
@@ -911,8 +1020,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
             "application/json",
             options,
         );
-        const images = parseImagePayload(response.data);
-        return images;
+        return await parseImagePayloadOrPoll(requestConfig, response.data, options);
     } catch (error) {
         throw new Error(readAxiosError(error, "请求失败"));
     }
@@ -922,13 +1030,15 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
     const isGrokImagine = isGrokImagineImageModel(requestConfig.model);
     const isStepImageEdit2 = isStepImageEdit2Model(requestConfig.model);
+    const isGptImage2 = isGptImage2Model(requestConfig.model);
+    const isGeminiPreview = isGeminiImagePreviewModel(requestConfig.model);
     const n = Math.max(1, Math.min(isGrokImagine ? grokImagineImageMaxCount : 15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const requestPrompt = buildImageReferencePromptText(prompt, references);
     if (isNewTokenAsyncImageModel(requestConfig)) {
         if (mask) throw new Error("NewToken gpt-image2 异步接口暂不支持蒙版编辑");
         return requestNewTokenAsyncImages(requestConfig, requestPrompt, references, n, options);
     }
-    if (requestConfig.apiFormat === "gemini") {
+    if (requestConfig.apiFormat === "gemini" || isGeminiPreview) {
         if (mask) throw new Error("Gemini 调用格式暂不支持蒙版编辑");
         try {
             return await requestGeminiImages(requestConfig, requestPrompt, references, n, options);
@@ -946,6 +1056,10 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     if (isGrokImagine) {
         if (mask) throw new Error("Grok Imagine 图像编辑暂不支持蒙版编辑");
         return requestGrokImagineImageEdits(requestConfig, requestPrompt, references, n, options);
+    }
+    if (isGptImage2) {
+        if (mask) throw new Error("gpt-image-2 文档编辑接口暂不支持蒙版字段，请去掉蒙版后重试");
+        return requestGptImage2Edit(requestConfig, requestPrompt, references, n, options);
     }
     const quality = normalizeQuality(config.quality);
     const requestSize = resolveRequestSize(quality, config.size);
@@ -967,8 +1081,7 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
 
     try {
         const response = await postWithProxyFallback<ImageApiResponse>(requestConfig, "/images/edits", formData, undefined, options);
-        const images = parseImagePayload(response.data);
-        return images;
+        return await parseImagePayloadOrPoll(requestConfig, response.data, options);
     } catch (error) {
         throw new Error(readAxiosError(error, "请求失败"));
     }

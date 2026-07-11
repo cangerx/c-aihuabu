@@ -7,6 +7,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 ## 本轮重点测试
 
+- Cai 图片模型：渠道选择 Cai/OpenAI 兼容后填入 `gpt-image-2`，文生图应 POST `/v1/images/generations` 并带 `size/quality=auto/output_format/moderation`；连接参考图后应 POST `/v1/images/edits` multipart（优先 `image[]`）；设置面板应显示 1K/2K/4K 与宽高比。选择 `gemini-3-pro-image-preview` / `gemini-3.1-flash-image-preview` 应请求 `/v1beta/models/{model}:generateContent`，并带 `imageConfig.imageSize` / `aspectRatio`。
 - 参考素材临时上传（Docker）：配置 `C_AI_PUBLIC_BASE_URL=https://你的域名` 并挂载 `data/uploads` 后，本地图片/视频/音频提交视频或 NewToken/Lingdong 生图时应先 `POST /api/uploads/references` 成功，返回公网 HTTPS URL；`HEAD/GET` 该 URL 可读；Grok 1.5 图生视频 payload 应使用直链而不是超大 base64；文件默认保留 15 天后清理。
 - 开发调试日志：配置 → 生成偏好 → 开启「调试日志」后，发起视频/生图应出现右下角「调试日志」入口；日志含模型、apiFormat、请求 URL、payload 大小、代理失败直连、错误 status/message；复制内容不含 Key/Authorization/完整 base64；关闭开关后入口消失并可清空。
 - 视频创建请求失败修复：Cai / Duomi / Lingdong / NewToken / Seedance 等异步视频接口，参考图若已是公网 HTTPS URL，应直接提交上游，不再误报“静态前端版本没有服务端临时上传能力”；本地 blob/dataURL 参考素材仍应明确提示需公网 HTTPS。视频创建与轮询在同域代理 403/408/502/504/520-524（含 Cloudflare 524）时应与生图一致自动直连兜底。

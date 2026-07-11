@@ -15,6 +15,7 @@ import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta, sanitizeImageDataUrl } from "@/lib/image-utils";
 import { canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
 import { isGrokImagineImageConfig, isGrokImagineVideoModel, normalizeGrokImagineImageCount, normalizeGrokImagineImageRatio, normalizeGrokImagineImageResolution, normalizeGrokImagineVideoRatio, normalizeGrokImagineVideoResolution } from "@/lib/grok-imagine";
+import { isGptImage2StyleConfig, normalizeGptImage2Ratio, normalizeGptImage2Resolution } from "@/lib/gpt-image-2";
 import { isStepImageEdit2Config, normalizeStepImageEdit2Size } from "@/lib/step-image";
 import { boolConfig, isSeedanceVideoModel, normalizeSeedanceRatio, seedanceVideoReferenceError, seedanceVideoReferenceHint } from "@/lib/seedance-video";
 import { normalizeVideoResolutionValue, normalizeVideoSizeValue } from "@/components/video-settings-panel";
@@ -3998,6 +3999,13 @@ function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefine
             quality: normalizeGrokImagineImageResolution(nextConfig.quality),
             size: normalizeGrokImagineImageRatio(nextConfig.size),
             count: String(normalizeGrokImagineImageCount(nextConfig.count)),
+        };
+    }
+    if (mode === "image" && isGptImage2StyleConfig(nextConfig)) {
+        return {
+            ...nextConfig,
+            quality: normalizeGptImage2Resolution(nextConfig.quality),
+            size: normalizeGptImage2Ratio(nextConfig.size),
         };
     }
     if (mode === "image" && isStepImageEdit2Config(nextConfig)) {

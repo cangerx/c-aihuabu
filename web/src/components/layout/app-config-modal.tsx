@@ -55,6 +55,8 @@ const duomiModels = [
     "grok-video-1.5",
 ];
 const caiVideoModels = ["videos", "videos_stable", "happyhorse", "grok-imagine-video", "grok-imagine-video-1.5"];
+const caiImageModels = ["gpt-image-2", "gemini-3-pro-image-preview", "gemini-3.1-flash-image-preview", "grok-imagine-image", "grok-imagine-image-lite", "grok-imagine-image-quality"];
+const caiModels = [...new Set([...caiImageModels, ...caiVideoModels])];
 const lingdongModels = ["gpt-image-2", "sora-2", "sd-2-1", "sd-2-2", "sd-2-3", "sd-2-4", "sd-2-7", "sd-2-11", "sd-2-17"];
 
 const webdavDomainKeys: AppSyncDomainKey[] = ["canvas", "assets", "image-workbench", "video-workbench"];
@@ -196,7 +198,7 @@ export function AppConfigModal() {
 
     const updateChannelApiFormat = (channel: ModelChannel, apiFormat: ApiCallFormat) => {
         const baseUrl = !channel.baseUrl.trim() || channel.baseUrl.trim() === defaultBaseUrlForApiFormat(channel.apiFormat) ? defaultBaseUrlForApiFormat(apiFormat) : channel.baseUrl;
-        const models = apiFormat === "duomiapi" ? duomiModels : apiFormat === "lingdongapi" ? lingdongModels : !channel.models.length && apiFormat === "newtoken" ? newTokenVideoModels : !channel.models.length && apiFormat === "openai-json" ? caiVideoModels : channel.models;
+        const models = apiFormat === "duomiapi" ? duomiModels : apiFormat === "lingdongapi" ? lingdongModels : !channel.models.length && apiFormat === "newtoken" ? newTokenVideoModels : !channel.models.length && apiFormat === "openai-json" ? caiModels : channel.models;
         updateChannel(channel.id, { apiFormat, baseUrl, models });
     };
 
@@ -480,7 +482,13 @@ export function AppConfigModal() {
                                                         </div>
                                                     ) : null}
                                                     {channel.apiFormat === "openai-json" ? (
-                                                        <div className="mb-2 flex justify-end">
+                                                        <div className="mb-2 flex flex-wrap justify-end gap-2">
+                                                            <Button size="small" onClick={() => updateChannel(channel.id, { models: caiModels })}>
+                                                                填入 Cai 全部模型
+                                                            </Button>
+                                                            <Button size="small" onClick={() => updateChannel(channel.id, { models: caiImageModels })}>
+                                                                填入 Cai 图片模型
+                                                            </Button>
                                                             <Button size="small" onClick={() => updateChannel(channel.id, { models: caiVideoModels })}>
                                                                 填入 Cai 视频模型
                                                             </Button>

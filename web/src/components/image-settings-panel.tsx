@@ -5,6 +5,7 @@ import { ConfigProvider, Switch } from "antd";
 
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import { grokImagineImageMaxCount, grokImagineImageRatioOptions, grokImagineImageResolutionOptions, grokImagineImageRatioLabel, isGrokImagineImageConfig, normalizeGrokImagineImageRatio, normalizeGrokImagineImageResolution } from "@/lib/grok-imagine";
+import { gptImage2RatioOptions, gptImage2ResolutionOptions, isGptImage2StyleConfig, normalizeGptImage2Ratio, normalizeGptImage2Resolution } from "@/lib/gpt-image-2";
 import { isStepImageEdit2Config, normalizeStepImageEdit2Size, stepImageEdit2SizeOptions, stepImageEdit2SizeLabel } from "@/lib/step-image";
 import type { AiConfig } from "@/stores/use-config-store";
 
@@ -46,8 +47,9 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const [snapDimensionToStep, setSnapDimensionToStep] = useState(true);
     const isStepImageEdit2 = isStepImageEdit2Config(config);
     const isGrokImagineImage = isGrokImagineImageConfig(config);
+    const isGptImage2Style = isGptImage2StyleConfig(config);
     const effectiveMaxCount = isGrokImagineImage ? Math.min(maxCount, grokImagineImageMaxCount) : maxCount;
-    const quality = isGrokImagineImage ? normalizeGrokImagineImageResolution(config.quality) : config.quality || "auto";
+    const quality = isGrokImagineImage ? normalizeGrokImagineImageResolution(config.quality) : isGptImage2Style ? normalizeGptImage2Resolution(config.quality) : config.quality || "auto";
     const count = Math.max(1, Math.min(effectiveMaxCount, Math.floor(Math.abs(Number(config.count)) || 1)));
     const activeSize = config.size || "auto";
     const quickOptions = Array.from({ length: Math.min(quickCount, effectiveMaxCount) }, (_, index) => index + 1);
@@ -126,6 +128,40 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
                                         <span>{item.label}</span>
                                     </button>
                                 ))}
+                            </div>
+                        </div>
+                    </>
+                ) : isGptImage2Style ? (
+                    <>
+                        <div className="space-y-2.5">
+                            <SettingTitle color={theme.node.muted}>分辨率</SettingTitle>
+                            <div className="grid grid-cols-3 gap-2.5">
+                                {gptImage2ResolutionOptions.map((item) => (
+                                    <OptionPill key={item.value} selected={quality === item.value} theme={theme} onClick={() => onConfigChange("quality", item.value)}>
+                                        {item.label}
+                                    </OptionPill>
+                                ))}
+                            </div>
+                        </div>
+                        <div className="space-y-2.5">
+                            <SettingTitle color={theme.node.muted}>宽高比</SettingTitle>
+                            <div className="grid grid-cols-4 gap-2.5">
+                                {gptImage2RatioOptions.map((item) => {
+                                    const [w, h] = item.value.split(":").map(Number);
+                                    return (
+                                        <button
+                                            key={item.value}
+                                            type="button"
+                                            className="flex h-[72px] cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border bg-transparent text-sm transition hover:opacity-80"
+                                            style={{ borderColor: normalizeGptImage2Ratio(activeSize) === item.value ? theme.node.text : theme.node.stroke, background: "transparent", color: theme.node.text }}
+                                            onMouseDown={(event) => event.stopPropagation()}
+                                            onClick={() => onConfigChange("size", item.value)}
+                                        >
+                                            <AspectIcon type="ratio" width={w} height={h} color={theme.node.text} />
+                                            <span>{item.label}</span>
+                                        </button>
+                                    );
+                                })}
                             </div>
                         </div>
                     </>
@@ -209,13 +245,14 @@ export function ImageSettingsTheme({ theme, children }: { theme: CanvasTheme; ch
 }
 
 export function imageQualityLabel(value: string) {
-    return ({ auto: "自动", high: "高", medium: "中", low: "低", "1k": "1k", "2k": "2k" } as Record<string, string>)[value] || value;
+    return ({ auto: "自动", high: "高", medium: "中", low: "低", "1k": "1K", "2k": "2K", "4k": "4K" } as Record<string, string>)[value] || value;
 }
 
 export function imageSizeLabel(size: string) {
     const raw = String(size || "").trim().toLowerCase();
     if (stepImageEdit2SizeOptions.some((item) => item.value === raw)) return stepImageEdit2SizeLabel(raw);
     if (grokImagineImageRatioOptions.some((item) => item.value === raw)) return grokImagineImageRatioLabel(raw);
+    if (gptImage2RatioOptions.some((item) => item.value === raw)) return raw;
     return aspectOptions.find((item) => (item.size || item.value) === size || item.value === size)?.label || size;
 }
 

@@ -8,6 +8,7 @@ import { Button } from "antd";
 import { ImageSettingsPanel, imageQualityLabel, imageSizeLabel } from "@/components/image-settings-panel";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { isGrokImagineImageConfig, normalizeGrokImagineImageResolution } from "@/lib/grok-imagine";
+import { isGptImage2StyleConfig, normalizeGptImage2Resolution } from "@/lib/gpt-image-2";
 import { isPortraitImageSize, isStepImageEdit2Config } from "@/lib/step-image";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { AiConfig } from "@/stores/use-config-store";
@@ -30,7 +31,7 @@ export function CanvasImageSettingsPopover({ config, onConfigChange, onOpenChang
     const [open, setOpen] = useState(false);
     const [buttonRect, setButtonRect] = useState<DOMRect | null>(null);
     const quality = config.quality || "auto";
-    const displayQuality = isGrokImagineImageConfig(config) ? normalizeGrokImagineImageResolution(quality) : quality;
+    const displayQuality = isGrokImagineImageConfig(config) ? normalizeGrokImagineImageResolution(quality) : isGptImage2StyleConfig(config) ? normalizeGptImage2Resolution(quality) : quality;
     const activeSize = config.size || "auto";
     const isStepImageEdit2 = isStepImageEdit2Config(config);
     const isPortrait = isPortraitImageSize(activeSize);
