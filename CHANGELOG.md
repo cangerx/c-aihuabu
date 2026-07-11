@@ -2,6 +2,9 @@
 
 ## Unreleased
 
++ [修复] HTTPS 页面展示上游 `http://IP` 图片时改为同域 `/api/proxy` 转发，避免 Mixed Content 拦截导致画布/结果卡空白。
++ [新增] 渠道调用格式「Cai 二号」：按 aicost 视频插件文档适配 Firefly Veo3.1 / Grok Imagine / Omni Flash / Sora 2.0 的 chat 流式与 `/v1/videos` 异步创建/轮询；Base URL 需自行填写。
++ [优化] 本地 C-ai Agent 侧边栏画布写操作确认支持队列：连续工具调用依次排队，可逐条或全部批准/拒绝，执行中新到的操作也会入队。
 + [适配] Cai/OpenAI 兼容渠道接入文档图片模型：`gpt-image-2` 文生图 `/images/generations` 与参考图编辑 `/images/edits`（`image[]` 失败回退 `image`），支持 1K/2K/4K 与宽高比尺寸映射；`gemini-3-pro-image-preview` / `gemini-3.1-flash-image-preview` 走 `/v1beta/models/{model}:generateContent` 并提交 `imageConfig`。
 + [优化] 配置页 Cai 渠道可一键填入图片模型；异步任务返回 `task_id` 时轮询 `/images/generations/{task_id}`。
 + [修复] 视频参考图若已是公网 HTTPS URL 时不再误走已移除的本地上传接口；本地素材仍明确提示需公网链接。

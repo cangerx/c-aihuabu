@@ -1112,7 +1112,7 @@ function buildLog({ prompt, model, config, references, videoReferences, audioRef
 function buildVideoConfig(config: AiConfig, model: string): AiConfig {
     const isGrokImagineVideo = isGrokImagineVideoModel(model);
     const seedance = isSeedanceVideoConfig({ ...config, model });
-    const asyncJson = config.apiFormat === "newtoken" || config.apiFormat === "duomiapi" || config.apiFormat === "lingdongapi";
+    const asyncJson = config.apiFormat === "newtoken" || config.apiFormat === "duomiapi" || config.apiFormat === "lingdongapi" || config.apiFormat === "cai2";
     return {
         ...config,
         model,

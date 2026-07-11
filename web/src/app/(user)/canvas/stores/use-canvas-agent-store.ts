@@ -31,6 +31,7 @@ type CanvasAgentStore = {
     activity: string;
     connectError: string;
     pendingTool: AgentPendingToolCall | null;
+    toolQueue: AgentPendingToolCall[];
     setAgentState: (patch: Partial<Omit<CanvasAgentStore, "setAgentState" | "addMessage" | "addEventLog" | "clearEventLogs">>) => void;
     addMessage: (item: AgentChatItem) => void;
     addEventLog: (item: AgentEventLog) => void;
@@ -58,6 +59,7 @@ export const useCanvasAgentStore = create<CanvasAgentStore>((set) => ({
     activity: "就绪",
     connectError: "",
     pendingTool: null,
+    toolQueue: [],
     setAgentState: (patch) => set(patch),
     addMessage: (item) => set((state) => ({ messages: [...state.messages.slice(-120), item] })),
     addEventLog: (item) => set((state) => ({ eventLogs: [...state.eventLogs.slice(-160), item] })),

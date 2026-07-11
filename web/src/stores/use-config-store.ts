@@ -5,7 +5,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 
-export type ApiCallFormat = "openai" | "gemini" | "volcengine" | "openai-json" | "newtoken" | "duomiapi" | "lingdongapi";
+export type ApiCallFormat = "openai" | "gemini" | "volcengine" | "openai-json" | "cai2" | "newtoken" | "duomiapi" | "lingdongapi";
 
 export type ModelChannel = {
     id: string;
@@ -131,7 +131,7 @@ type ConfigStore = {
 
 function isVideoModelName(model: string) {
     const value = modelOptionName(model).toLowerCase();
-    return /^sd-\d/i.test(value) || value.includes("seedance") || value.includes("video") || value.includes("sora") || value.includes("veo") || value.includes("kling") || value.includes("runway") || value.includes("luma") || value.includes("pika") || value.includes("wan") || value.includes("hailuo");
+    return /^sd-\d/i.test(value) || value.includes("seedance") || value.includes("video") || value.includes("sora") || value.includes("veo") || value.includes("firefly") || value.includes("kling") || value.includes("runway") || value.includes("luma") || value.includes("pika") || value.includes("wan") || value.includes("hailuo");
 }
 
 function isImageModelName(model: string) {
@@ -394,6 +394,7 @@ function normalizeApiFormat(apiFormat: unknown): ApiCallFormat {
     if (apiFormat === "gemini") return "gemini";
     if (apiFormat === "volcengine") return "volcengine";
     if (apiFormat === "openai-json") return "openai-json";
+    if (apiFormat === "cai2") return "cai2";
     if (apiFormat === "newtoken") return "newtoken";
     if (apiFormat === "duomiapi") return "duomiapi";
     if (apiFormat === "lingdongapi") return "lingdongapi";

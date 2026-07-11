@@ -7,6 +7,9 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 ## 本轮重点测试
 
+- HTTPS 画布/生图结果展示：上游若返回 `http://IP:端口/...` 图片地址，页面不应再出现 Mixed Content 拦截；浏览器请求应走同域 `/api/proxy?url=...` 再拉取上游；本地 blob/dataURL/HTTPS 正常地址不受影响。
+- Cai 二号视频接口：配置页调用格式选「Cai 二号」，Base URL 需自行填写，可恢复 Firefly Veo3.1 / Grok Imagine / Omni Flash / Sora 2.0 模型列表。Firefly、Omni 应走 `/v1/chat/completions` 流式并解析 `video_url` 或文本中的视频链接；普通 Grok 走非流式 chat 并带 `duration/aspect_ratio/image_reference`；Grok 1.5 Preview 与 Sora 2.0 走 `/v1/videos` 异步任务并轮询；若只返回 task_id，Firefly/Omni 轮询 `/v1/tasks/{id}`，其余轮询 `/v1/videos/{id}`。
+- 本地 Agent 工具确认队列：开启「工具确认」后，Codex 连续多次 `canvas_apply_ops` 应依次入队，不再因「仍有待确认」直接失败；确认卡显示 `1/N` 与队列数量，支持「批准/拒绝当前」和「全部批准/全部拒绝」；执行中新到的写操作仍会入队，断开连接或清会话时队列清空。
 - Cai 图片模型：渠道选择 Cai/OpenAI 兼容后填入 `gpt-image-2`，文生图应 POST `/v1/images/generations` 并带 `size/quality=auto/output_format/moderation`；连接参考图后应 POST `/v1/images/edits` multipart（优先 `image[]`）；设置面板应显示 1K/2K/4K 与宽高比。选择 `gemini-3-pro-image-preview` / `gemini-3.1-flash-image-preview` 应请求 `/v1beta/models/{model}:generateContent`，并带 `imageConfig.imageSize` / `aspectRatio`。
 - 参考素材临时上传（Docker）：配置 `C_AI_PUBLIC_BASE_URL=https://你的域名` 并挂载 `data/uploads` 后，本地图片/视频/音频提交视频或 NewToken/Lingdong 生图时应先 `POST /api/uploads/references` 成功，返回公网 HTTPS URL；`HEAD/GET` 该 URL 可读；Grok 1.5 图生视频 payload 应使用直链而不是超大 base64；文件默认保留 15 天后清理。
 - 开发调试日志：配置 → 生成偏好 → 开启「调试日志」后，发起视频/生图应出现右下角「调试日志」入口；日志含模型、apiFormat、请求 URL、payload 大小、代理失败直连、错误 status/message；复制内容不含 Key/Authorization/完整 base64；关闭开关后入口消失并可清空。
@@ -35,7 +38,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 - 同步生图请求方式：关闭同域代理时，同步 `/v1/images/generations` 或 `/v1/images/edits` 应直接请求用户配置的 Base URL；开启同域代理时应请求同域 `/api/proxy`，浏览器不应再出现上游 CORS 报错。
 - 同步图片直连稳定性：静态版不再产生 `[ai-proxy-task]` 服务端日志；Network 中不应出现 `/api/ai-proxy` 请求。
 - 前端缓存更新：部署新版本后重新打开页面，Network 里不应再出现旧 `/api/ai-proxy`、`/api/uploads` 或 `/webdav-proxy` 请求；如果旧页面尝试加载已不存在的动态 JS chunk，应由 nginx fallback 或路由错误兜底自动刷新一次并恢复到新入口，不应显示 React Router 默认错误页。
-- 对应提交范围：`d6b430f` 起到当前最新提交，重点覆盖脚本生成器、参考图片托管和视频提交链路。
+- 对应提交范围：`d6b430f` 起到当前最新提交，重点覆盖脚本生成器、参考图片托管、视频提交链路与本地 Agent 工具确认队列。
 - 画布脚本生成器：新建“脚本生成器”节点，测试三种模式“主题分镜 / 参考图文案 / 图文转视频”；点击节点内“上传参考图”后，应自动创建图片节点并连线到脚本生成器；只上传图片不输入文字时，也应能生成文案分析摘要和分镜卡片；点击“拆分镜头”后，应生成“镜头文本 -> 图片节点 -> 视频节点”的工作流。
 - 视频参考图片提交：从画布图片节点连接到视频节点后提交时，Cai / NewToken / duomiapi / Seedance / Lingdong 等需要服务端回源的异步接口应只接受公网 HTTPS URL；本地 `blob:` 或 dataURL 应在前端直接提示先上传到对象存储。
 - Grok 1.5 预览图生视频：选择 `grok-imagine-video-1.5-preview` 并连接 1 张图片后提交，Cai 专用接口、NewToken 和 duomiapi payload 应使用 `input_reference` 提交参考图，不应再因缺少 `input_reference` 返回 `requires one input_reference image`。

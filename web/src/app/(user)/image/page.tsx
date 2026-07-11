@@ -16,7 +16,7 @@ import { useThemeStore } from "@/stores/use-theme-store";
 import { nanoid } from "nanoid";
 import { formatBytes, formatDuration, getDataUrlByteSize } from "@/lib/image-utils";
 import { requestEdit, requestGeneration } from "@/services/api/image";
-import { deleteStoredImages, persistImageUrl, persistImageUrlInBackground, prepareImageForDisplay, resolveImageUrl, uploadImage } from "@/services/image-storage";
+import { deleteStoredImages, persistImageUrl, persistImageUrlInBackground, prepareImageForDisplay, proxiedImageDisplayUrl, resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { useAssetStore } from "@/stores/use-asset-store";
 import type { ReferenceImage } from "@/types/image";
 import type { CanvasResourceReference } from "@/app/(user)/canvas/utils/canvas-resource-references";
@@ -723,13 +723,13 @@ function ResultImageCard({
         let active = true;
         const source = image.dataUrl || "";
         if (source && (source.startsWith("blob:") || source.startsWith("data:") || /^https?:\/\//i.test(source))) {
-            setDisplayUrl(source);
+            setDisplayUrl(proxiedImageDisplayUrl(source));
             return () => {
                 active = false;
             };
         }
         void resolveImageUrl(image.storageKey, source).then((url) => {
-            if (active && url) setDisplayUrl(url);
+            if (active && url) setDisplayUrl(proxiedImageDisplayUrl(url));
         });
         return () => {
             active = false;

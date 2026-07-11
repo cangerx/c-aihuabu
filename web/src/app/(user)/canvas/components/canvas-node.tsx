@@ -839,10 +839,10 @@ function ImageContent({
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const isBatchChild = Boolean(node.metadata?.batchRootId);
     const sourceUrl = node.metadata!.content!;
-    const [displayUrl, setDisplayUrl] = useState(sourceUrl);
+    const [displayUrl, setDisplayUrl] = useState(() => proxiedImageDisplayUrl(sourceUrl));
 
     useEffect(() => {
-        setDisplayUrl(sourceUrl);
+        setDisplayUrl(proxiedImageDisplayUrl(sourceUrl));
     }, [sourceUrl]);
 
     return (

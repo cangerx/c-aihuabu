@@ -29,7 +29,7 @@ export async function uploadImage(input: string | Blob): Promise<UploadedImage> 
 }
 
 export function imageDisplayUrl(url: string) {
-    return url;
+    return proxiedImageDisplayUrl(url);
 }
 
 export async function persistImageUrl(input: string) {
@@ -85,8 +85,29 @@ export function persistImageUrlInBackground(input: string, onStored?: (image: Up
     setTimeout(run, 0);
 }
 
+/** HTTPS 页面不能直接加载 http://IP 图片（Mixed Content），走同域代理展示。 */
 export function proxiedImageDisplayUrl(url: string) {
-    return url;
+    const value = String(url || "").trim();
+    if (!value || value.startsWith("data:") || value.startsWith("blob:") || value.startsWith("/") || value.startsWith("/api/proxy")) return value;
+    if (!/^https?:\/\//i.test(value)) return value;
+    try {
+        const parsed = new URL(value);
+        const pageIsHttps = typeof window !== "undefined" && window.location.protocol === "https:";
+        const hostIsIp = netIsIpHost(parsed.hostname);
+        // 页面 HTTPS 时，任何 http 资源都必须代理；http + IP 主机即使在 http 页也优先代理，避免后续升级 HTTPS 再挂。
+        if (parsed.protocol === "http:" && (pageIsHttps || hostIsIp)) {
+            return `/api/proxy?url=${encodeURIComponent(value)}`;
+        }
+    } catch {
+        return value;
+    }
+    return value;
+}
+
+function netIsIpHost(host: string) {
+    const value = String(host || "").replace(/^\[|\]$/g, "");
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(value)) return true;
+    return value.includes(":");
 }
 
 export async function resolveImageUrl(storageKey?: string, fallback = "") {
@@ -154,13 +175,13 @@ function blobToDataUrl(blob: Blob) {
 }
 
 async function readBlobFromUrl(url: string) {
-    const response = await fetch(url);
+    const response = await fetch(proxiedImageDisplayUrl(url));
     if (!response.ok) throw new Error("读取图片失败");
     return response.blob();
 }
 
 async function readRemoteImageMeta(url: string) {
-    const meta = await readImageMeta(url);
+    const meta = await readImageMeta(proxiedImageDisplayUrl(url));
     if (meta.width !== FALLBACK_IMAGE_META.width || meta.height !== FALLBACK_IMAGE_META.height || url.startsWith("data:")) return meta;
     return FALLBACK_IMAGE_META;
 }

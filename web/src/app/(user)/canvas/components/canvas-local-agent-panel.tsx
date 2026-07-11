@@ -40,7 +40,7 @@ type AgentEventPayload = {
 };
 type AgentEventItem = { id?: string; type?: string; text?: unknown; message?: unknown; server?: string; tool?: string; status?: string; arguments?: unknown; result?: unknown; error?: { message?: string } };
 
-type AgentLogContext = { endpoint: string; connected: boolean; enabled: boolean; activity: string; waiting: boolean; sending: boolean; messages: number; pendingTool?: string };
+type AgentLogContext = { endpoint: string; connected: boolean; enabled: boolean; activity: string; waiting: boolean; sending: boolean; messages: number; pendingTool?: string; toolQueue?: number };
 type AgentWorkspace = { canvasId: string; workspacePath: string; activeThreadId?: string };
 type AgentThreadsResponse = { ok?: boolean; workspace?: AgentWorkspace; data?: AgentThreadSummary[] };
 type AgentThreadResponse = { ok?: boolean; workspace?: AgentWorkspace; thread?: AgentThreadSummary; messages?: AgentChatItem[] };
@@ -49,12 +49,14 @@ export function CanvasLocalAgentPanel({ snapshot, canUndoOps, collapsed, embedde
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const user = useUserStore((state) => state.user);
     const { message, modal } = App.useApp();
-    const { width, url, token, connected, enabled, prompt, attachments, sending, waiting, messages, eventLogs, threads, activeThreadId, workspacePath, loadingThreads, activeTab, confirmTools, activity, connectError, pendingTool, setAgentState, addMessage: pushMessage, addEventLog: pushEventLog, clearEventLogs } = useCanvasAgentStore();
+    const { width, url, token, connected, enabled, prompt, attachments, sending, waiting, messages, eventLogs, threads, activeThreadId, workspacePath, loadingThreads, activeTab, confirmTools, activity, connectError, pendingTool, toolQueue, setAgentState, addMessage: pushMessage, addEventLog: pushEventLog, clearEventLogs } = useCanvasAgentStore();
     const [resizing, setResizing] = useState(false);
     const listRef = useRef<HTMLDivElement>(null);
     const snapshotRef = useRef(snapshot);
     const confirmToolsRef = useRef(confirmTools);
     const pendingToolRef = useRef<AgentPendingToolCall | null>(null);
+    const toolQueueRef = useRef<AgentPendingToolCall[]>([]);
+    const executingToolRef = useRef(false);
     const onApplyOpsRef = useRef(onApplyOps);
     const connectedRef = useRef(false);
     const errorLoggedRef = useRef(false);
@@ -95,11 +97,14 @@ export function CanvasLocalAgentPanel({ snapshot, canUndoOps, collapsed, embedde
         pendingToolRef.current = pendingTool;
     }, [pendingTool]);
     useEffect(() => {
+        toolQueueRef.current = toolQueue;
+    }, [toolQueue]);
+    useEffect(() => {
         onApplyOpsRef.current = onApplyOps;
     }, [onApplyOps]);
     useEffect(() => {
         listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
-    }, [messages, pendingTool, waiting]);
+    }, [messages, pendingTool, toolQueue, waiting]);
     useEffect(() => () => attachmentUrlsRef.current.forEach((url) => URL.revokeObjectURL(url)), []);
 
     useEffect(() => {
@@ -236,10 +241,17 @@ export function CanvasLocalAgentPanel({ snapshot, canUndoOps, collapsed, embedde
         setAgentState({ attachments: attachments.filter((item) => item.id !== id) });
     };
 
+    const enqueueConfirmTool = (payload: AgentPendingToolCall) => {
+        const nextQueue = [...toolQueueRef.current, payload];
+        toolQueueRef.current = nextQueue;
+        setAgentState({ toolQueue: nextQueue, activity: "等待确认", waiting: false });
+        addEventLog("加入确认队列", { ...payload, queueSize: nextQueue.length }, payload);
+    };
+
     const handleToolCall = async (endpoint: string, token: string, payload: AgentPendingToolCall) => {
         if (confirmToolsRef.current && payload.name === "canvas_apply_ops") {
-            if (pendingToolRef.current) {
-                await postToolResult(endpoint, token, clientIdRef.current, { requestId: payload.requestId, error: "仍有待确认的画布工具调用" });
+            if (pendingToolRef.current || executingToolRef.current) {
+                enqueueConfirmTool(payload);
                 return;
             }
             pendingToolRef.current = payload;
@@ -248,6 +260,15 @@ export function CanvasLocalAgentPanel({ snapshot, canUndoOps, collapsed, embedde
             return;
         }
         await runToolCall(endpoint, token, payload);
+    };
+
+    const promoteNextTool = () => {
+        const [next, ...rest] = toolQueueRef.current;
+        toolQueueRef.current = rest;
+        pendingToolRef.current = next || null;
+        setAgentState({ pendingTool: next || null, toolQueue: rest, activity: next ? "等待确认" : "工具完成", waiting: !next });
+        if (next) addEventLog("等待确认", next, next);
+        return next || null;
     };
 
     const runToolCall = async (endpoint: string, token: string, payload: AgentPendingToolCall) => {
@@ -271,11 +292,11 @@ export function CanvasLocalAgentPanel({ snapshot, canUndoOps, collapsed, embedde
 
     const rejectPendingTool = async () => {
         if (!pendingTool) return;
-        await postToolResult(endpoint, token, clientIdRef.current, { requestId: pendingTool.requestId, error: "用户取消了画布工具调用" });
-        setAgentState({ activity: "已取消", waiting: false });
-        addMessage({ role: "tool", title: "拒绝执行", text: toolName(pendingTool.name), detail: { requestId: pendingTool.requestId, name: pendingTool.name, input: pendingTool.input } });
-        pendingToolRef.current = null;
-        setAgentState({ pendingTool: null });
+        const tool = pendingTool;
+        await postToolResult(endpoint, token, clientIdRef.current, { requestId: tool.requestId, error: "用户取消了画布工具调用" });
+        addMessage({ role: "tool", title: "拒绝执行", text: toolName(tool.name), detail: { requestId: tool.requestId, name: tool.name, input: tool.input } });
+        const next = promoteNextTool();
+        if (!next) setAgentState({ activity: "已取消", waiting: false });
     };
 
     const approvePendingTool = async () => {
@@ -283,7 +304,44 @@ export function CanvasLocalAgentPanel({ snapshot, canUndoOps, collapsed, embedde
         const tool = pendingTool;
         pendingToolRef.current = null;
         setAgentState({ pendingTool: null });
-        await runToolCall(endpoint, token, tool);
+        executingToolRef.current = true;
+        try {
+            await runToolCall(endpoint, token, tool);
+        } finally {
+            executingToolRef.current = false;
+        }
+        promoteNextTool();
+    };
+
+    const rejectAllPendingTools = async () => {
+        const tools = [pendingTool, ...toolQueueRef.current].filter(Boolean) as AgentPendingToolCall[];
+        if (!tools.length) return;
+        pendingToolRef.current = null;
+        toolQueueRef.current = [];
+        setAgentState({ pendingTool: null, toolQueue: [], activity: "已取消", waiting: false });
+        for (const tool of tools) {
+            await postToolResult(endpoint, token, clientIdRef.current, { requestId: tool.requestId, error: "用户取消了画布工具调用" });
+            addMessage({ role: "tool", title: "拒绝执行", text: toolName(tool.name), detail: { requestId: tool.requestId, name: tool.name, input: tool.input } });
+        }
+        addEventLog("全部拒绝", { count: tools.length });
+    };
+
+    const approveAllPendingTools = async () => {
+        const tools = [pendingTool, ...toolQueueRef.current].filter(Boolean) as AgentPendingToolCall[];
+        if (!tools.length) return;
+        pendingToolRef.current = null;
+        toolQueueRef.current = [];
+        setAgentState({ pendingTool: null, toolQueue: [], activity: "执行画布操作", waiting: true });
+        executingToolRef.current = true;
+        try {
+            for (const tool of tools) {
+                await runToolCall(endpoint, token, tool);
+            }
+        } finally {
+            executingToolRef.current = false;
+        }
+        promoteNextTool();
+        addEventLog("全部批准", { count: tools.length });
     };
 
     const undoLastTool = () => {
@@ -334,9 +392,12 @@ export function CanvasLocalAgentPanel({ snapshot, canUndoOps, collapsed, embedde
             waiting: false,
             sending: false,
             pendingTool: null,
+            toolQueue: [],
             ...patch,
         });
         pendingToolRef.current = null;
+        toolQueueRef.current = [];
+        executingToolRef.current = false;
     }
 
     const startNewThread = async () => {
@@ -518,7 +579,7 @@ export function CanvasLocalAgentPanel({ snapshot, canUndoOps, collapsed, embedde
                 <AgentLogView
                     logs={eventLogs}
                     theme={theme}
-                    context={{ endpoint, connected, enabled, activity, waiting, sending, messages: messages.length, pendingTool: pendingTool?.name }}
+                    context={{ endpoint, connected, enabled, activity, waiting, sending, messages: messages.length, pendingTool: pendingTool?.name, toolQueue: toolQueue.length }}
                     onClear={clearEventLogs}
                     onCopied={(text) => message.success(text)}
                     onCopyBlocked={(text) => message.warning(text)}
@@ -529,7 +590,7 @@ export function CanvasLocalAgentPanel({ snapshot, canUndoOps, collapsed, embedde
                         {messages.map((item) => (
                             <AgentChatMessage key={item.id} item={agentMessageToChatMessage(item)} theme={theme} user={user} />
                         ))}
-                        {pendingTool ? <AgentPendingToolCard summary={summarizeCanvasAgentOps(pendingTool.input?.ops || []) || toolName(pendingTool.name)} detail={{ requestId: pendingTool.requestId, name: pendingTool.name, input: pendingTool.input }} theme={theme} onReject={rejectPendingTool} onApprove={approvePendingTool} /> : null}
+                        {pendingTool ? <AgentPendingToolCard summary={summarizeCanvasAgentOps(pendingTool.input?.ops || []) || toolName(pendingTool.name)} detail={{ requestId: pendingTool.requestId, name: pendingTool.name, input: pendingTool.input, queue: toolQueue }} theme={theme} queueCount={toolQueue.length} onReject={rejectPendingTool} onApprove={approvePendingTool} onRejectAll={rejectAllPendingTools} onApproveAll={approveAllPendingTools} /> : null}
                         {waiting && !pendingTool ? <AgentWorkingMessage theme={theme} /> : null}
                     </div>
                     <AgentChatComposer
@@ -818,6 +879,7 @@ function formatLogText(logs: AgentEventLog[], context: AgentLogContext) {
         `sending: ${context.sending}`,
         `messages: ${context.messages}`,
         `pendingTool: ${context.pendingTool ? toolName(context.pendingTool) : "none"}`,
+        `toolQueue: ${context.toolQueue || 0}`,
         `logs: ${logs.length}`,
     ].join("\n");
     const body = logs.map((item, index) => {

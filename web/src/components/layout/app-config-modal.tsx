@@ -43,6 +43,7 @@ const apiFormatOptions: Array<{ label: string; value: ApiCallFormat }> = [
     { label: "Gemini", value: "gemini" },
     { label: "Volcengine Seedance", value: "volcengine" },
     { label: "Cai", value: "openai-json" },
+    { label: "Cai 二号", value: "cai2" },
     { label: "NewToken", value: "newtoken" },
     { label: "Duomi", value: "duomiapi" },
     { label: "Lingdong", value: "lingdongapi" },
@@ -57,6 +58,23 @@ const duomiModels = [
 const caiVideoModels = ["videos", "videos_stable", "happyhorse", "grok-imagine-video", "grok-imagine-video-1.5"];
 const caiImageModels = ["gpt-image-2", "gemini-3-pro-image-preview", "gemini-3.1-flash-image-preview", "grok-imagine-image", "grok-imagine-image-lite", "grok-imagine-image-quality"];
 const caiModels = [...new Set([...caiImageModels, ...caiVideoModels])];
+const cai2VideoModels = [
+    "firefly-veo31-fast-8s-16x9-1080p",
+    "firefly-veo31-fast-8s-16x9-720p",
+    "firefly-veo31-fast-8s-9x16-1080p",
+    "firefly-veo31-fast-8s-9x16-720p",
+    "firefly-veo31-8s-16x9-1080p",
+    "firefly-veo31-8s-16x9-720p",
+    "firefly-veo31-8s-9x16-1080p",
+    "firefly-veo31-8s-9x16-720p",
+    "grok-imagine-video",
+    "grok-imagine-1.0-video",
+    "grok-imagine-video-1.5-preview",
+    "veo-omni-flash",
+    "sora-2.0-fast-9",
+    "sora-2.0-pro-9-720p",
+    "sora-2.0-pro-9-1080p",
+];
 const lingdongModels = ["gpt-image-2", "sora-2", "sd-2-1", "sd-2-2", "sd-2-3", "sd-2-4", "sd-2-7", "sd-2-11", "sd-2-17"];
 
 const webdavDomainKeys: AppSyncDomainKey[] = ["canvas", "assets", "image-workbench", "video-workbench"];
@@ -198,7 +216,7 @@ export function AppConfigModal() {
 
     const updateChannelApiFormat = (channel: ModelChannel, apiFormat: ApiCallFormat) => {
         const baseUrl = !channel.baseUrl.trim() || channel.baseUrl.trim() === defaultBaseUrlForApiFormat(channel.apiFormat) ? defaultBaseUrlForApiFormat(apiFormat) : channel.baseUrl;
-        const models = apiFormat === "duomiapi" ? duomiModels : apiFormat === "lingdongapi" ? lingdongModels : !channel.models.length && apiFormat === "newtoken" ? newTokenVideoModels : !channel.models.length && apiFormat === "openai-json" ? caiModels : channel.models;
+        const models = apiFormat === "duomiapi" ? duomiModels : apiFormat === "lingdongapi" ? lingdongModels : apiFormat === "cai2" ? cai2VideoModels : !channel.models.length && apiFormat === "newtoken" ? newTokenVideoModels : !channel.models.length && apiFormat === "openai-json" ? caiModels : channel.models;
         updateChannel(channel.id, { apiFormat, baseUrl, models });
     };
 
@@ -215,9 +233,9 @@ export function AppConfigModal() {
     };
 
     const refreshChannelModels = async (channel: ModelChannel) => {
-        if (channel.apiFormat === "duomiapi" || channel.apiFormat === "lingdongapi") {
-            updateChannel(channel.id, { models: channel.apiFormat === "lingdongapi" ? lingdongModels : duomiModels });
-            message.success(channel.apiFormat === "lingdongapi" ? "已恢复 Lingdong 已适配模型" : "已恢复 Duomi 已适配模型");
+        if (channel.apiFormat === "duomiapi" || channel.apiFormat === "lingdongapi" || channel.apiFormat === "cai2") {
+            updateChannel(channel.id, { models: channel.apiFormat === "lingdongapi" ? lingdongModels : channel.apiFormat === "cai2" ? cai2VideoModels : duomiModels });
+            message.success(channel.apiFormat === "lingdongapi" ? "已恢复 Lingdong 已适配模型" : channel.apiFormat === "cai2" ? "已恢复 Cai 二号视频模型" : "已恢复 Duomi 已适配模型");
             return;
         }
         if (!channel.baseUrl.trim() || !channel.apiKey.trim()) {
@@ -237,11 +255,11 @@ export function AppConfigModal() {
     };
 
     const refreshAllModels = async () => {
-        const builtinChannels = config.channels.filter((channel) => channel.apiFormat === "duomiapi" || channel.apiFormat === "lingdongapi");
+        const builtinChannels = config.channels.filter((channel) => channel.apiFormat === "duomiapi" || channel.apiFormat === "lingdongapi" || channel.apiFormat === "cai2");
         const runnable = config.channels.filter((channel) => !builtinChannels.includes(channel) && channel.baseUrl.trim() && channel.apiKey.trim());
         if (!runnable.length) {
             if (builtinChannels.length) {
-                updateChannels(config.channels.map((channel) => (channel.apiFormat === "duomiapi" ? { ...channel, models: duomiModels } : channel.apiFormat === "lingdongapi" ? { ...channel, models: lingdongModels } : channel)));
+                updateChannels(config.channels.map((channel) => (channel.apiFormat === "duomiapi" ? { ...channel, models: duomiModels } : channel.apiFormat === "lingdongapi" ? { ...channel, models: lingdongModels } : channel.apiFormat === "cai2" ? { ...channel, models: cai2VideoModels } : channel)));
                 message.success("已恢复内置渠道已适配模型");
                 return;
             }
@@ -252,7 +270,7 @@ export function AppConfigModal() {
         try {
             const entries = await Promise.all(runnable.map(async (channel) => [channel.id, await fetchChannelModels(channel)] as const));
             const modelMap = new Map(entries);
-            updateChannels(config.channels.map((channel) => (channel.apiFormat === "duomiapi" ? { ...channel, models: duomiModels } : channel.apiFormat === "lingdongapi" ? { ...channel, models: lingdongModels } : modelMap.has(channel.id) ? { ...channel, models: modelMap.get(channel.id) || [] } : channel)));
+            updateChannels(config.channels.map((channel) => (channel.apiFormat === "duomiapi" ? { ...channel, models: duomiModels } : channel.apiFormat === "lingdongapi" ? { ...channel, models: lingdongModels } : channel.apiFormat === "cai2" ? { ...channel, models: cai2VideoModels } : modelMap.has(channel.id) ? { ...channel, models: modelMap.get(channel.id) || [] } : channel)));
             message.success("模型列表已更新");
         } catch (error) {
             message.error(error instanceof Error ? error.message : "读取模型失败");
@@ -452,11 +470,11 @@ export function AppConfigModal() {
                                                             存云端
                                                         </Button>
                                                     ) : null}
-                                                    {channel.apiFormat !== "duomiapi" && channel.apiFormat !== "lingdongapi" ? (
+                                                    {channel.apiFormat === "duomiapi" || channel.apiFormat === "lingdongapi" || channel.apiFormat === "cai2" ? null : (
                                                         <Button size="small" loading={loadingChannelId === channel.id} onClick={() => void refreshChannelModels(channel)}>
                                                             拉取模型
                                                         </Button>
-                                                    ) : null}
+                                                    )}
                                                     <Button size="small" danger icon={<Trash2 className="size-3.5" />} onClick={() => deleteChannel(channel.id)} />
                                                 </div>
                                             </div>
@@ -491,6 +509,13 @@ export function AppConfigModal() {
                                                             </Button>
                                                             <Button size="small" onClick={() => updateChannel(channel.id, { models: caiVideoModels })}>
                                                                 填入 Cai 视频模型
+                                                            </Button>
+                                                        </div>
+                                                    ) : null}
+                                                    {channel.apiFormat === "cai2" ? (
+                                                        <div className="mb-2 flex justify-end">
+                                                            <Button size="small" onClick={() => updateChannel(channel.id, { models: cai2VideoModels })}>
+                                                                恢复 Cai 二号视频模型
                                                             </Button>
                                                         </div>
                                                     ) : null}
@@ -530,7 +555,7 @@ export function AppConfigModal() {
                                         </div>
                                         <div className="rounded-md bg-stone-100 px-2 py-1 text-xs text-stone-600 dark:bg-stone-900 dark:text-stone-400">渠道模型 {config.models.length} 个</div>
                                     </div>
-                                    {config.channels.some((channel) => channel.apiFormat === "duomiapi" || channel.apiFormat === "lingdongapi") ? <div className="mt-2 text-xs leading-5 text-stone-500">Duomi / Lingdong 暂使用已适配模型列表，不需要拉取模型；如果可选项缺失，可回到“渠道”恢复已适配模型。</div> : null}
+                                    {config.channels.some((channel) => channel.apiFormat === "duomiapi" || channel.apiFormat === "lingdongapi" || channel.apiFormat === "cai2") ? <div className="mt-2 text-xs leading-5 text-stone-500">Cai 二号 / Duomi / Lingdong 暂使用已适配模型列表，不需要拉取模型；如果可选项缺失，可回到“渠道”恢复已适配模型。</div> : null}
                                 </div>
                                 <div className="grid gap-4 md:grid-cols-2">
                                     {modelGroups.map((group) => (
@@ -717,6 +742,7 @@ function apiFormatLabel(apiFormat: ApiCallFormat) {
     if (apiFormat === "gemini") return "Gemini";
     if (apiFormat === "volcengine") return "Volcengine Seedance";
     if (apiFormat === "openai-json") return "Cai";
+    if (apiFormat === "cai2") return "Cai 二号";
     if (apiFormat === "newtoken") return "NewToken";
     if (apiFormat === "duomiapi") return "Duomi";
     if (apiFormat === "lingdongapi") return "Lingdong";

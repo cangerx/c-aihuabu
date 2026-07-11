@@ -101,6 +101,9 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
         if (requestConfig.apiFormat === "volcengine") {
             return await createSeedanceTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
         }
+        if (requestConfig.apiFormat === "cai2") {
+            return await createCai2VideoTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
+        }
         if (requestConfig.apiFormat === "openai-json" || isLikelyCaiVideoChannel(requestConfig.baseUrl)) {
             return await (isCaiSdModel(requestConfig.model) ? createCaiSdVideoTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options) : createCaiStandardVideoTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options));
         }
@@ -122,6 +125,7 @@ export async function pollVideoGenerationTask(config: AiConfig, task: VideoGener
     if (requestConfig.apiFormat === "lingdongapi") return pollLingdongVideoTask(requestConfig, task, options);
     if (requestConfig.apiFormat === "newtoken") return pollNewTokenVideoTask(requestConfig, task, options);
     if (requestConfig.apiFormat === "volcengine") return pollSeedanceTask(requestConfig, task, options);
+    if (requestConfig.apiFormat === "cai2") return pollCai2VideoTask(requestConfig, task, options);
     if (requestConfig.apiFormat === "openai-json" || isLikelyCaiVideoChannel(requestConfig.baseUrl)) return isCaiSdModel(requestConfig.model) ? pollCaiSdVideoTask(requestConfig, task, options) : pollOpenAIVideoTask(requestConfig, task, options);
     return pollOpenAIVideoTask(requestConfig, task, options);
 }
@@ -288,6 +292,312 @@ async function createLingdongVideoTask(config: AiConfig, model: string, prompt: 
     } catch (error) {
         throw new Error(readAxiosError(error, "Lingdong 视频任务创建失败"));
     }
+}
+
+async function createCai2VideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
+    const modelName = modelOptionName(model);
+    const lower = modelName.toLowerCase();
+    const requestPrompt = buildSeedancePromptText(prompt, references, videoReferences, audioReferences);
+    const imageDataUrls = await Promise.all(references.map(async (image) => imageToDataUrl(image)));
+    const audioDataUrls = await Promise.all(audioReferences.map(async (audio) => mediaToDataUrl(audio)));
+    const videoMode = options?.videoMode || "text-to-video";
+    const aspectRatio = normalizeCai2AspectRatio(config.size, modelName);
+    const size = cai2SizeFromRatio(aspectRatio);
+    const duration = normalizeCai2Duration(config.videoSeconds, modelName);
+    const resolution = normalizeCai2Resolution(config.vquality, modelName);
+
+    try {
+        if (lower.includes("grok-imagine-video-1.5")) {
+            if (!imageDataUrls[0]) throw new Error("Grok Imagine 1.5 Preview 仅支持首帧生成视频，请先连接 1 张图片");
+            if (imageDataUrls.length > 1) throw new Error("Grok Imagine 1.5 Preview 仅支持 1 张首帧图片");
+            if (videoReferences.length || audioReferences.length) throw new Error("Grok Imagine 1.5 Preview 不支持参考视频或参考音频");
+            const payload = {
+                model: modelName,
+                prompt: withSystemPrompt(config, requestPrompt),
+                images: imageDataUrls.slice(0, 1),
+                seconds: String(duration),
+                size,
+            };
+            const created = unwrapVideoResponse((await postWithProxyFallback<ApiVideoResponse>(config, "/videos", payload, "application/json", options)).data);
+            return await resolveCai2CreatedTask(config, model, created, options);
+        }
+
+        if (lower.startsWith("sora-2.0")) {
+            if (videoReferences.length) throw new Error("Sora 2.0 暂不支持参考视频，请移除后重试");
+            if (!imageDataUrls.length) throw new Error("Sora 2.0 需要至少 1 张参考图");
+            if (imageDataUrls.length > 9) throw new Error("Sora 2.0 最多支持 9 张参考图");
+            const isFrames = videoMode === "first-last";
+            if (isFrames && imageDataUrls.length < 2) throw new Error("首尾帧模式需要连接 2 张图片");
+            const refs = [
+                ...imageDataUrls.map((url) => ({ type: "image", url, role: "reference" })),
+                ...audioDataUrls.map((url) => ({ type: "audio", url, role: "audio" })),
+            ];
+            const payload = {
+                model: modelName,
+                prompt: withSystemPrompt(config, requestPrompt),
+                generation_mode: isFrames ? "首尾帧生成视频" : "参考图生视频",
+                mode: isFrames ? "frames" : "references",
+                aspect_ratio: aspectRatio,
+                ratio: aspectRatio,
+                resolution: lower.includes("1080") ? "1080p" : "720p",
+                seconds: "15",
+                duration: 15,
+                references: refs,
+                video_config: {
+                    aspect_ratio: aspectRatio,
+                    ratio: aspectRatio,
+                    resolution: lower.includes("1080") ? "1080p" : "720p",
+                    seconds: "15",
+                    duration: 15,
+                },
+            };
+            const created = unwrapVideoResponse((await postWithProxyFallback<ApiVideoResponse>(config, "/videos", payload, "application/json", options)).data);
+            return await resolveCai2CreatedTask(config, model, created, options);
+        }
+
+        if (lower.includes("firefly-veo31") || lower === "veo-omni-flash" || lower.includes("grok-imagine-video") || lower.includes("grok-imagine-1.0-video")) {
+            if (videoReferences.length) throw new Error("当前 Cai 二号模型不支持参考视频");
+            if (audioReferences.length && !lower.startsWith("sora-2.0")) throw new Error("当前 Cai 二号模型不支持参考音频");
+            if (lower.includes("firefly") && imageDataUrls.length > 2) throw new Error("Firefly Veo3.1 最多支持首帧/首尾帧共 2 张图片");
+            if (lower === "veo-omni-flash" && imageDataUrls.length > 3) throw new Error("Omni Flash 最多支持 3 张参考图");
+            if (lower.includes("grok") && imageDataUrls.length > 7) throw new Error("Grok 视频最多支持 7 张参考图");
+
+            const content = [
+                ...imageDataUrls.map((url) => ({ type: "image_url", image_url: { url } })),
+                { type: "text", text: withSystemPrompt(config, requestPrompt) },
+            ];
+            const generationType = imageDataUrls.length >= 2 && videoMode === "first-last" ? "首尾帧生成视频" : imageDataUrls.length ? "首帧生成视频" : "文生视频";
+            const stream = lower.includes("firefly") || lower === "veo-omni-flash";
+            const payload: Record<string, any> = {
+                model: modelName,
+                messages: [{ role: "user", content }],
+                stream,
+            };
+
+            if (lower.includes("grok-imagine-1.0-video")) {
+                payload.prompt = withSystemPrompt(config, requestPrompt);
+                payload.generation_type = generationType;
+                payload.image_count = imageDataUrls.length;
+                payload.video_config = {
+                    video_length: duration,
+                    aspect_ratio: aspectRatio,
+                    resolution: resolution === "480p" ? "SD" : "HD",
+                    preset: "normal",
+                };
+                if (imageDataUrls.length) {
+                    payload.image_reference = imageDataUrls.map((url) => ({ type: "image_url", image_url: { url } }));
+                }
+            } else if (lower.includes("grok-imagine-video")) {
+                payload.duration = duration;
+                payload.seconds = duration;
+                payload.aspect_ratio = aspectRatio;
+                payload.size = size;
+                payload.prompt = withSystemPrompt(config, requestPrompt);
+                payload.generation_type = generationType;
+                payload.image_count = imageDataUrls.length;
+                payload.video_config = {
+                    seconds: duration,
+                    duration,
+                    size,
+                    aspect_ratio: aspectRatio,
+                    resolution,
+                    resolution_name: resolution,
+                };
+                payload.metadata = { video_config: payload.video_config };
+                if (imageDataUrls.length) {
+                    payload.image_reference = imageDataUrls.map((url) => ({ type: "image_url", image_url: { url } }));
+                }
+            } else if (lower === "veo-omni-flash") {
+                payload.duration = 10;
+                payload.aspect_ratio = aspectRatio === "9:16" ? "9:16" : "16:9";
+            }
+
+            if (stream) {
+                const streamResult = await postCai2ChatStream(config, payload, options);
+                if (streamResult.url) return { id: `cai2-done:${streamResult.url}`, provider: "openai", model };
+                if (streamResult.taskId) return { id: streamResult.taskId, provider: "openai", model };
+                throw new Error("Cai 二号流式接口没有返回视频地址或任务 ID");
+            }
+
+            const created = unwrapVideoResponse((await postWithProxyFallback<ApiVideoResponse>(config, "/chat/completions", payload, "application/json", options)).data);
+            return await resolveCai2CreatedTask(config, model, created, options);
+        }
+
+        throw new Error(`Cai 二号暂未适配模型：${modelName}`);
+    } catch (error) {
+        throw new Error(readAxiosError(error, "Cai 二号视频任务创建失败"));
+    }
+}
+
+async function resolveCai2CreatedTask(config: AiConfig, model: string, created: VideoResponse, options?: RequestOptions): Promise<VideoGenerationTask> {
+    const directUrl = readCai2VideoUrl(created);
+    if (directUrl) return { id: `cai2-done:${directUrl}`, provider: "openai", model };
+    const taskId = readVideoTaskId(created);
+    if (!taskId) throw new Error("Cai 二号接口没有返回任务 ID 或视频地址");
+    void config;
+    void options;
+    return { id: taskId, provider: "openai", model };
+}
+
+async function pollCai2VideoTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
+    if (task.id.startsWith("cai2-done:")) {
+        const url = task.id.slice("cai2-done:".length);
+        return { status: "completed", result: { url, mimeType: "video/mp4" } };
+    }
+    try {
+        const modelName = modelOptionName(task.model).toLowerCase();
+        const path = modelName.includes("firefly") || modelName === "veo-omni-flash" ? `/tasks/${task.id}` : `/videos/${task.id}`;
+        const video = unwrapVideoResponse((await getWithProxyFallback<ApiVideoResponse>(config, path, options)).data);
+        const status = normalizeTaskStatus(video.status || video.state || video.task_status);
+        if (status === "completed") {
+            const directUrl = readCai2VideoUrl(video);
+            if (!directUrl) return { status: "failed", error: "Cai 二号任务成功但没有返回视频 URL" };
+            return { status: "completed", result: { url: resolveProviderUrl(config, directUrl), mimeType: "video/mp4" } };
+        }
+        if (status === "failed") return { status: "failed", error: video.message || video.error?.message || "Cai 二号视频生成失败" };
+        return { status: "pending" };
+    } catch (error) {
+        throw new Error(readAxiosError(error, "Cai 二号视频任务查询失败"));
+    }
+}
+
+async function postCai2ChatStream(config: AiConfig, payload: Record<string, any>, options?: RequestOptions) {
+    const proxyUrl = aiApiUrl(config, "/chat/completions");
+    const directUrl = directApiUrl(config, "/chat/completions");
+    debugLog("video", "POST Cai 二号流式接口", { proxyUrl, directUrl, payloadBytes: estimatePayloadBytes(payload) });
+    const request = async (url: string) => {
+        const response = await fetch(url, {
+            method: "POST",
+            headers: { ...aiHeaders(config, "application/json"), Accept: "text/event-stream" },
+            body: JSON.stringify(payload),
+            signal: options?.signal,
+        });
+        if (!response.ok) {
+            const text = await response.text().catch(() => "");
+            throw new Error(text.slice(0, 300) || `请求失败（${response.status}）`);
+        }
+        const contentType = String(response.headers.get("content-type") || "");
+        if (contentType.includes("application/json")) {
+            const json = (await response.json()) as VideoResponse;
+            return { url: readCai2VideoUrl(json), taskId: readVideoTaskId(json) };
+        }
+        if (!response.body) throw new Error("Cai 二号流式接口没有返回内容");
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let videoUrl = "";
+        let taskId = "";
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const chunks = buffer.split(/\n\n|\r\n\r\n/);
+            buffer = chunks.pop() || "";
+            for (const chunk of chunks) {
+                const dataLines = chunk
+                    .split(/\r?\n/)
+                    .map((line) => line.trim())
+                    .filter((line) => line.startsWith("data:"))
+                    .map((line) => line.slice(5).trim())
+                    .filter(Boolean);
+                for (const data of dataLines) {
+                    if (data === "[DONE]") continue;
+                    try {
+                        const parsed = JSON.parse(data) as Record<string, any>;
+                        videoUrl = videoUrl || readCai2VideoUrl(parsed as VideoResponse) || extractUrlFromText(String(parsed.choices?.[0]?.delta?.content || parsed.choices?.[0]?.message?.content || parsed.content || ""));
+                        taskId = taskId || readVideoTaskId(parsed as VideoResponse);
+                    } catch {
+                        videoUrl = videoUrl || extractUrlFromText(data);
+                    }
+                }
+            }
+            if (videoUrl) break;
+        }
+        return { url: videoUrl, taskId };
+    };
+    try {
+        return await request(proxyUrl);
+    } catch (error) {
+        const canDirect = proxyUrl.startsWith("/api/proxy") || String((error as Error)?.message || "").includes("Failed to fetch");
+        if (!canDirect) throw error;
+        debugWarn("video", "Cai 二号流式代理失败，尝试直连", { error: error instanceof Error ? error.message : String(error) });
+        return await request(directUrl);
+    }
+}
+
+function readCai2VideoUrl(payload: VideoResponse) {
+    return (
+        readVideoUrl(payload) ||
+        extractUrlFromText(String(payload.choices?.[0]?.message?.content || payload.choices?.[0]?.delta?.content || payload.message?.content || payload.content || ""))
+    );
+}
+
+function extractUrlFromText(text: string) {
+    const match = String(text || "").match(/https?:\/\/[^\s"'<>]+/i);
+    return match?.[0]?.replace(/[),.;]+$/, "") || "";
+}
+
+function normalizeCai2AspectRatio(value: string, model: string) {
+    const lower = modelOptionName(model).toLowerCase();
+    if (lower.includes("9x16") || lower.includes("9:16")) return "9:16";
+    if (lower.includes("16x9") || lower.includes("16:9")) return "16:9";
+    const ratio = String(value || "16:9");
+    if (["9:16", "16:9", "1:1", "2:3", "3:2", "3:4", "4:3", "21:9"].includes(ratio)) return ratio;
+    if (ratio === "720x1280" || ratio === "1080x1920") return "9:16";
+    if (ratio === "1024x1024") return "1:1";
+    return "16:9";
+}
+
+function cai2SizeFromRatio(ratio: string) {
+    if (ratio === "9:16") return "720x1280";
+    if (ratio === "1:1") return "1024x1024";
+    if (ratio === "2:3") return "1024x1792";
+    if (ratio === "3:2") return "1792x1024";
+    return "1280x720";
+}
+
+function normalizeCai2Duration(value: string, model: string) {
+    const lower = modelOptionName(model).toLowerCase();
+    if (lower.startsWith("sora-2.0") || lower.includes("firefly") || lower === "veo-omni-flash") return lower.startsWith("sora-2.0") ? 15 : lower === "veo-omni-flash" ? 10 : 8;
+    const seconds = Math.floor(Number(value) || 10);
+    if (lower.includes("1.5")) {
+        if (seconds <= 6) return 6;
+        if (seconds <= 10) return 10;
+        return 15;
+    }
+    if (seconds <= 6) return 6;
+    if (seconds <= 10) return 10;
+    if (seconds <= 12) return 12;
+    if (seconds <= 16) return 16;
+    return 20;
+}
+
+function normalizeCai2Resolution(value: string, model: string) {
+    const lower = modelOptionName(model).toLowerCase();
+    if (lower.includes("1080")) return "1080p";
+    if (lower.includes("720") || lower.includes("480")) return lower.includes("480") ? "480p" : "720p";
+    return normalizeVideoResolution(value);
+}
+
+async function mediaToDataUrl(media: ReferenceVideo | ReferenceAudio) {
+    if (media.url?.startsWith("data:")) return media.url;
+    let blob = media.storageKey ? await getMediaBlob(media.storageKey) : null;
+    if (!blob && media.url?.startsWith("blob:")) blob = await (await fetch(media.url)).blob();
+    if (!blob && isPublicMediaUrl(media.url || "")) {
+        const response = await fetch(media.url);
+        blob = await response.blob();
+    }
+    if (!blob) throw new Error("无法读取参考素材，请重新添加后重试");
+    return await blobToDataUrl(blob, media.type || blob.type || "application/octet-stream");
+}
+
+function blobToDataUrl(blob: Blob, mimeType: string) {
+    return new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("参考素材读取失败"));
+        reader.readAsDataURL(new Blob([blob], { type: mimeType || blob.type || "application/octet-stream" }));
+    });
 }
 
 async function createCaiStandardVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {

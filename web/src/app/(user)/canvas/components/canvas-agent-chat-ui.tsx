@@ -57,7 +57,8 @@ export function AgentChatMessage({ item, theme, user, onRejectTool, onApproveToo
     );
 }
 
-export function AgentPendingToolCard({ summary, detail, theme, onReject, onApprove }: { summary: string; detail?: unknown; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onReject?: () => void; onApprove?: () => void }) {
+export function AgentPendingToolCard({ summary, detail, theme, queueCount = 0, onReject, onApprove, onRejectAll, onApproveAll }: { summary: string; detail?: unknown; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; queueCount?: number; onReject?: () => void; onApprove?: () => void; onRejectAll?: () => void; onApproveAll?: () => void }) {
+    const total = queueCount + 1;
     return (
         <div className="flex items-start gap-3">
             <AgentAvatar theme={theme} />
@@ -72,26 +73,39 @@ export function AgentPendingToolCard({ summary, detail, theme, onReject, onAppro
                                 <div className="flex flex-wrap items-center gap-2 text-sm font-semibold leading-5">
                                     <span>确认工具调用</span>
                                     <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium" style={{ borderColor: "rgba(217,119,6,.22)", color: "#d97706", background: "rgba(217,119,6,.04)" }}>
-                                        等待确认
+                                        {total > 1 ? `1/${total} 等待确认` : "等待确认"}
                                     </span>
                                     {detail ? <span className="ml-auto text-xs font-normal" style={{ color: theme.node.muted }}>详情</span> : null}
                                 </div>
                                 <div className="mt-2 text-sm leading-6" style={{ color: theme.node.text }}>
                                     {summary}
                                 </div>
+                                {queueCount > 0 ? <div className="mt-1 text-xs" style={{ color: theme.node.muted }}>还有 {queueCount} 个画布操作在队列中</div> : null}
                             </div>
                         </div>
                     </summary>
                     {detail ? <AgentDetailBlock detail={detail} theme={theme} /> : null}
                 </details>
                 {onReject || onApprove ? (
-                    <div className="mt-4 grid grid-cols-2 gap-2">
-                        <Button danger className="!h-9" icon={<XCircle className="size-4" />} onClick={() => onReject?.()}>
-                            拒绝执行
-                        </Button>
-                        <Button className="!h-9" icon={<CheckCircle2 className="size-4" />} style={{ borderColor: "rgba(22,163,74,.42)", color: "#16a34a", background: "transparent" }} onClick={() => onApprove?.()}>
-                            批准执行
-                        </Button>
+                    <div className="mt-4 space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                            <Button danger className="!h-9" icon={<XCircle className="size-4" />} onClick={() => onReject?.()}>
+                                拒绝执行
+                            </Button>
+                            <Button className="!h-9" icon={<CheckCircle2 className="size-4" />} style={{ borderColor: "rgba(22,163,74,.42)", color: "#16a34a", background: "transparent" }} onClick={() => onApprove?.()}>
+                                批准执行
+                            </Button>
+                        </div>
+                        {queueCount > 0 && (onRejectAll || onApproveAll) ? (
+                            <div className="grid grid-cols-2 gap-2">
+                                <Button danger type="text" className="!h-8" onClick={() => onRejectAll?.()}>
+                                    全部拒绝
+                                </Button>
+                                <Button type="text" className="!h-8" style={{ color: "#16a34a" }} onClick={() => onApproveAll?.()}>
+                                    全部批准
+                                </Button>
+                            </div>
+                        ) : null}
                     </div>
                 ) : null}
             </div>
