@@ -12,6 +12,7 @@ import { nanoid } from "nanoid";
 import { requestToolResponse, type ResponseFunctionTool, type ResponseInputMessage, type ResponseToolCall } from "@/services/api/image";
 import { imageToDataUrl } from "@/services/image-storage";
 import { useAssetStore } from "@/stores/use-asset-store";
+import { useCanvasPanelStore, AGENT_PANEL_MAX_WIDTH, AGENT_PANEL_MIN_WIDTH } from "@/stores/use-canvas-panel-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { imageReferenceLabel } from "@/lib/image-reference-prompt";
@@ -151,7 +152,8 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
     const updateConfig = useConfigStore((state) => state.updateConfig);
     const confirmTools = useCanvasAgentStore((state) => state.confirmTools);
     const setAgentState = useCanvasAgentStore((state) => state.setAgentState);
-    const [width, setWidth] = useState(520);
+    const width = useCanvasPanelStore((state) => state.agentPanelWidth);
+    const setWidth = useCanvasPanelStore((state) => state.setAgentPanelWidth);
     const [view, setView] = useState<OnlineAgentTab>("chat");
     const [prompt, setPrompt] = useState("");
     const [isRunning, setIsRunning] = useState(false);
@@ -456,7 +458,7 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, snapshot, session
     };
 
     const startResize = () => {
-        const move = (event: MouseEvent) => setWidth(Math.min(760, Math.max(320, window.innerWidth - event.clientX)));
+        const move = (event: MouseEvent) => setWidth(Math.min(AGENT_PANEL_MAX_WIDTH, Math.max(AGENT_PANEL_MIN_WIDTH, window.innerWidth - event.clientX)));
         const stop = () => {
             setResizing(false);
             document.body.style.cursor = "";
