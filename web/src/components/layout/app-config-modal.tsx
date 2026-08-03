@@ -1,11 +1,12 @@
 "use client";
 
 import { App, Button, Form, Input, Modal, Progress, Segmented, Select, Tabs } from "antd";
-import { CircleAlert, Cloud, Plus, RefreshCw, Trash2, Wifi } from "lucide-react";
-import { useEffect, useState } from "react";
+import { CircleAlert, Cloud, Download, Plus, RefreshCw, Trash2, Upload, Wifi } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import { DebugLogPreference } from "@/components/layout/debug-log-panel";
 import { ModelPicker } from "@/components/model-picker";
+import { exportAppConfig, importAppConfig } from "@/services/config-file";
 import { createCloudChannel, fetchAccountMe, fetchCloudChannels, loginAccount, logoutAccount, registerAccount, type AccountUser, type CloudModelChannel } from "@/services/api/account";
 import { fetchChannelModels } from "@/services/api/image";
 import { syncAppDataToWebdav, type AppSyncDomainKey, type AppSyncProgressEvent } from "@/services/app-sync";
@@ -59,6 +60,7 @@ function createWebdavDomainProgress(): Record<AppSyncDomainKey, WebdavDomainProg
 
 export function AppConfigModal() {
     const { message } = App.useApp();
+    const configInputRef = useRef<HTMLInputElement>(null);
     const [loadingChannelId, setLoadingChannelId] = useState("");
     const [testingWebdav, setTestingWebdav] = useState(false);
     const [syncingWebdav, setSyncingWebdav] = useState(false);
@@ -281,6 +283,17 @@ export function AppConfigModal() {
         }
     };
 
+    const loadConfigFile = async (file: File) => {
+        try {
+            await importAppConfig(file);
+            message.success("配置与用户偏好已导入");
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "配置文件读取失败");
+        } finally {
+            if (configInputRef.current) configInputRef.current.value = "";
+        }
+    };
+
     return (
         <Modal
             zIndex={2000}
@@ -301,6 +314,18 @@ export function AppConfigModal() {
                 </Button>
             }
         >
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 pb-3 dark:border-stone-800">
+                <div className="text-xs text-stone-500">JSON 文件包含 API Key 和 WebDAV 凭据，请妥善保管。</div>
+                <div className="flex gap-2">
+                    <Button icon={<Upload className="size-4" />} onClick={() => configInputRef.current?.click()}>
+                        导入配置
+                    </Button>
+                    <Button icon={<Download className="size-4" />} onClick={exportAppConfig}>
+                        导出配置
+                    </Button>
+                    <input ref={configInputRef} type="file" accept="application/json,.json" className="hidden" onChange={(event) => event.target.files?.[0] && void loadConfigFile(event.target.files[0])} />
+                </div>
+            </div>
             <Tabs
                 activeKey={configDialogTab}
                 onChange={(key) => setConfigDialogTab(key as typeof configDialogTab)}
