@@ -8,6 +8,7 @@ import { ClientRootInit } from "@/components/layout/client-root-init";
 import { DebugLogFab } from "@/components/layout/debug-log-panel";
 import { getAntThemeConfig } from "@/lib/app-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
+import { usePromptSourceScheduler } from "@/hooks/use-prompt-source-scheduler";
 
 const queryClient = new QueryClient({
     defaultOptions: {
@@ -18,6 +19,11 @@ const queryClient = new QueryClient({
         },
     },
 });
+
+function AppSchedulers() {
+    usePromptSourceScheduler();
+    return null;
+}
 
 export function AppProviders({ children }: { children: ReactNode }) {
     const theme = useThemeStore((state) => state.theme);
@@ -34,6 +40,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
                 <QueryClientProvider client={queryClient}>
                     <ClientRootInit>{children}</ClientRootInit>
                     <DebugLogFab />
+                    <AppSchedulers />
                 </QueryClientProvider>
             </App>
         </ConfigProvider>

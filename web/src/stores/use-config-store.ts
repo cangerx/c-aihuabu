@@ -57,7 +57,7 @@ export type WebdavSyncConfig = {
     lastSyncedAt: string;
 };
 
-export type ConfigDialogTab = "account" | "channels" | "models" | "preferences" | "webdav";
+export type ConfigDialogTab = "account" | "channels" | "models" | "prompt-sources" | "preferences" | "webdav";
 export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
 export type ModelCapability = "image" | "video" | "text" | "audio";
 const CHANNEL_MODEL_SEPARATOR = "::";

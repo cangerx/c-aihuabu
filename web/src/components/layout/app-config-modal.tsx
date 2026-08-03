@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { DebugLogPreference } from "@/components/layout/debug-log-panel";
 import { ChannelEditorDrawer } from "@/components/layout/channel-editor-drawer";
+import { ConfigPromptSources } from "@/components/layout/config-prompt-sources";
 import { ModelPicker } from "@/components/model-picker";
 import { exportAppConfig, importAppConfig } from "@/services/config-file";
 import { createCloudChannel, fetchAccountMe, fetchCloudChannels, loginAccount, logoutAccount, registerAccount, type AccountUser, type CloudModelChannel } from "@/services/api/account";
@@ -512,6 +513,11 @@ export function AppConfigModal() {
                                 </div>
                             </Form>
                         ),
+                    },
+                    {
+                        key: "prompt-sources",
+                        label: "提示词来源",
+                        children: <ConfigPromptSources />,
                     },
                     {
                         key: "preferences",
