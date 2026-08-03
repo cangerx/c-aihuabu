@@ -52,11 +52,7 @@ export function isGrokImagineImageConfig(config: AiConfig | Pick<AiConfig, "mode
 
 export function isGrokImagineVideoConfig(config: AiConfig | Pick<AiConfig, "model" | "videoModel" | "baseUrl" | "apiFormat">) {
     const requestConfig = "channels" in config ? resolveModelRequestConfig(config, config.model || config.videoModel) : config;
-    return isGrokImagineApiFormat(requestConfig) && isGrokImagineVideoModel(modelOptionName(requestConfig.model || requestConfig.videoModel));
-}
-
-export function isGrokImagineApiFormat(config: Pick<AiConfig, "baseUrl" | "apiFormat">) {
-    return config.apiFormat === "openai" || config.baseUrl.toLowerCase().includes("x.ai");
+    return isGrokImagineVideoModel(modelOptionName(requestConfig.model || requestConfig.videoModel));
 }
 
 export function isGrokImagineImageModel(model: string) {

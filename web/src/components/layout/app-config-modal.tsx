@@ -11,7 +11,8 @@ import { fetchChannelModels } from "@/services/api/image";
 import { syncAppDataToWebdav, type AppSyncDomainKey, type AppSyncProgressEvent } from "@/services/app-sync";
 import { testWebdavConnection, WEBDAV_MANIFEST_FILE_NAME } from "@/services/webdav-sync";
 import { audioFormatOptions, audioVoiceOptions, normalizeAudioSpeedValue } from "@/lib/audio-generation";
-import { createModelChannel, defaultBaseUrlForApiFormat, filterModelsByCapability, modelOptionLabel, modelOptionsFromChannels, normalizeModelOptionValue, useConfigStore, type AiConfig, type ApiCallFormat, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
+import { videos4VideoModels } from "@/lib/videos4-video";
+import { createModelChannel, filterModelsByCapability, modelOptionLabel, modelOptionsFromChannels, normalizeModelOptionValue, useConfigStore, type AiConfig, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
 
 type ModelGroup = {
     capability: ModelCapability;
@@ -37,45 +38,6 @@ const modelGroups: ModelGroup[] = [
     { capability: "text", modelKey: "textModel", modelsKey: "textModels", title: "文本模型", defaultLabel: "默认文本", optionsLabel: "可选文本模型", hint: "用于助手对话、提示词优化和文本节点。" },
     { capability: "audio", modelKey: "audioModel", modelsKey: "audioModels", title: "音频模型", defaultLabel: "默认音频", optionsLabel: "可选音频模型", hint: "用于语音、旁白和音频生成。" },
 ];
-
-const apiFormatOptions: Array<{ label: string; value: ApiCallFormat }> = [
-    { label: "OpenAI", value: "openai" },
-    { label: "Gemini", value: "gemini" },
-    { label: "Volcengine Seedance", value: "volcengine" },
-    { label: "Cai", value: "openai-json" },
-    { label: "Cai 二号", value: "cai2" },
-    { label: "NewToken", value: "newtoken" },
-    { label: "Duomi", value: "duomiapi" },
-    { label: "Lingdong", value: "lingdongapi" },
-];
-
-const newTokenVideoModels = ["video-standard-720p", "video-pro-720p", "video-fast-720p", "sora-2", "sora-vip3-pro-720p", "sora-vip3-pro-1080p", "veo-omni-flash", "veo-omni-flash-video-edit", "veo-3-1"];
-const duomiModels = [
-    "doubao-seedance-2-0-260128",
-    "grok-video",
-    "grok-video-1.5",
-];
-const caiVideoModels = ["videos", "videos_stable", "happyhorse", "grok-imagine-video", "grok-imagine-video-1.5"];
-const caiImageModels = ["gpt-image-2", "gemini-3-pro-image-preview", "gemini-3.1-flash-image-preview", "grok-imagine-image", "grok-imagine-image-lite", "grok-imagine-image-quality"];
-const caiModels = [...new Set([...caiImageModels, ...caiVideoModels])];
-const cai2VideoModels = [
-    "firefly-veo31-fast-8s-16x9-1080p",
-    "firefly-veo31-fast-8s-16x9-720p",
-    "firefly-veo31-fast-8s-9x16-1080p",
-    "firefly-veo31-fast-8s-9x16-720p",
-    "firefly-veo31-8s-16x9-1080p",
-    "firefly-veo31-8s-16x9-720p",
-    "firefly-veo31-8s-9x16-1080p",
-    "firefly-veo31-8s-9x16-720p",
-    "grok-imagine-video",
-    "grok-imagine-1.0-video",
-    "grok-imagine-video-1.5-preview",
-    "veo-omni-flash",
-    "sora-2.0-fast-9",
-    "sora-2.0-pro-9-720p",
-    "sora-2.0-pro-9-1080p",
-];
-const lingdongModels = ["gpt-image-2", "sora-2", "sd-2-1", "sd-2-2", "sd-2-3", "sd-2-4", "sd-2-7", "sd-2-11", "sd-2-17"];
 
 const webdavDomainKeys: AppSyncDomainKey[] = ["canvas", "assets", "image-workbench", "video-workbench"];
 const webdavDomainLabels: Record<AppSyncDomainKey, string> = {
@@ -214,12 +176,6 @@ export function AppConfigModal() {
         updateChannels(config.channels.map((channel) => (channel.id === id ? { ...channel, ...patch, models: patch.models ? uniqueModels(patch.models) : channel.models } : channel)));
     };
 
-    const updateChannelApiFormat = (channel: ModelChannel, apiFormat: ApiCallFormat) => {
-        const baseUrl = !channel.baseUrl.trim() || channel.baseUrl.trim() === defaultBaseUrlForApiFormat(channel.apiFormat) ? defaultBaseUrlForApiFormat(apiFormat) : channel.baseUrl;
-        const models = apiFormat === "duomiapi" ? duomiModels : apiFormat === "lingdongapi" ? lingdongModels : apiFormat === "cai2" ? cai2VideoModels : !channel.models.length && apiFormat === "newtoken" ? newTokenVideoModels : !channel.models.length && apiFormat === "openai-json" ? caiModels : channel.models;
-        updateChannel(channel.id, { apiFormat, baseUrl, models });
-    };
-
     const addChannel = () => {
         updateChannels([...config.channels, createModelChannel({ name: `渠道 ${config.channels.length + 1}` })]);
     };
@@ -233,11 +189,6 @@ export function AppConfigModal() {
     };
 
     const refreshChannelModels = async (channel: ModelChannel) => {
-        if (channel.apiFormat === "duomiapi" || channel.apiFormat === "lingdongapi" || channel.apiFormat === "cai2") {
-            updateChannel(channel.id, { models: channel.apiFormat === "lingdongapi" ? lingdongModels : channel.apiFormat === "cai2" ? cai2VideoModels : duomiModels });
-            message.success(channel.apiFormat === "lingdongapi" ? "已恢复 Lingdong 已适配模型" : channel.apiFormat === "cai2" ? "已恢复 Cai 二号视频模型" : "已恢复 Duomi 已适配模型");
-            return;
-        }
         if (!channel.baseUrl.trim() || !channel.apiKey.trim()) {
             message.error("请先填写该渠道的 Base URL 和 Key");
             return;
@@ -255,14 +206,8 @@ export function AppConfigModal() {
     };
 
     const refreshAllModels = async () => {
-        const builtinChannels = config.channels.filter((channel) => channel.apiFormat === "duomiapi" || channel.apiFormat === "lingdongapi" || channel.apiFormat === "cai2");
-        const runnable = config.channels.filter((channel) => !builtinChannels.includes(channel) && channel.baseUrl.trim() && channel.apiKey.trim());
+        const runnable = config.channels.filter((channel) => channel.baseUrl.trim() && channel.apiKey.trim());
         if (!runnable.length) {
-            if (builtinChannels.length) {
-                updateChannels(config.channels.map((channel) => (channel.apiFormat === "duomiapi" ? { ...channel, models: duomiModels } : channel.apiFormat === "lingdongapi" ? { ...channel, models: lingdongModels } : channel.apiFormat === "cai2" ? { ...channel, models: cai2VideoModels } : channel)));
-                message.success("已恢复内置渠道已适配模型");
-                return;
-            }
             message.error("请先填写至少一个可拉取渠道的 Base URL 和 Key");
             return;
         }
@@ -270,7 +215,7 @@ export function AppConfigModal() {
         try {
             const entries = await Promise.all(runnable.map(async (channel) => [channel.id, await fetchChannelModels(channel)] as const));
             const modelMap = new Map(entries);
-            updateChannels(config.channels.map((channel) => (channel.apiFormat === "duomiapi" ? { ...channel, models: duomiModels } : channel.apiFormat === "lingdongapi" ? { ...channel, models: lingdongModels } : channel.apiFormat === "cai2" ? { ...channel, models: cai2VideoModels } : modelMap.has(channel.id) ? { ...channel, models: modelMap.get(channel.id) || [] } : channel)));
+            updateChannels(config.channels.map((channel) => (modelMap.has(channel.id) ? { ...channel, models: modelMap.get(channel.id) || [] } : channel)));
             message.success("模型列表已更新");
         } catch (error) {
             message.error(error instanceof Error ? error.message : "读取模型失败");
@@ -409,7 +354,7 @@ export function AppConfigModal() {
                                                     <div className="min-w-0">
                                                         <div className="truncate text-sm font-semibold">{channel.name}</div>
                                                         <div className="mt-1 text-xs text-stone-500">
-                                                            {apiFormatLabel(channel.apiFormat)} · {channel.models.length} 个模型 · Key {channel.apiKeyPreview}
+                                                            {channel.models.length} 个模型 · Key {channel.apiKeyPreview}
                                                         </div>
                                                     </div>
                                                     <div className="flex shrink-0 gap-2">
@@ -461,7 +406,7 @@ export function AppConfigModal() {
                                                 <div className="min-w-0">
                                                     <div className="truncate text-sm font-semibold">{channel.name || "未命名渠道"}</div>
                                                     <div className="mt-1 text-xs text-stone-500">
-                                                        {apiFormatLabel(channel.apiFormat)} · 已保存 {channel.models.length} 个模型
+                                                        已保存 {channel.models.length} 个模型
                                                     </div>
                                                 </div>
                                                 <div className="flex shrink-0 gap-2">
@@ -470,20 +415,15 @@ export function AppConfigModal() {
                                                             存云端
                                                         </Button>
                                                     ) : null}
-                                                    {channel.apiFormat === "duomiapi" || channel.apiFormat === "lingdongapi" || channel.apiFormat === "cai2" ? null : (
-                                                        <Button size="small" loading={loadingChannelId === channel.id} onClick={() => void refreshChannelModels(channel)}>
-                                                            拉取模型
-                                                        </Button>
-                                                    )}
+                                                    <Button size="small" loading={loadingChannelId === channel.id} onClick={() => void refreshChannelModels(channel)}>
+                                                        拉取模型
+                                                    </Button>
                                                     <Button size="small" danger icon={<Trash2 className="size-3.5" />} onClick={() => deleteChannel(channel.id)} />
                                                 </div>
                                             </div>
                                             <div className="grid gap-4 md:grid-cols-2">
                                                 <Form.Item label="渠道名称" className="mb-0">
                                                     <Input value={channel.name} onChange={(event) => updateChannel(channel.id, { name: event.target.value })} />
-                                                </Form.Item>
-                                                <Form.Item label="调用格式" className="mb-0">
-                                                    <Select value={channel.apiFormat} options={apiFormatOptions} onChange={(value: ApiCallFormat) => updateChannelApiFormat(channel, value)} />
                                                 </Form.Item>
                                                 <Form.Item label="Base URL" className="mb-0">
                                                     <Input value={channel.baseUrl} onChange={(event) => updateChannel(channel.id, { baseUrl: event.target.value })} />
@@ -492,47 +432,11 @@ export function AppConfigModal() {
                                                     <Input.Password value={channel.apiKey} onChange={(event) => updateChannel(channel.id, { apiKey: event.target.value })} />
                                                 </Form.Item>
                                                 <Form.Item label="模型列表" className="mb-0 md:col-span-2">
-                                                    {channel.apiFormat === "newtoken" ? (
-                                                        <div className="mb-2 flex justify-end">
-                                                            <Button size="small" onClick={() => updateChannel(channel.id, { models: newTokenVideoModels })}>
-                                                                填入 NewToken 视频模型
-                                                            </Button>
-                                                        </div>
-                                                    ) : null}
-                                                    {channel.apiFormat === "openai-json" ? (
-                                                        <div className="mb-2 flex flex-wrap justify-end gap-2">
-                                                            <Button size="small" onClick={() => updateChannel(channel.id, { models: caiModels })}>
-                                                                填入 Cai 全部模型
-                                                            </Button>
-                                                            <Button size="small" onClick={() => updateChannel(channel.id, { models: caiImageModels })}>
-                                                                填入 Cai 图片模型
-                                                            </Button>
-                                                            <Button size="small" onClick={() => updateChannel(channel.id, { models: caiVideoModels })}>
-                                                                填入 Cai 视频模型
-                                                            </Button>
-                                                        </div>
-                                                    ) : null}
-                                                    {channel.apiFormat === "cai2" ? (
-                                                        <div className="mb-2 flex justify-end">
-                                                            <Button size="small" onClick={() => updateChannel(channel.id, { models: cai2VideoModels })}>
-                                                                恢复 Cai 二号视频模型
-                                                            </Button>
-                                                        </div>
-                                                    ) : null}
-                                                    {channel.apiFormat === "duomiapi" ? (
-                                                        <div className="mb-2 flex justify-end">
-                                                            <Button size="small" onClick={() => updateChannel(channel.id, { models: duomiModels })}>
-                                                                恢复 Duomi 已适配模型
-                                                            </Button>
-                                                        </div>
-                                                    ) : null}
-                                                    {channel.apiFormat === "lingdongapi" ? (
-                                                        <div className="mb-2 flex justify-end">
-                                                            <Button size="small" onClick={() => updateChannel(channel.id, { models: lingdongModels })}>
-                                                                恢复 Lingdong 已适配模型
-                                                            </Button>
-                                                        </div>
-                                                    ) : null}
+                                                    <div className="mb-2 flex justify-end">
+                                                        <Button size="small" onClick={() => updateChannel(channel.id, { models: uniqueModels([...channel.models, ...videos4VideoModels]) })}>
+                                                            填入 videos-4 视频模型
+                                                        </Button>
+                                                    </div>
                                                     <Select mode="tags" showSearch allowClear maxTagCount="responsive" placeholder="输入模型名，或点击拉取模型" value={channel.models} onChange={(models) => updateChannel(channel.id, { models })} />
                                                 </Form.Item>
                                             </div>
@@ -555,7 +459,6 @@ export function AppConfigModal() {
                                         </div>
                                         <div className="rounded-md bg-stone-100 px-2 py-1 text-xs text-stone-600 dark:bg-stone-900 dark:text-stone-400">渠道模型 {config.models.length} 个</div>
                                     </div>
-                                    {config.channels.some((channel) => channel.apiFormat === "duomiapi" || channel.apiFormat === "lingdongapi" || channel.apiFormat === "cai2") ? <div className="mt-2 text-xs leading-5 text-stone-500">Cai 二号 / Duomi / Lingdong 暂使用已适配模型列表，不需要拉取模型；如果可选项缺失，可回到“渠道”恢复已适配模型。</div> : null}
                                 </div>
                                 <div className="grid gap-4 md:grid-cols-2">
                                     {modelGroups.map((group) => (
@@ -738,16 +641,6 @@ function uniqueModels(models: string[]) {
     return Array.from(new Set(models.map((model) => model.trim()).filter(Boolean)));
 }
 
-function apiFormatLabel(apiFormat: ApiCallFormat) {
-    if (apiFormat === "gemini") return "Gemini";
-    if (apiFormat === "volcengine") return "Volcengine Seedance";
-    if (apiFormat === "openai-json") return "Cai";
-    if (apiFormat === "cai2") return "Cai 二号";
-    if (apiFormat === "newtoken") return "NewToken";
-    if (apiFormat === "duomiapi") return "Duomi";
-    if (apiFormat === "lingdongapi") return "Lingdong";
-    return "OpenAI";
-}
 
 function formatWebdavTime(value: string) {
     return new Date(value).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });

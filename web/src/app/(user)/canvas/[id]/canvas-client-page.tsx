@@ -20,6 +20,7 @@ import { isGrokImagineImageConfig, isGrokImagineVideoModel, normalizeGrokImagine
 import { isGptImage2StyleConfig, normalizeGptImage2Ratio, normalizeGptImage2Resolution } from "@/lib/gpt-image-2";
 import { isStepImageEdit2Config, normalizeStepImageEdit2Size } from "@/lib/step-image";
 import { boolConfig, isSeedanceVideoModel, normalizeSeedanceRatio, seedanceVideoReferenceError, seedanceVideoReferenceHint } from "@/lib/seedance-video";
+import { isVideos4VideoModel, normalizeVideos4Duration, normalizeVideos4Ratio, normalizeVideos4Resolution } from "@/lib/videos4-video";
 import { normalizeVideoResolutionValue, normalizeVideoSizeValue } from "@/components/video-settings-panel";
 import { UserStatusActions } from "@/components/layout/user-status-actions";
 import { useAssetStore } from "@/stores/use-asset-store";
@@ -4113,13 +4114,13 @@ function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefine
     if (mode !== "video") return nextConfig;
     const grokImagineVideo = isGrokImagineVideoModel(nextConfig.model);
     const seedance = isSeedanceVideoConfig(nextConfig);
-    const asyncJson = nextConfig.apiFormat === "newtoken" || nextConfig.apiFormat === "duomiapi" || nextConfig.apiFormat === "lingdongapi" || nextConfig.apiFormat === "cai2";
+    const videos4 = isVideos4VideoModel(nextConfig.model);
     return {
         ...nextConfig,
         videoModel: nextConfig.model,
-        size: grokImagineVideo ? normalizeGrokImagineVideoRatio(nextConfig.size) : seedance || asyncJson ? normalizeSeedanceRatio(nextConfig.size) : normalizeVideoSizeValue(nextConfig.size),
-        videoSeconds: normalizeCanvasVideoSeconds(nextConfig.videoSeconds),
-        vquality: grokImagineVideo ? normalizeGrokImagineVideoResolution(nextConfig.vquality, nextConfig.model) : normalizeVideoResolutionValue(nextConfig.vquality),
+        size: grokImagineVideo ? normalizeGrokImagineVideoRatio(nextConfig.size) : videos4 ? normalizeVideos4Ratio(nextConfig.size) : seedance ? normalizeSeedanceRatio(nextConfig.size) : normalizeVideoSizeValue(nextConfig.size),
+        videoSeconds: videos4 ? String(normalizeVideos4Duration(nextConfig.videoSeconds)) : normalizeCanvasVideoSeconds(nextConfig.videoSeconds),
+        vquality: grokImagineVideo ? normalizeGrokImagineVideoResolution(nextConfig.vquality, nextConfig.model) : videos4 ? normalizeVideos4Resolution(nextConfig.vquality, nextConfig.model) : normalizeVideoResolutionValue(nextConfig.vquality),
         videoGenerateAudio: String(boolConfig(nextConfig.videoGenerateAudio, true)),
         videoWatermark: String(boolConfig(nextConfig.videoWatermark, false)),
     };
@@ -4136,7 +4137,7 @@ function isSeedanceVideoConfig(config: AiConfig) {
 }
 
 function supportsRichVideoReferences(config: AiConfig) {
-    return config.apiFormat === "newtoken" || config.apiFormat === "duomiapi" || config.apiFormat === "lingdongapi" || config.apiFormat === "cai2" || isSeedanceVideoConfig(config);
+    return isSeedanceVideoConfig(config) || isVideos4VideoModel(config.model || config.videoModel);
 }
 
 function resetInterruptedGeneration(nodes: CanvasNodeData[]): CanvasNodeData[] {

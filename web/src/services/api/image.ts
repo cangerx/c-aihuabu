@@ -297,11 +297,6 @@ function parseImagePayload(payload: ImageApiResponse) {
     return images;
 }
 
-function isNewTokenAsyncImageModel(config: AiConfig) {
-    const model = (config.model || config.imageModel).trim().toLowerCase();
-    return config.apiFormat === "newtoken" && /^gpt-image2-(1k|2k|4k)$/.test(model);
-}
-
 function unwrapImageTask(payload: ImageTaskResponse): ImageTaskResponse {
     if (typeof payload.code === "number" && payload.code !== 0) throw new Error(payload.msg || "请求失败");
     if (payload.error?.message) throw new Error(payload.error.message);
@@ -404,14 +399,8 @@ function geminiApiUrl(config: Pick<AiConfig, "baseUrl" | "model"> & Partial<Pick
     return buildProxiedUrl(targetUrl, config.aiProxyEnabled);
 }
 
-function geminiHeaders(config: Pick<AiConfig, "apiKey" | "apiFormat">): Record<string, string> {
-    // 官方 Gemini 常用 x-goog-api-key；Cai/aicost 等中转文档使用 Bearer。
-    if (config.apiFormat === "gemini") {
-        return {
-            "x-goog-api-key": config.apiKey,
-            "Content-Type": "application/json",
-        };
-    }
+function geminiHeaders(config: Pick<AiConfig, "apiKey">): Record<string, string> {
+    // Cai/aicost 等 OpenAI 兼容中转的 Gemini 预览模型使用 Bearer。
     return {
         Authorization: `Bearer ${config.apiKey}`,
         "Content-Type": "application/json",
@@ -699,101 +688,6 @@ function jsonValue(value: string): unknown {
     }
 }
 
-function toGeminiToolOptions(tools: ResponseFunctionTool[], toolChoice: ToolChoice) {
-    if (!tools.length) return {};
-    const functionDeclarations = tools.map((tool) => ({
-        name: tool.function.name,
-        description: tool.function.description,
-        parameters: tool.function.parameters,
-    }));
-    const functionCallingConfig =
-        typeof toolChoice === "object"
-            ? { mode: "ANY", allowedFunctionNames: [toolChoice.name] }
-            : { mode: toolChoice === "required" ? "ANY" : "AUTO" };
-    return {
-        tools: [{ functionDeclarations }],
-        toolConfig: { functionCallingConfig },
-    };
-}
-
-async function requestGeminiStreamingResponse(config: AiConfig, body: Record<string, unknown>, onDelta?: (text: string) => void, options?: RequestOptions): Promise<ToolResponseResult> {
-    const response = await fetch(`${geminiApiUrl(config, "streamGenerateContent")}?alt=sse`, {
-        method: "POST",
-        headers: geminiHeaders(config),
-        body: JSON.stringify(body),
-        signal: options?.signal,
-    });
-    if (!response.ok) throw new Error(await readFetchError(response, "请求失败"));
-    if (!response.body) {
-        const payload = (await response.json()) as GeminiPayload;
-        return parseGeminiToolResponse(payload);
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    const state: GeminiStreamState = { buffer: "", text: "", toolCalls: [] };
-    for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        consumeGeminiStreamText(state, decoder.decode(value, { stream: true }), onDelta);
-        if (state.error) throw new Error(state.error);
-    }
-    consumeGeminiStreamText(state, decoder.decode(), onDelta, true);
-    if (state.error) throw new Error(state.error);
-    return { content: state.text, toolCalls: state.toolCalls };
-}
-
-function consumeGeminiStreamText(state: GeminiStreamState, text: string, onDelta?: (text: string) => void, flush = false) {
-    state.buffer += text;
-    for (;;) {
-        const match = state.buffer.match(/\r?\n\r?\n/);
-        if (!match) break;
-        const index = match.index ?? 0;
-        consumeGeminiStreamBlock(state.buffer.slice(0, index), state, onDelta);
-        state.buffer = state.buffer.slice(index + match[0].length);
-    }
-    if (flush && state.buffer.trim()) {
-        consumeGeminiStreamBlock(state.buffer, state, onDelta);
-        state.buffer = "";
-    }
-}
-
-function consumeGeminiStreamBlock(block: string, state: GeminiStreamState, onDelta?: (text: string) => void) {
-    const data = block
-        .split(/\r?\n/)
-        .filter((line) => line.startsWith("data:"))
-        .map((line) => line.slice(5).replace(/^ /, ""))
-        .join("\n")
-        .trim();
-    if (!data || data === "[DONE]") return;
-    const result = parseGeminiToolResponse(JSON.parse(data) as GeminiPayload);
-    if (result.content) {
-        state.text += result.content;
-        onDelta?.(state.text);
-    }
-    state.toolCalls.push(...result.toolCalls);
-}
-
-function parseGeminiToolResponse(payload: GeminiPayload): ToolResponseResult {
-    validateGeminiPayload(payload);
-    const parts = payload.candidates?.flatMap((candidate) => candidate.content?.parts || []) || [];
-    const content = parts.map((part) => part.text || "").join("");
-    const toolCalls = parts
-        .map((part) => part.functionCall)
-        .filter((call): call is NonNullable<GeminiPart["functionCall"]> => Boolean(call?.name))
-        .map((call) => {
-            const part = parts.find((item) => item.functionCall === call);
-            const thoughtSignature = part?.thoughtSignature || part?.thought_signature;
-            return {
-                id: call.id || nanoid(),
-                type: "function" as const,
-                function: { name: call.name || "", arguments: JSON.stringify(call.args || {}) },
-                ...(thoughtSignature ? { thoughtSignature } : {}),
-            };
-        });
-    return { content, toolCalls };
-}
-
 async function requestGeminiImages(config: AiConfig, prompt: string, references: ReferenceImage[], count: number, options?: RequestOptions) {
     const requests = Array.from({ length: count }, () => requestGeminiImagesOnce(config, prompt, references, options));
     return (await Promise.all(requests)).flat();
@@ -908,58 +802,6 @@ async function pollOpenAiCompatibleImageTask(config: AiConfig, taskId: string, o
     throw new Error("图片生成超时，请稍后重试");
 }
 
-async function requestNewTokenAsyncImages(config: AiConfig, prompt: string, references: ReferenceImage[], count: number, options?: RequestOptions) {
-    const requests = Array.from({ length: count }, () => requestNewTokenAsyncImageOnce(config, prompt, references, options));
-    return (await Promise.all(requests)).flat();
-}
-
-async function requestNewTokenAsyncImageOnce(config: AiConfig, prompt: string, references: ReferenceImage[], options?: RequestOptions) {
-    try {
-        const imageUrls = await Promise.all(references.map((image) => resolveNewTokenReferenceImageUrl(image, options)));
-        const created = unwrapImageTask(
-            (
-                await postWithProxyFallback<ImageTaskResponse>(
-                    config,
-                    "/videos",
-                    {
-                        model: config.model,
-                        prompt: withSystemPrompt(config, prompt),
-                        seconds: "4",
-                        aspect_ratio: normalizeNewTokenImageRatio(config.size),
-                        ...(imageUrls.length ? { images: imageUrls } : {}),
-                    },
-                    "application/json",
-                    options,
-                )
-            ).data,
-        );
-        const taskId = readImageTaskId(created);
-        if (!taskId) throw new Error("NewToken 图片异步接口没有返回任务 ID");
-        const imageUrl = await pollNewTokenImageTask(config, taskId, options);
-        return [{ id: nanoid(), dataUrl: imageUrl }];
-    } catch (error) {
-        throw new Error(readAxiosError(error, "NewToken 图片任务失败"));
-    }
-}
-
-async function pollNewTokenImageTask(config: AiConfig, taskId: string, options?: RequestOptions) {
-    const maxAttempts = Math.ceil(NEW_TOKEN_IMAGE_TIMEOUT_MS / NEW_TOKEN_IMAGE_POLL_MS);
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-        if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
-        const task = unwrapImageTask((await getWithProxyFallback<ImageTaskResponse>(config, `/videos/${taskId}`, options)).data);
-        const status = normalizeImageTaskStatus(task.status || task.state || task.task_status);
-        const imageUrl = readAsyncImageUrl(task);
-        if (status === "completed" || imageUrl) {
-            if (!imageUrl) throw new Error("NewToken 图片任务成功但没有返回图片 URL");
-            return imageUrl;
-        }
-        if (status === "failed") throw new Error(task.error?.message || task.msg || "NewToken 图片生成失败");
-        if (attempt === maxAttempts - 1) throw new Error("NewToken 图片生成超时，请稍后重试");
-        await delay(NEW_TOKEN_IMAGE_POLL_MS, options?.signal);
-    }
-    throw new Error("NewToken 图片生成超时，请稍后重试");
-}
-
 function parseGeminiImagePayload(payload: GeminiPayload) {
     validateGeminiPayload(payload);
     const images =
@@ -983,10 +825,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
     const isGptImage2 = isGptImage2Model(requestConfig.model);
     const isGeminiPreview = isGeminiImagePreviewModel(requestConfig.model);
     const n = Math.max(1, Math.min(isGrokImagine ? grokImagineImageMaxCount : 15, Math.floor(Math.abs(Number(config.count)) || 1)));
-    if (isNewTokenAsyncImageModel(requestConfig)) {
-        return requestNewTokenAsyncImages(requestConfig, prompt, [], n, options);
-    }
-    if (requestConfig.apiFormat === "gemini" || isGeminiPreview) {
+    if (isGeminiPreview) {
         try {
             return await requestGeminiImages(requestConfig, prompt, [], n, options);
         } catch (error) {
@@ -1015,7 +854,8 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
                 ...(quality ? { quality } : {}),
                 ...(requestSize ? { size: requestSize } : {}),
                 // 多数中转对 url 格式不稳定；统一要 b64，前端快速转 blob 展示
-                ...(requestConfig.apiFormat === "lingdongapi" ? {} : { response_format: "b64_json", output_format: IMAGE_OUTPUT_FORMAT }),
+                response_format: "b64_json",
+                output_format: IMAGE_OUTPUT_FORMAT,
             },
             "application/json",
             options,
@@ -1034,21 +874,13 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     const isGeminiPreview = isGeminiImagePreviewModel(requestConfig.model);
     const n = Math.max(1, Math.min(isGrokImagine ? grokImagineImageMaxCount : 15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const requestPrompt = buildImageReferencePromptText(prompt, references);
-    if (isNewTokenAsyncImageModel(requestConfig)) {
-        if (mask) throw new Error("NewToken gpt-image2 异步接口暂不支持蒙版编辑");
-        return requestNewTokenAsyncImages(requestConfig, requestPrompt, references, n, options);
-    }
-    if (requestConfig.apiFormat === "gemini" || isGeminiPreview) {
-        if (mask) throw new Error("Gemini 调用格式暂不支持蒙版编辑");
+    if (isGeminiPreview) {
+        if (mask) throw new Error("Gemini 预览模型暂不支持蒙版编辑");
         try {
             return await requestGeminiImages(requestConfig, requestPrompt, references, n, options);
         } catch (error) {
             throw new Error(readAxiosError(error, "请求失败"));
         }
-    }
-    if (requestConfig.apiFormat === "lingdongapi") {
-        if (mask) throw new Error("Lingdong 调用格式暂不支持蒙版编辑");
-        return requestLingdongImages(requestConfig, requestPrompt, references, n, options);
     }
     if (isStepImageEdit2) {
         return requestStepImageEdit(requestConfig, requestPrompt, references, mask, n, options);
@@ -1084,30 +916,6 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
         return await parseImagePayloadOrPoll(requestConfig, response.data, options);
     } catch (error) {
         throw new Error(readAxiosError(error, "请求失败"));
-    }
-}
-
-async function requestLingdongImages(config: AiConfig, prompt: string, references: ReferenceImage[], count: number, options?: RequestOptions) {
-    try {
-        const imageUrls = await Promise.all(references.map((image) => resolveLingdongReferenceImageUrl(image, options)));
-        const quality = normalizeQuality(config.quality);
-        const requestSize = resolveRequestSize(quality, config.size);
-        const response = await postWithProxyFallback<ImageApiResponse>(
-            config,
-            "/images/generations",
-            {
-                model: config.model,
-                prompt: withSystemPrompt(config, prompt),
-                n: count,
-                ...(requestSize ? { size: requestSize } : {}),
-                ...(imageUrls.length ? { images: imageUrls } : {}),
-            },
-            "application/json",
-            options,
-        );
-        return parseImagePayload(response.data);
-    } catch (error) {
-        throw new Error(readAxiosError(error, "Lingdong 图片生成失败"));
     }
 }
 
@@ -1195,11 +1003,6 @@ async function requestStepImageEdit(config: AiConfig, prompt: string, references
 export async function requestImageQuestion(config: AiConfig, messages: AiTextMessage[], onDelta: (text: string) => void, options?: RequestOptions) {
     const requestConfig = resolveModelRequestConfig(config, config.model || config.textModel);
     try {
-        if (requestConfig.apiFormat === "gemini") {
-            const answer = (await requestGeminiStreamingResponse(requestConfig, toGeminiBody(requestConfig, messages), onDelta, options)).content || "没有返回内容";
-            if (answer === "没有返回内容") onDelta(answer);
-            return answer;
-        }
         const answer = (await requestStreamingResponse(requestConfig, {
             model: requestConfig.model,
             input: toResponseInput(withSystemMessage(requestConfig, messages)),
@@ -1216,21 +1019,6 @@ export async function requestTextCompletion(config: AiConfig, messages: AiTextMe
     const requestConfig = resolveModelRequestConfig(config, config.model || config.textModel);
     const timeoutMs = 90000;
     try {
-        if (requestConfig.apiFormat === "gemini") {
-            const response = await axios.post<GeminiPayload>(geminiApiUrl(requestConfig, "generateContent"), toGeminiBody(requestConfig, messages), {
-                headers: geminiHeaders(requestConfig),
-                signal: options?.signal,
-                timeout: timeoutMs,
-            });
-            validateGeminiPayload(response.data);
-            const text = (response.data.candidates || [])
-                .flatMap((candidate) => candidate.content?.parts || [])
-                .map((part) => part.text || "")
-                .join("")
-                .trim();
-            if (!text) throw new Error("没有返回内容");
-            return text;
-        }
         try {
             const response = await postWithProxyFallback<ChatCompletionPayload>(
                 requestConfig,
@@ -1274,9 +1062,6 @@ export async function requestTextCompletion(config: AiConfig, messages: AiTextMe
 export async function requestToolResponse(config: AiConfig, messages: ResponseInputMessage[], tools: ResponseFunctionTool[], toolChoice: ToolChoice = "auto", onDelta?: (text: string) => void, options?: RequestOptions): Promise<ToolResponseResult> {
     const requestConfig = resolveModelRequestConfig(config, config.model || config.textModel);
     try {
-        if (requestConfig.apiFormat === "gemini") {
-            return await requestGeminiStreamingResponse(requestConfig, toGeminiBody(requestConfig, messages, toGeminiToolOptions(tools, toolChoice)), onDelta, options);
-        }
         try {
             return await requestStreamingResponse(requestConfig, {
                 model: requestConfig.model,
@@ -1299,16 +1084,8 @@ function shouldFallbackToChatTools(error: unknown) {
     return /Bad input|anyOf|oneOf|tools\/\d+\/function|enum function not in custom|tool_choice|\/responses|404/.test(message);
 }
 
-export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKey" | "apiFormat">) {
+export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKey">) {
     try {
-        if (config.apiFormat === "gemini") {
-            const response = await axios.get<GeminiPayload>(geminiApiUrl({ ...defaultGeminiConfig, ...config }), { headers: geminiHeaders({ ...defaultGeminiConfig, ...config }) });
-            validateGeminiPayload(response.data);
-            return (response.data.models || [])
-                .map((model) => model.name?.replace(/^models\//, ""))
-                .filter((id): id is string => Boolean(id))
-                .sort((a, b) => a.localeCompare(b));
-        }
         const response = await getModelsWithProxyFallback(config.baseUrl, config.apiKey);
         return (response.data.data || [])
             .map((model) => model.id)
@@ -1320,7 +1097,7 @@ export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKe
 }
 
 export async function fetchChannelModels(channel: ModelChannel) {
-    return fetchImageModels({ baseUrl: channel.baseUrl, apiKey: channel.apiKey, apiFormat: channel.apiFormat });
+    return fetchImageModels({ baseUrl: channel.baseUrl, apiKey: channel.apiKey });
 }
 
 async function getModelsWithProxyFallback(baseUrl: string, apiKey: string) {
@@ -1385,101 +1162,8 @@ function isProxyHtmlError(error: unknown) {
     return contentType.includes("text/html") || (typeof error.response?.data === "string" && /<html|forbidden|nginx/i.test(error.response.data));
 }
 
-async function resolveNewTokenReferenceImageUrl(image: ReferenceImage, options?: RequestOptions) {
-    return resolveOrUploadReferenceImageUrl(image, "NewToken 参考图片", options);
-}
-
-async function resolveLingdongReferenceImageUrl(image: ReferenceImage, options?: RequestOptions) {
-    return resolveOrUploadReferenceImageUrl(image, "Lingdong 参考图片", options);
-}
-
-async function resolveOrUploadReferenceImageUrl(image: ReferenceImage, label: string, options?: RequestOptions) {
-    const url = String(image.url || image.dataUrl || "").trim();
-    if (isReachableHttpsUrl(url)) {
-        await assertUploadedReferenceReachable(url, options);
-        return url;
-    }
-    const file = await dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) });
-    const form = new FormData();
-    form.append("file", file);
-    debugLog("image", "上传参考图", { label, name: file.name, type: file.type, bytes: file.size });
-    try {
-        const response = await axios.post<{ code?: number; data?: { url?: string }; msg?: string }>("/api/uploads/references", form, { signal: options?.signal });
-        const uploaded = response.data?.data?.url;
-        if (!uploaded) throw new Error(response.data?.msg || `${label}上传失败`);
-        if (!isReachableHttpsUrl(uploaded)) throw new Error(`${label}已上传，但返回地址不是公网 HTTPS URL。请配置 C_AI_PUBLIC_BASE_URL。`);
-        await assertUploadedReferenceReachable(uploaded, options);
-        debugLog("image", "参考图上传成功", { label, url: uploaded });
-        return uploaded;
-    } catch (error) {
-        if (axios.isAxiosError(error) && (error.response?.status === 404 || !error.response)) {
-            throw new Error(`${label}需要公网 HTTPS 图片 URL。当前部署没有临时上传服务，请使用 Docker 并配置 C_AI_PUBLIC_BASE_URL。`);
-        }
-        throw new Error(readAxiosError(error, `${label}上传失败`));
-    }
-}
-
-async function assertUploadedReferenceReachable(url: string, options?: RequestOptions) {
-    try {
-        const response = await axios.head(url, { signal: options?.signal }).catch(async (error) => {
-            if (axios.isCancel(error) || options?.signal?.aborted) throw error;
-            await probeUploadedReference(url, options);
-            return null;
-        });
-        if (!response) return;
-        const contentType = String(response.headers["content-type"] || "").toLowerCase();
-        const contentLength = Number(response.headers["content-length"] || 0);
-        if (!contentType.startsWith("image/")) throw new Error(`Content-Type=${contentType || "empty"}`);
-        if (contentLength <= 0) await probeUploadedReference(url, options);
-    } catch (error) {
-        if (axios.isCancel(error) || options?.signal?.aborted) throw error;
-        const reason = error instanceof Error ? error.message : "无法访问";
-        throw new Error(`参考图片公网地址自检失败：${reason}。请确认 ${url} 可在公网无登录访问，且反向代理没有拦截 HEAD/图片读取。`);
-    }
-}
-
-async function probeUploadedReference(url: string, options?: RequestOptions) {
-    const response = await fetch(url, {
-        method: "GET",
-        headers: { Range: "bytes=0-0" },
-        signal: options?.signal,
-        cache: "no-store",
-    });
-    if (!response.ok && response.status !== 206) throw new Error(`GET=${response.status}`);
-    const contentType = response.headers.get("content-type")?.toLowerCase() || "";
-    if (!contentType.startsWith("image/")) throw new Error(`Content-Type=${contentType || "empty"}`);
-    const reader = response.body?.getReader();
-    if (!reader) return;
-    const result = await reader.read();
-    await reader.cancel().catch(() => undefined);
-    if (!result.done && result.value?.byteLength) return;
-    throw new Error("GET 内容为空");
-}
-
-function normalizeNewTokenImageRatio(value: string) {
-    const ratio = value.trim();
-    if (["16:9", "9:16", "3:4", "4:3", "1:1"].includes(ratio)) return ratio;
-    if (ratio === "3:2") return "4:3";
-    if (ratio === "2:3") return "3:4";
-    const dimensions = parseImageDimensions(ratio);
-    if (!dimensions) return "1:1";
-    const gcdValue = gcd(dimensions.width, dimensions.height);
-    const normalized = `${dimensions.width / gcdValue}:${dimensions.height / gcdValue}`;
-    return ["16:9", "9:16", "3:4", "4:3", "1:1"].includes(normalized) ? normalized : "1:1";
-}
-
 function gcd(a: number, b: number): number {
     return b ? gcd(b, a % b) : Math.abs(a);
-}
-
-function isReachableHttpsUrl(value: string) {
-    if (!/^https:\/\//i.test(value || "")) return false;
-    try {
-        const host = new URL(value).hostname.toLowerCase();
-        return host !== "localhost" && host !== "127.0.0.1" && !host.endsWith(".local");
-    } catch {
-        return false;
-    }
 }
 
 function delay(ms: number, signal?: AbortSignal) {
@@ -1500,10 +1184,3 @@ function delay(ms: number, signal?: AbortSignal) {
     });
 }
 
-const defaultGeminiConfig: Pick<AiConfig, "baseUrl" | "apiKey" | "apiFormat" | "model" | "systemPrompt"> = {
-    baseUrl: "https://generativelanguage.googleapis.com",
-    apiKey: "",
-    apiFormat: "gemini",
-    model: "",
-    systemPrompt: "",
-};

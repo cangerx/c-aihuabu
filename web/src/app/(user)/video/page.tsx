@@ -14,6 +14,7 @@ import { VideoSettingsPanel, normalizeVideoResolutionValue, normalizeVideoSizeVa
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceReferenceLabel, seedanceVideoReferenceError, seedanceVideoReferenceHint, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
+import { isVideos4VideoModel, normalizeVideos4Duration, normalizeVideos4Ratio, normalizeVideos4Resolution } from "@/lib/videos4-video";
 import { deleteStoredMedia, resolveMediaUrl, uploadMediaFile } from "@/services/file-storage";
 import { resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo, type VideoGenerationTask } from "@/services/api/video";
@@ -1120,14 +1121,14 @@ function buildLog({ prompt, model, config, references, videoReferences, audioRef
 function buildVideoConfig(config: AiConfig, model: string): AiConfig {
     const isGrokImagineVideo = isGrokImagineVideoModel(model);
     const seedance = isSeedanceVideoConfig({ ...config, model });
-    const asyncJson = config.apiFormat === "newtoken" || config.apiFormat === "duomiapi" || config.apiFormat === "lingdongapi" || config.apiFormat === "cai2";
+    const videos4 = isVideos4VideoModel(model);
     return {
         ...config,
         model,
         videoModel: model,
-        size: isGrokImagineVideo ? normalizeGrokImagineVideoRatio(config.size) : seedance || asyncJson ? normalizeSeedanceRatio(config.size) : normalizeVideoSize(config.size),
-        videoSeconds: normalizeVideoSeconds(config.videoSeconds),
-        vquality: isGrokImagineVideo ? normalizeGrokImagineVideoResolution(config.vquality, model) : normalizeResolution(config.vquality),
+        size: isGrokImagineVideo ? normalizeGrokImagineVideoRatio(config.size) : videos4 ? normalizeVideos4Ratio(config.size) : seedance ? normalizeSeedanceRatio(config.size) : normalizeVideoSize(config.size),
+        videoSeconds: videos4 ? String(normalizeVideos4Duration(config.videoSeconds)) : normalizeVideoSeconds(config.videoSeconds),
+        vquality: isGrokImagineVideo ? normalizeGrokImagineVideoResolution(config.vquality, model) : videos4 ? normalizeVideos4Resolution(config.vquality, model) : normalizeResolution(config.vquality),
         videoGenerateAudio: String(boolConfig(config.videoGenerateAudio, true)),
         videoWatermark: String(boolConfig(config.videoWatermark, false)),
     };

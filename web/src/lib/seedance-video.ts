@@ -1,3 +1,4 @@
+import { isVideos4VideoModel } from "@/lib/videos4-video";
 import { modelOptionName, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
@@ -58,7 +59,7 @@ const seedancePixels = {
 
 export function isSeedanceVideoConfig(config: AiConfig | Pick<AiConfig, "model" | "videoModel" | "baseUrl" | "apiFormat">) {
     const requestConfig = "channels" in config ? resolveModelRequestConfig(config, config.model || config.videoModel) : config;
-    return requestConfig.apiFormat === "volcengine" || isSeedanceVideoModel(modelOptionName(requestConfig.model || requestConfig.videoModel));
+    return isSeedanceVideoModel(modelOptionName(requestConfig.model || requestConfig.videoModel));
 }
 
 export function isSeedanceVideoModel(model: string) {
@@ -86,12 +87,14 @@ export function caiVideoModelCapabilities(model: string) {
     const isGrok15 = isGrokImagineVideo15Model(value);
     const isNewTokenAllAround = isNewTokenAllAroundVideoModel(value);
     const isVeo31 = value.toLowerCase() === "veo-3-1";
+    const isVideos4 = isVideos4VideoModel(value);
     return {
         textToVideo: !isGrok15,
         imageToVideo: true,
         imageReference: !isGrok15,
-        firstLastFrame: isSeedance || isVeo31,
-        allAroundReference: isSeedance || isNewTokenAllAround || isVeo31,
+        // videos-4 文档明确不支持首尾帧，传了会被上游拒绝。
+        firstLastFrame: (isSeedance || isVeo31) && !isVideos4,
+        allAroundReference: isSeedance || isNewTokenAllAround || isVeo31 || isVideos4,
         requiresImage: isGrok15,
     };
 }

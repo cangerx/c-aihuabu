@@ -5,7 +5,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 
-export type ApiCallFormat = "openai" | "gemini" | "volcengine" | "openai-json" | "cai2" | "newtoken" | "duomiapi" | "lingdongapi";
+export type ApiCallFormat = "openai";
 
 export type ModelChannel = {
     id: string;
@@ -62,7 +62,6 @@ export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
 export type ModelCapability = "image" | "video" | "text" | "audio";
 const CHANNEL_MODEL_SEPARATOR = "::";
 const OPENAI_BASE_URL = "https://api.openai.com";
-const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
 
 export const defaultConfig: AiConfig = {
     channelMode: "local",
@@ -234,7 +233,7 @@ export const useConfigStore = create<ConfigStore>()(
                         ...config,
                         channelMode: "local",
                         aiProxyEnabled: config.aiProxyEnabled !== false,
-                        apiFormat: normalizeApiFormat(config.apiFormat),
+                        apiFormat: "openai",
                         channels,
                         models,
                         imageModel: normalizeModelOptionValue(config.imageModel || config.model, channels),
@@ -274,13 +273,12 @@ export function useEffectiveConfig() {
 }
 
 export function createModelChannel(channel?: Partial<ModelChannel>): ModelChannel {
-    const apiFormat = normalizeApiFormat(channel?.apiFormat);
     return {
         id: channel?.id?.trim() || nanoid(),
         name: channel?.name?.trim() || "新渠道",
-        baseUrl: channel?.baseUrl?.trim() || defaultBaseUrlForApiFormat(apiFormat),
+        baseUrl: channel?.baseUrl?.trim() || OPENAI_BASE_URL,
         apiKey: channel?.apiKey || "",
-        apiFormat,
+        apiFormat: "openai",
         models: uniqueRawModels(channel?.models || []),
     };
 }
@@ -347,19 +345,14 @@ export function resolveModelRequestConfig(config: AiConfig, value: string) {
 
 function normalizeChannels(config: AiConfig) {
     const persistedChannels = Array.isArray(config.channels) ? config.channels : [];
-    const channels = persistedChannels.map((channel, index) => {
-        let apiFormat = channel.apiFormat;
-        if (apiFormat === "openai" && channel.baseUrl && (channel.baseUrl.toLowerCase().includes("volces.com") || channel.baseUrl.toLowerCase().includes("/api/plan/v3"))) {
-            apiFormat = "volcengine";
-        }
-        return createModelChannel({
+    const channels = persistedChannels.map((channel, index) =>
+        createModelChannel({
             ...channel,
             id: channel.id || (index === 0 ? "default" : `channel-${index + 1}`),
             name: channel.name || (index === 0 ? "默认渠道" : `渠道 ${index + 1}`),
-            apiFormat,
             models: uniqueRawModels(channel.models || []),
-        });
-    });
+        }),
+    );
     if (!channels.length) {
         channels.push(
             createModelChannel({
@@ -380,25 +373,6 @@ function normalizeChannels(config: AiConfig) {
         );
     }
     return channels.map((channel) => ({ ...channel, models: uniqueRawModels(channel.models) }));
-}
-
-export function defaultBaseUrlForApiFormat(apiFormat: ApiCallFormat) {
-    if (apiFormat === "gemini") return GEMINI_BASE_URL;
-    if (apiFormat === "volcengine") return "https://ark.cn-beijing.volces.com/api/plan/v3";
-    if (apiFormat === "duomiapi") return "https://duomiapi.com";
-    if (apiFormat === "lingdongapi") return "https://www.lingdongapi.com";
-    return OPENAI_BASE_URL;
-}
-
-function normalizeApiFormat(apiFormat: unknown): ApiCallFormat {
-    if (apiFormat === "gemini") return "gemini";
-    if (apiFormat === "volcengine") return "volcengine";
-    if (apiFormat === "openai-json") return "openai-json";
-    if (apiFormat === "cai2") return "cai2";
-    if (apiFormat === "newtoken") return "newtoken";
-    if (apiFormat === "duomiapi") return "duomiapi";
-    if (apiFormat === "lingdongapi") return "lingdongapi";
-    return "openai";
 }
 
 function uniqueRawModels(models: string[]) {

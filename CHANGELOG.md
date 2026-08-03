@@ -5,16 +5,17 @@
 + [修复] HTTPS 页面展示上游 `http://IP` 图片时改为同域 `/api/proxy` 转发，避免 Mixed Content 拦截导致画布/结果卡空白。
 + [修复] 远程图片后台落盘改为经 `/api/proxy` 拉取（规避 imgen.x.ai 等 CORS），打开画布时补写 storageKey，避免“显示成功后再打开变成加载中”。
 + [修复] 画布/生图/素材下载远程图片时先经代理拉取为 blob 再保存，避免跨域或 http 直链下载失败。
-+ [新增] 渠道调用格式「Cai 二号」：按 aicost 视频插件文档适配 Firefly Veo3.1 / Grok Imagine / Omni Flash / Sora 2.0 的 chat 流式与 `/v1/videos` 异步创建/轮询；Base URL 需自行填写。
 + [优化] 本地 C-ai Agent 侧边栏画布写操作确认支持队列：连续工具调用依次排队，可逐条或全部批准/拒绝，执行中新到的操作也会入队。
-+ [适配] Cai/OpenAI 兼容渠道接入文档图片模型：`gpt-image-2` 文生图 `/images/generations` 与参考图编辑 `/images/edits`（`image[]` 失败回退 `image`），支持 1K/2K/4K 与宽高比尺寸映射；`gemini-3-pro-image-preview` / `gemini-3.1-flash-image-preview` 走 `/v1beta/models/{model}:generateContent` 并提交 `imageConfig`。
-+ [优化] 配置页 Cai 渠道可一键填入图片模型；异步任务返回 `task_id` 时轮询 `/images/generations/{task_id}`。
++ [适配] OpenAI 兼容渠道接入文档图片模型：`gpt-image-2` 文生图 `/images/generations` 与参考图编辑 `/images/edits`（`image[]` 失败回退 `image`），支持 1K/2K/4K 与宽高比尺寸映射；`gemini-3-pro-image-preview` / `gemini-3.1-flash-image-preview` 按模型名走 Gemini 生图并提交 `imageConfig`。
++ [优化] 异步图片任务返回 `task_id` 时轮询 `/images/generations/{task_id}`。
 + [修复] 视频参考图若已是公网 HTTPS URL 时不再误走已移除的本地上传接口；本地素材仍明确提示需公网链接。
 + [优化] 视频/图片请求在同域代理 403/408/502/504/520-524（含 Cloudflare 超时）时自动直连兜底。
 + [优化] OpenAI 格式 Grok Imagine 视频（含 1.5）参考图优先传公网 HTTPS URL；本地图过大时压缩为 JPEG 再提交，降低 `/videos/generations` 经代理 524 超时。
 + [新增] 开发调试日志：配置页「生成偏好」可开启；记录视频/图片请求路径、状态码、payload 大小、代理回退与错误摘要，支持复制/清空，右下角悬浮入口查看。
 + [新增] Docker 版恢复参考素材临时上传：`POST/GET /api/uploads/references`，支持图片/视频/音频，默认 15 天清理；需配置 `C_AI_PUBLIC_BASE_URL` 并挂载上传目录。
-+ [优化] Grok/Cai/Seedance/NewToken/Lingdong 本地参考素材优先上传为公网 HTTPS 直链再提交上游，减少 base64 大包与 524。
++ [优化] Grok/Seedance 等本地参考素材优先上传为公网 HTTPS 直链再提交上游，减少 base64 大包与 524。
++ [新增] 接入 videos-4 系列视频模型（`videos-4`、`-fast`、`-mini` 及各自 480p/720p 变体共 9 个）：按 JSON 版 `POST /v1/videos` 提交 `duration`/`ratio`/`resolution`/`referenceImages`/`referenceVideos`/`referenceAudios`，轮询 `GET /v1/videos/{task_id}` 间隔 5 秒，完成后读 `/content` 或 `video_url`。模型名自带分辨率时以模型名为准并锁定设置项；时长限制 4-15 秒；支持参考图/视频/音频（各 9/3/3 个，需公网 HTTPS），首尾帧按文档明确报错。配置页可一键填入这 9 个模型。
++ [变更] 渠道调用格式收敛为仅 OpenAI：移除 Gemini、火山方舟 Seedance、Cai、Cai 二号、NewToken、Duomi、Lingdong 七种格式及其专属请求/轮询实现和内置模型列表；配置页不再有「调用格式」下拉，已保存渠道回落为 OpenAI 并保留 Base URL、Key 和模型列表。`gpt-image-2`、Gemini 生图预览、Grok Imagine、Seedance、`veo-3-1` 等仍按模型名识别，参数面板不变。
 
 ## v0.4.27 - 2026-07-10
 
