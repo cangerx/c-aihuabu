@@ -318,6 +318,7 @@ function InfiniteCanvasPage() {
     const [collapsingBatchIds, setCollapsingBatchIds] = useState<Set<string>>(new Set());
     const [openingBatchIds, setOpeningBatchIds] = useState<Set<string>>(new Set());
     const [isNodeDragging, setIsNodeDragging] = useState(false);
+    const [isNodeResizing, setIsNodeResizing] = useState(false);
     const [preLayoutNodes, setPreLayoutNodes] = useState<CanvasNodeData[] | null>(null);
 
     const nodesRef = useRef(nodes);
@@ -1910,6 +1911,9 @@ function InfiniteCanvasPage() {
         setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, width, height, position: position || node.position } : node)));
     }, []);
 
+    const handleNodeResizeStart = useCallback(() => setIsNodeResizing(true), []);
+    const handleNodeResizeEnd = useCallback(() => setIsNodeResizing(false), []);
+
     const toggleNodeFreeResize = useCallback((nodeId: string) => {
         setNodes((prev) =>
             prev.map((node) => {
@@ -3293,7 +3297,9 @@ function InfiniteCanvasPage() {
                                 hideNodeToolbar();
                             }}
                             onConnectStart={handleConnectStart}
+                            onResizeStart={handleNodeResizeStart}
                             onResize={handleNodeResize}
+                            onResizeEnd={handleNodeResizeEnd}
                             onContentChange={handleNodeContentChange}
                             onMetadataChange={handleNodeMetadataChange}
                             onToggleBatch={toggleBatchExpanded}
@@ -3330,7 +3336,7 @@ function InfiniteCanvasPage() {
                 </InfiniteCanvas>
 
                 <CanvasNodeHoverToolbar
-                    node={isNodeDragging || nodeImageSettingsOpen ? null : toolbarNode}
+                    node={isNodeDragging || isNodeResizing || nodeImageSettingsOpen ? null : toolbarNode}
                     viewport={viewport}
                     onKeep={keepNodeToolbar}
                     onLeave={hideNodeToolbar}
