@@ -454,6 +454,8 @@ function ErrorContent({ node, theme, onRetry, onPullVideoTask }: Pick<NodeConten
 
 function VideoTaskContent({ node, theme }: Pick<NodeContentRendererProps, "node" | "theme">) {
     const references = node.metadata?.references?.length || 0;
+    const progress = node.metadata?.videoProgress as number | undefined;
+    const statusMessage = node.metadata?.videoStatusMessage as string | undefined;
     const specs = [
         node.metadata?.videoMode ? videoModeLabel(node.metadata.videoMode) : "",
         node.metadata?.seconds ? `${node.metadata.seconds}秒` : "",
@@ -471,7 +473,7 @@ function VideoTaskContent({ node, theme }: Pick<NodeContentRendererProps, "node"
                         <Film className="size-5" />
                     </div>
                     <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold">视频任务生成中</div>
+                        <div className="truncate text-sm font-semibold">{statusMessage || "视频任务生成中"}{typeof progress === "number" ? ` ${progress}%` : ""}</div>
                         <div className="mt-1 truncate text-[11px]" style={{ color: theme.node.muted }}>
                             {node.metadata?.model || "未选择模型"}
                         </div>
@@ -479,6 +481,11 @@ function VideoTaskContent({ node, theme }: Pick<NodeContentRendererProps, "node"
                 </div>
                 <div className="size-7 shrink-0 animate-spin rounded-full border-2" style={{ borderColor: theme.node.stroke, borderTopColor: theme.node.activeStroke }} />
             </div>
+            {typeof progress === "number" && (
+                <div className="mx-1 mt-3 h-1.5 overflow-hidden rounded-full" style={{ background: theme.node.stroke }}>
+                    <div className="h-full rounded-full transition-all duration-500" style={{ width: `${Math.min(progress, 100)}%`, background: theme.node.activeStroke }} />
+                </div>
+            )}
             <div className="space-y-2">
                 {node.metadata?.videoTaskId ? <VideoTaskRow label="任务" value={node.metadata.videoTaskId} theme={theme} /> : null}
                 {references ? <VideoTaskRow label="参考" value={`${references} 个素材`} theme={theme} /> : null}

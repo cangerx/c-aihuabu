@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # 无限画布一键安装脚本。新服务器执行即可完成全部部署。
-# curl -fsSL http://43.139.15.89:23413/install.sh | bash
+# curl -fsSL http://43.139.15.89:23414/install.sh | bash
 # 或指定参数:
-# curl -fsSL http://43.139.15.89:23413/install.sh | PORT=8080 DOMAIN=https://x.com bash
+# curl -fsSL http://43.139.15.89:23414/install.sh | PORT=8080 DOMAIN=https://x.com bash
 set -euo pipefail
 
 REGISTRY="43.139.15.89:23413"
@@ -13,7 +13,6 @@ CONTAINER="${CONTAINER:-infinite-canvas}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/c-aihuabu}"
 
 log() { printf '\n\033[1;36m==> %s\033[0m\n' "$1"; }
-warn() { printf '\033[1;33m[!] %s\033[0m\n' "$1"; }
 die() { printf '\033[1;31m[x] %s\033[0m\n' "$1" >&2; exit 1; }
 
 log "检查环境"
@@ -25,27 +24,20 @@ command -v docker >/dev/null 2>&1 || {
 }
 docker info >/dev/null 2>&1 || die "Docker 未运行"
 
-log "配置镜像源"
+log "配置 insecure-registries"
 DAEMON_JSON="/etc/docker/daemon.json"
-if [ -f "$DAEMON_JSON" ]; then
-    if ! grep -q "$REGISTRY" "$DAEMON_JSON"; then
-        # 追加 insecure-registries
-        if grep -q "insecure-registries" "$DAEMON_JSON"; then
-            sed -i "s|\"insecure-registries\":\s*\[|\"insecure-registries\": [\"$REGISTRY\", |" "$DAEMON_JSON"
-        else
-            sed -i "s|{|{\n  \"insecure-registries\": [\"$REGISTRY\"],|" "$DAEMON_JSON"
-        fi
-        systemctl restart docker
-        sleep 3
-    fi
+if docker info 2>/dev/null | grep -q "$REGISTRY"; then
+    echo "已配置"
 else
-    cat > "$DAEMON_JSON" <<EOF
-{
-  "insecure-registries": ["$REGISTRY"]
-}
-EOF
+    echo "{\"insecure-registries\":[\"$REGISTRY\"]}" > "$DAEMON_JSON"
     systemctl restart docker
-    sleep 3
+    echo "等待 Docker 重启..."
+    for i in $(seq 1 15); do
+        if docker info >/dev/null 2>&1; then break; fi
+        sleep 1
+    done
+    docker info >/dev/null 2>&1 || die "Docker 重启失败"
+    docker info 2>/dev/null | grep -A3 "Insecure Registries"
 fi
 
 log "拉取镜像"
@@ -53,6 +45,7 @@ docker pull "$IMAGE" || die "拉取失败，确认服务器能访问 $REGISTRY"
 docker tag "$IMAGE" c-aihuabu:local
 
 log "部署服务"
+docker rm -f "$CONTAINER" 2>/dev/null || true
 mkdir -p "$INSTALL_DIR/data/uploads/references"
 cat > "$INSTALL_DIR/docker-compose.yml" <<EOF
 services:
@@ -84,14 +77,9 @@ for i in $(seq 1 30); do
         echo "  地址: http://$(hostname -I | awk '{print $1}'):$PORT"
         echo "========================================="
         echo ""
-        echo "配置:"
-        echo "  目录: $INSTALL_DIR"
-        echo "  端口: $PORT"
-        [ -n "$DOMAIN" ] && echo "  域名: $DOMAIN"
-        echo ""
         echo "常用命令:"
-        echo "  docker logs -f $CONTAINER          # 查看日志"
-        echo "  cd $INSTALL_DIR && docker compose down  # 停止"
+        echo "  docker logs -f $CONTAINER"
+        echo "  cd $INSTALL_DIR && docker compose down"
         echo ""
         echo "更新: 重新执行本脚本即可"
         exit 0

@@ -2775,7 +2775,7 @@ function InfiniteCanvasPage() {
                     try {
                         const task = await createVideoGenerationTask(generationConfig, effectivePrompt, generationContext.referenceImages, videoReferences, audioReferences, { signal: controller.signal, videoMode });
                         setNodes((prev) => prev.map((node) => (node.id === videoId ? { ...node, metadata: { ...node.metadata, ...videoTaskMetadata(task) } } : node)));
-                        const state = await waitCanvasVideoTask(generationConfig, task, { signal: controller.signal });
+                        const state = await waitCanvasVideoTask(generationConfig, task, { signal: controller.signal, onProgress: (progress, msg) => setNodes((prev) => prev.map((node) => (node.id === videoId ? { ...node, metadata: { ...node.metadata, videoProgress: progress, videoStatusMessage: msg } } : node))) });
                         if (state.status === "failed") throw new Error(state.error);
                         if (state.status === "pending") throw new Error(VIDEO_TASK_PENDING_MESSAGE);
                         const video = await storeGeneratedVideo(state.result);
@@ -2942,7 +2942,7 @@ function InfiniteCanvasPage() {
                     const audioReferences = supportsRichVideoReferences(generationConfig) ? context?.referenceAudios || [] : [];
                     const task = await createVideoGenerationTask(generationConfig, prompt, retryImages, videoReferences, audioReferences, { signal: controller.signal, videoMode: node.metadata?.videoMode });
                     setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, ...videoTaskMetadata(task) } } : item)));
-                    const state = await waitCanvasVideoTask(generationConfig, task, { signal: controller.signal });
+                    const state = await waitCanvasVideoTask(generationConfig, task, { signal: controller.signal, onProgress: (progress, msg) => setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, videoProgress: progress, videoStatusMessage: msg } } : item))) });
                     if (state.status === "failed") throw new Error(state.error);
                     if (state.status === "pending") throw new Error(VIDEO_TASK_PENDING_MESSAGE);
                     const video = await storeGeneratedVideo(state.result);
@@ -3910,13 +3910,16 @@ function videoTaskFromMetadata(node: CanvasNodeData): VideoGenerationTask | null
     };
 }
 
-async function waitCanvasVideoTask(config: AiConfig, task: VideoGenerationTask, options?: { signal?: AbortSignal }): Promise<VideoGenerationTaskState> {
+async function waitCanvasVideoTask(config: AiConfig, task: VideoGenerationTask, options?: { signal?: AbortSignal; onProgress?: (progress?: number, message?: string) => void }): Promise<VideoGenerationTaskState> {
     const delayMs = videoPollIntervalMs(task.provider);
     const maxAttempts = Math.ceil(CANVAS_VIDEO_POLL_TIMEOUT_MS / delayMs);
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
         const state = await pollVideoGenerationTask(config, task, options);
         if (state.status !== "pending") return state;
+        if (state.progress !== undefined || state.message) {
+            options?.onProgress?.(state.progress, state.message);
+        }
         if (attempt < maxAttempts - 1) await delay(delayMs, options?.signal);
     }
     return { status: "pending" };

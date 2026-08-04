@@ -25,7 +25,7 @@ const VIDEO_GENERATION_TIMEOUT_MS = 30 * 60 * 1000;
 
 export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string };
 export type VideoGenerationTask = { id: string; provider: "openai" | "seedance" | "videos4"; model: string };
-export type VideoGenerationTaskState = { status: "pending" } | { status: "completed"; result: VideoGenerationResult } | { status: "failed"; error: string };
+export type VideoGenerationTaskState = { status: "pending"; progress?: number; message?: string } | { status: "completed"; result: VideoGenerationResult } | { status: "failed"; error: string };
 
 function aiApiUrl(config: AiConfig, path: string) {
     return buildAiApiUrl(config.baseUrl, path, config.aiProxyEnabled);
@@ -277,7 +277,7 @@ async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, 
         const directUrl = readVideoUrl(video);
         if (directUrl) return { status: "completed", result: await videoResultFromUrl(directUrl, options) };
         if (status === "failed") return { status: "failed", error: video.error?.message || "视频生成失败" };
-        return { status: "pending" };
+        return { status: "pending", progress: readProgress(video), message: readStatusMessage(video) };
     } catch (error) {
         throw new Error(readAxiosError(error, "视频任务查询失败"));
     }
@@ -303,7 +303,7 @@ async function pollGrokImagineVideoTask(config: AiConfig, task: VideoGenerationT
         const directUrl = readVideoUrl(video);
         if (directUrl) return { status: "completed", result: await videoResultFromUrl(resolveProviderUrl(config, directUrl), options) };
         if (status === "failed") return { status: "failed", error: video.error?.message || "Grok Imagine 视频生成失败" };
-        return { status: "pending" };
+        return { status: "pending", progress: readProgress(video), message: readStatusMessage(video) };
     } catch (error) {
         throw new Error(readAxiosError(error, "Grok Imagine 视频任务查询失败"));
     }
@@ -394,6 +394,22 @@ function readVideoUrl(payload: VideoResponse): string {
         Array.isArray(payload.data?.output) ? payload.data.output[0]?.url || payload.data.output[0]?.video_url : undefined,
     ];
     return String(candidates.find((url) => typeof url === "string" && url.trim()) || "").trim();
+}
+
+function readProgress(payload: VideoResponse): number | undefined {
+    const value = payload.progress ?? payload.data?.progress ?? payload.percentage ?? payload.data?.percentage;
+    if (typeof value === "number" && value >= 0 && value <= 100) return value;
+    return undefined;
+}
+
+function readStatusMessage(payload: VideoResponse): string | undefined {
+    const statusMap: Record<string, string> = {
+        queued: "排队中", queue: "排队中", waiting: "排队中",
+        processing: "生成中", running: "生成中", generating: "生成中",
+        pending: "等待中",
+    };
+    const raw = String(payload.status || payload.state || payload.task_status || "").toLowerCase();
+    return statusMap[raw] || undefined;
 }
 
 function resolveProviderUrl(config: AiConfig, url: string) {

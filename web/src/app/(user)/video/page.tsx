@@ -44,6 +44,8 @@ type GenerationResult = {
     status: "pending" | "success" | "failed";
     video?: GeneratedVideo;
     error?: string;
+    progress?: number;
+    message?: string;
 };
 
 type GenerationLog = {
@@ -459,6 +461,9 @@ export default function VideoPage() {
                     return;
                 }
                 if (state.status === "failed") throw new Error(state.error);
+                if (state.status === "pending") {
+                    setResults([{ id: log.id, status: "pending", progress: state.progress, message: state.message }]);
+                }
                 if (attempt === maxAttempts - 1) {
                     latestLog = { ...latestLog, status: "生成中", durationMs: Date.now() - latestLog.createdAt, error: "任务仍在生成中，稍后打开页面会继续查询" };
                     setResults([{ id: latestLog.id, status: "pending", error: latestLog.error }]);
@@ -671,7 +676,7 @@ export default function VideoPage() {
                                         <span>{referenceUploadLabel || "正在上传参考素材"}</span>
                                     </div>
                                 ) : null}
-                                {results.map((result) => (result.status === "success" && result.video ? <ResultVideoCard key={result.id} video={result.video} onDownload={downloadVideo} onSaveAsset={saveResultToAssets} /> : result.status === "failed" ? <FailedVideoCard key={result.id} error={result.error || "生成失败"} onRetry={retryResult} /> : <PendingVideoCard key={result.id} message={result.error} />))}
+                                {results.map((result) => (result.status === "success" && result.video ? <ResultVideoCard key={result.id} video={result.video} onDownload={downloadVideo} onSaveAsset={saveResultToAssets} /> : result.status === "failed" ? <FailedVideoCard key={result.id} error={result.error || "生成失败"} onRetry={retryResult} /> : <PendingVideoCard key={result.id} message={result.error || result.message} progress={result.progress} />))}
                             </div>
                         ) : (
                             <div className="flex min-h-[320px] flex-col items-center justify-center rounded-lg border border-dashed border-stone-300 text-center dark:border-stone-700 lg:min-h-[560px]">
@@ -751,13 +756,17 @@ function ResultVideoCard({ video, onDownload, onSaveAsset }: { video: GeneratedV
     );
 }
 
-function PendingVideoCard({ message }: { message?: string }) {
+function PendingVideoCard({ message, progress }: { message?: string; progress?: number }) {
     return (
         <div className="relative aspect-video overflow-hidden rounded-lg border border-dashed border-stone-300 bg-stone-50 dark:border-stone-700 dark:bg-stone-900">
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-sm text-stone-500 dark:text-stone-400">
                 <LoaderCircle className="size-6 animate-spin" />
-                <span>生成中</span>
-                {message ? <span className="max-w-[80%] text-center text-xs text-amber-600 dark:text-amber-300">{message}</span> : null}
+                <span>{message || "生成中"}{typeof progress === "number" ? ` ${progress}%` : ""}</span>
+                {typeof progress === "number" && (
+                    <div className="h-1.5 w-32 overflow-hidden rounded-full bg-stone-200 dark:bg-stone-700">
+                        <div className="h-full rounded-full bg-blue-500 transition-all duration-500" style={{ width: `${Math.min(progress, 100)}%` }} />
+                    </div>
+                )}
             </div>
         </div>
     );
