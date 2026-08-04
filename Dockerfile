@@ -22,6 +22,8 @@ FROM nginx:1.29-alpine
 
 COPY --from=web-build /app/web/dist /usr/share/nginx/html
 COPY --from=proxy-build /c-aihuabu-proxy /usr/local/bin/c-aihuabu-proxy
+# 让运行镜像自带版本号，便于部署后用 docker exec 核对实际跑的是哪个版本。
+COPY VERSION /app/VERSION
 RUN cat > /etc/nginx/conf.d/default.conf <<'NGINX'
 server {
     listen 3000;

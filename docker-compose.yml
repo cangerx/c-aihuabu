@@ -1,16 +1,17 @@
 services:
   app:
-    image: c-aihuabu:local
+    image: ${C_AI_IMAGE_NAME:-c-aihuabu:local}
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: infinite-canvas
+    container_name: ${C_AI_CONTAINER_NAME:-infinite-canvas}
     ports:
-      - "${C_AI_HOST_PORT:-3000}:3000"
+      - "${C_AI_HOST_PORT:-9527}:3000"
     environment:
       C_AI_PUBLIC_BASE_URL: ${C_AI_PUBLIC_BASE_URL:-}
       C_AI_UPLOAD_DIR: ${C_AI_UPLOAD_DIR:-/data/uploads/references}
       C_AI_UPLOAD_TTL_DAYS: ${C_AI_UPLOAD_TTL_DAYS:-15}
+      C_AI_UPLOAD_MAX_DIR_BYTES: ${C_AI_UPLOAD_MAX_DIR_BYTES:-}
     volumes:
       - ${C_AI_UPLOAD_HOST_DIR:-./data/uploads}:/data/uploads
     restart: unless-stopped
