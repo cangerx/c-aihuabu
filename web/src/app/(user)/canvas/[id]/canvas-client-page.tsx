@@ -1304,7 +1304,7 @@ function InfiniteCanvasPage() {
 
         // Helper to get node dimensions with fallbacks
         const getNodeSize = (node: CanvasNodeData) => {
-            const defaultSpec = NODE_DEFAULT_SIZE[node.type] || { width: 340, height: 240 };
+            const defaultSpec = getNodeSpec(node.type);
             return {
                 width: node.width || defaultSpec.width,
                 height: node.height || defaultSpec.height,

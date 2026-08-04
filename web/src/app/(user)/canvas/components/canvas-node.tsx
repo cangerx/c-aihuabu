@@ -9,7 +9,7 @@ import { formatBytes } from "@/lib/image-utils";
 import { proxiedImageDisplayUrl } from "@/services/image-storage";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
-import { CanvasNodeType, type CanvasNodeData, type CanvasNodeMetadata, type CanvasScriptMode, type CanvasScriptScene, type Position } from "../types";
+import { CanvasNodeType, type CanvasNodeData, type CanvasNodeMetadata, type CanvasNodeTypeId, type CanvasScriptMode, type CanvasScriptScene, type Position } from "../types";
 import type { CanvasResourceReference } from "../utils/canvas-resource-references";
 
 type ResizeCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
@@ -382,7 +382,8 @@ function NodeContent(props: NodeContentRendererProps) {
     if (props.node.metadata?.status === "loading") return <LoadingContent theme={props.theme} />;
     if (props.node.metadata?.status === "error") return <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} onPullVideoTask={props.onPullVideoTask} />;
 
-    const Renderer = nodeContentRenderers[props.node.type];
+    // 内置类型走内部渲染器；插件等未注册类型落到占位内容，避免整块画布崩掉。
+    const Renderer = builtinNodeContentRenderer(props.node.type);
     return Renderer ? <Renderer {...props} /> : <UnknownNodeContent theme={props.theme} />;
 }
 
@@ -393,6 +394,10 @@ const nodeContentRenderers = {
     [CanvasNodeType.Video]: VideoNodeContent,
     [CanvasNodeType.Audio]: AudioNodeContent,
 } satisfies Record<CanvasNodeType, (props: NodeContentRendererProps) => ReactNode>;
+
+function builtinNodeContentRenderer(type: CanvasNodeTypeId) {
+    return (nodeContentRenderers as Record<string, ((props: NodeContentRendererProps) => ReactNode) | undefined>)[type];
+}
 
 function LoadingContent({ theme }: Pick<NodeContentRendererProps, "theme">) {
     return (
