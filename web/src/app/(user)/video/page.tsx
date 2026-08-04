@@ -17,7 +17,7 @@ import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceRefe
 import { isVideos4VideoModel, normalizeVideos4Duration, normalizeVideos4Ratio, normalizeVideos4Resolution } from "@/lib/videos4-video";
 import { deleteStoredMedia, resolveMediaUrl, uploadMediaFile } from "@/services/file-storage";
 import { resolveImageUrl, uploadImage } from "@/services/image-storage";
-import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo, type VideoGenerationTask } from "@/services/api/video";
+import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo, videoPollIntervalMs, type VideoGenerationTask } from "@/services/api/video";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { modelOptionLabel, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -412,7 +412,7 @@ export default function VideoPage() {
         const taskConfig = buildVideoConfig({ ...effectiveConfig, ...log.config }, log.task.model || log.model);
         let latestLog = log;
         let consecutiveErrors = 0;
-        const baseDelay = log.task.provider === "seedance" ? 5000 : 2500;
+        const baseDelay = videoPollIntervalMs(log.task.provider);
         const maxAttempts = Math.ceil(VIDEO_POLL_TIMEOUT_MS / baseDelay);
         try {
             for (let attempt = 0; attempt < maxAttempts; attempt += 1) {

@@ -7,7 +7,7 @@ import { downloadMediaFile, mediaFileExtension } from "@/lib/download-media";
 
 import { requestEdit, requestGeneration, requestImageQuestion } from "@/services/api/image";
 import { requestAudioGeneration, storeGeneratedAudio } from "@/services/api/audio";
-import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo, type VideoGenerationTask, type VideoGenerationTaskState } from "@/services/api/video";
+import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo, videoPollIntervalMs, type VideoGenerationTask, type VideoGenerationTaskState } from "@/services/api/video";
 import { DOCS_URL } from "@/constant/env";
 import { defaultConfig, modelOptionName, type AiConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { persistImageUrl, persistImageUrlInBackground, prepareImageForDisplay, proxiedImageDisplayUrl, resolveImageUrl, uploadImage, type UploadedImage } from "@/services/image-storage";
@@ -3911,7 +3911,7 @@ function videoTaskFromMetadata(node: CanvasNodeData): VideoGenerationTask | null
 }
 
 async function waitCanvasVideoTask(config: AiConfig, task: VideoGenerationTask, options?: { signal?: AbortSignal }): Promise<VideoGenerationTaskState> {
-    const delayMs = task.provider === "seedance" ? 5000 : 2500;
+    const delayMs = videoPollIntervalMs(task.provider);
     const maxAttempts = Math.ceil(CANVAS_VIDEO_POLL_TIMEOUT_MS / delayMs);
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");

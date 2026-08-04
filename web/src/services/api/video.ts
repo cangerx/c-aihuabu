@@ -43,9 +43,16 @@ function withSystemPrompt(config: AiConfig, prompt: string) {
     return systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt;
 }
 
+/** 各上游建议的轮询间隔。画布和视频创作台各自维护轮询循环，需与此保持一致。 */
+export function videoPollIntervalMs(provider: VideoGenerationTask["provider"]) {
+    if (provider === "seedance") return 5000;
+    if (provider === "videos4") return VIDEOS4_POLL_INTERVAL_MS;
+    return 2500;
+}
+
 export async function requestVideoGeneration(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationResult> {
     const task = await createVideoGenerationTask(config, prompt, references, videoReferences, audioReferences, options);
-    const delayMs = task.provider === "seedance" ? 5000 : task.provider === "videos4" ? VIDEOS4_POLL_INTERVAL_MS : 2500;
+    const delayMs = videoPollIntervalMs(task.provider);
     const maxAttempts = Math.ceil(VIDEO_GENERATION_TIMEOUT_MS / delayMs);
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
