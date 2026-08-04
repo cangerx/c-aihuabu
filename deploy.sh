@@ -84,7 +84,7 @@ fi
 if [ "$USE_REGISTRY" != "1" ]; then
     log "构建镜像（首次较慢）"
     [ -n "$NPM_REGISTRY" ] && echo "依赖镜像源 $NPM_REGISTRY"
-    docker compose build app
+    docker compose build --no-cache app
 fi
 
 log "启动容器"

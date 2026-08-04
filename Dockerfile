@@ -9,18 +9,17 @@ ARG NPM_REGISTRY=""
 WORKDIR /app/web
 COPY web/package.json web/bun.lock ./
 RUN if [ -n "$NPM_REGISTRY" ]; then printf '[install]\nregistry = "%s"\n' "$NPM_REGISTRY" > bunfig.toml; fi
-# 一次网络受限的安装会把残缺的包写进 bun 缓存，而缓存挂载独立于镜像层缓存，
-# 换了镜像源也仍会命中坏条目。所以装完就抽查关键文件，缺了就清缓存重装一次。
-RUN --mount=type=cache,target=/root/.bun/install/cache set -e; \
-    bun install --frozen-lockfile --cache-dir=/root/.bun/install/cache; \
-    if [ ! -f node_modules/typescript/lib/tsc.js ] || [ ! -d node_modules/vite/dist ]; then \
-        echo "依赖不完整（可能命中了损坏的 bun 缓存），改用干净缓存目录重装。"; \
-        rm -rf node_modules; \
-        bun install --frozen-lockfile --cache-dir=/tmp/bun-retry-cache; \
+# bun.lock 中有部分包的解析地址为空，--frozen-lockfile 会强制回退到 npmjs.org。
+# 当指定了 NPM_REGISTRY（国内场景）时，去掉 --frozen-lockfile 让 bun 从镜像源重新解析。
+RUN set -e; \
+    if [ -n "$NPM_REGISTRY" ]; then \
+        echo "使用镜像源 $NPM_REGISTRY（非 frozen 模式）"; \
+        bun install; \
+    else \
+        bun install --frozen-lockfile; \
     fi; \
     if [ ! -f node_modules/typescript/lib/tsc.js ] || [ ! -d node_modules/vite/dist ]; then \
-        echo "依赖仍不完整，请确认 NPM_REGISTRY 可达（国内可用 https://registry.npmmirror.com）。"; \
-        exit 1; \
+        echo "关键依赖缺失，安装失败。"; exit 1; \
     fi
 COPY VERSION /app/VERSION
 COPY CHANGELOG.md /app/CHANGELOG.md
