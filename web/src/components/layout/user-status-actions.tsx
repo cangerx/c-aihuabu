@@ -1,15 +1,12 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { useEffect, useState } from "react";
-import { Key, Keyboard, Settings2, UserRound } from "lucide-react";
+import { Key, Keyboard, Settings2 } from "lucide-react";
 
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
 import { VersionReleaseModal } from "@/components/layout/version-release-modal";
 import { DOCS_URL } from "@/constant/env";
-import { cn } from "@/lib/utils";
 import { canvasThemes } from "@/lib/canvas-theme";
-import { fetchAccountMe, type AccountUser } from "@/services/api/account";
 import { useConfigStore } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 
@@ -20,7 +17,6 @@ type UserStatusActionsProps = {
 };
 
 export function UserStatusActions({ showConfig = true, variant = "default", onOpenShortcuts }: UserStatusActionsProps) {
-    const [user, setUser] = useState<AccountUser | null>(null);
     const theme = useThemeStore((state) => state.theme);
     const setTheme = useThemeStore((state) => state.setTheme);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
@@ -29,28 +25,8 @@ export function UserStatusActions({ showConfig = true, variant = "default", onOp
     const iconStyle: CSSProperties | undefined = variant === "canvas" ? { color: canvasTheme.node.text } : undefined;
     const versionStyle = iconStyle;
 
-    useEffect(() => {
-        const refresh = () => void fetchAccountMe()
-            .then((data) => setUser(data.user))
-            .catch(() => setUser(null));
-        refresh();
-        window.addEventListener("ai-huabu-account-change", refresh);
-        return () => window.removeEventListener("ai-huabu-account-change", refresh);
-    }, []);
-
     return (
         <div className="inline-flex shrink-0 items-center gap-1">
-            <button
-                type="button"
-                className={cn(naturalIconClass, "w-auto gap-1 rounded-md px-2 text-xs font-medium")}
-                style={iconStyle}
-                onClick={() => openConfigDialog(false, "channels")}
-                aria-label={user ? "账号" : "本地配置"}
-                title={user ? `账号：${user.email}` : "静态版使用本地配置"}
-            >
-                <UserRound className="size-4" />
-                <span className="hidden sm:inline">{user ? "账号" : "本地"}</span>
-            </button>
             <a href={DOCS_URL} target="_blank" rel="noopener noreferrer" className={naturalIconClass} style={iconStyle} aria-label="中转服务 Key" title="中转服务 Key">
                 <Key className="size-4" />
             </a>
