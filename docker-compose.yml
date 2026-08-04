@@ -4,6 +4,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        NPM_REGISTRY: ${NPM_REGISTRY:-}
     container_name: ${C_AI_CONTAINER_NAME:-infinite-canvas}
     ports:
       - "${C_AI_HOST_PORT:-9527}:3000"

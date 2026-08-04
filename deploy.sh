@@ -16,6 +16,12 @@ IMAGE="${C_AI_IMAGE_NAME:-c-aihuabu:local}"
 PUBLIC_BASE_URL="${C_AI_PUBLIC_BASE_URL:-}"
 UPLOAD_TTL_DAYS="${C_AI_UPLOAD_TTL_DAYS:-15}"
 UPLOAD_HOST_DIR="${C_AI_UPLOAD_HOST_DIR:-./data/uploads}"
+# bun.lock 有部分依赖没记录解析地址，会回退到 registry.npmjs.org。访问 npmjs
+# 困难时用这个指定镜像源，例如 NPM_REGISTRY=https://registry.npmmirror.com。
+NPM_REGISTRY="${NPM_REGISTRY:-}"
+# 设为 1 时直接拉 CI 构建好的镜像，跳过本地编译（需要能访问 ghcr.io）。
+USE_REGISTRY="${C_AI_USE_REGISTRY:-}"
+REGISTRY_IMAGE="${C_AI_REGISTRY_IMAGE:-ghcr.io/cangerx/c-aihuabu:latest}"
 
 log() { printf '\n\033[1;36m==> %s\033[0m\n' "$1"; }
 warn() { printf '\033[1;33m[!] %s\033[0m\n' "$1"; }
@@ -57,6 +63,7 @@ C_AI_PUBLIC_BASE_URL=$PUBLIC_BASE_URL
 C_AI_UPLOAD_DIR=/data/uploads/references
 C_AI_UPLOAD_TTL_DAYS=$UPLOAD_TTL_DAYS
 C_AI_UPLOAD_HOST_DIR=$UPLOAD_HOST_DIR
+NPM_REGISTRY=$NPM_REGISTRY
 EOF
 echo "端口 $PORT / 容器 $CONTAINER / 镜像 $IMAGE"
 [ -n "$PUBLIC_BASE_URL" ] || warn "未设置 C_AI_PUBLIC_BASE_URL：参考素材上传会拿不到公网地址，图生视频提交会失败。可稍后改 .env 再重跑本脚本。"
@@ -64,8 +71,21 @@ echo "端口 $PORT / 容器 $CONTAINER / 镜像 $IMAGE"
 log "准备上传目录"
 mkdir -p "$UPLOAD_HOST_DIR/references"
 
-log "构建镜像（首次较慢）"
-docker compose build app
+if [ "$USE_REGISTRY" = "1" ]; then
+    log "拉取 CI 镜像 $REGISTRY_IMAGE"
+    if docker pull "$REGISTRY_IMAGE"; then
+        docker tag "$REGISTRY_IMAGE" "$IMAGE"
+    else
+        warn "拉取失败，回退到本地构建。"
+        USE_REGISTRY=""
+    fi
+fi
+
+if [ "$USE_REGISTRY" != "1" ]; then
+    log "构建镜像（首次较慢）"
+    [ -n "$NPM_REGISTRY" ] && echo "依赖镜像源 $NPM_REGISTRY"
+    docker compose build app
+fi
 
 log "启动容器"
 docker compose up -d --force-recreate

@@ -1,8 +1,14 @@
 # 构建 Vite 静态前端产物。
 FROM oven/bun:1.3.13 AS web-build
 
+# bun.lock 里有一部分依赖（含 vite/esbuild/rollup/typescript）没有记录解析地址，
+# bun 会回退到 registry.npmjs.org。在访问 npmjs 困难的网络下构建时，用这个参数
+# 指定可达的镜像源，例如 --build-arg NPM_REGISTRY=https://registry.npmmirror.com。
+ARG NPM_REGISTRY=""
+
 WORKDIR /app/web
 COPY web/package.json web/bun.lock ./
+RUN if [ -n "$NPM_REGISTRY" ]; then printf '[install]\nregistry = "%s"\n' "$NPM_REGISTRY" > bunfig.toml; fi
 RUN --mount=type=cache,target=/root/.bun/install/cache bun install --frozen-lockfile --cache-dir=/root/.bun/install/cache
 COPY VERSION /app/VERSION
 COPY CHANGELOG.md /app/CHANGELOG.md
