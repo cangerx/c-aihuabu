@@ -1,4 +1,4 @@
-import { Github } from "lucide-react";
+import { GitFork } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -18,7 +18,7 @@ export function GitHubLink({ className, style }: GitHubLinkProps) {
             aria-label="GitHub"
             title="GitHub"
         >
-            <Github className="size-4" />
+            <GitFork className="size-4" />
         </a>
     );
 }
