@@ -1,5 +1,3 @@
-"use client";
-
 import { Calendar, Copy, FolderPlus, Sparkles, Terminal } from "lucide-react";
 import { Button, Modal } from "antd";
 

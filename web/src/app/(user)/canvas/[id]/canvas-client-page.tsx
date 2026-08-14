@@ -1,33 +1,23 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent as ReactChangeEvent, DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Bot, Home, ImageIcon, Images, Key, List, Menu, Music2, Plus, Redo2, Settings2, Trash2, Undo2, Upload, Video } from "lucide-react";
-import { downloadMediaFile, mediaFileExtension } from "@/lib/download-media";
-
-
+import { ImageIcon, List, Music2, Settings2, Video } from "lucide-react";
 import { requestEdit, requestGeneration, requestImageQuestion } from "@/services/api/image";
 import { requestAudioGeneration, storeGeneratedAudio } from "@/services/api/audio";
-import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo, videoPollIntervalMs, type VideoGenerationTask, type VideoGenerationTaskState } from "@/services/api/video";
-import { DOCS_URL } from "@/constant/env";
-import { defaultConfig, modelOptionName, type AiConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
-import { persistImageUrl, persistImageUrlInBackground, prepareImageForDisplay, proxiedImageDisplayUrl, resolveImageUrl, uploadImage, type UploadedImage } from "@/services/image-storage";
-
-import { resolveMediaUrl, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
+import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo } from "@/services/api/video";
+import { downloadMediaFile, mediaFileExtension } from "@/lib/download-media";
+import { defaultConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
+import { persistImageUrl, persistImageUrlInBackground, prepareImageForDisplay, proxiedImageDisplayUrl, uploadImage, type UploadedImage } from "@/services/image-storage";
+import { uploadMediaFile } from "@/services/file-storage";
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta, sanitizeImageDataUrl } from "@/lib/image-utils";
 import { canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
-import { isGrokImagineImageConfig, isGrokImagineVideoModel, normalizeGrokImagineImageCount, normalizeGrokImagineImageRatio, normalizeGrokImagineImageResolution, normalizeGrokImagineVideoRatio, normalizeGrokImagineVideoResolution } from "@/lib/grok-imagine";
-import { isGptImage2StyleConfig, normalizeGptImage2Ratio, normalizeGptImage2Resolution } from "@/lib/gpt-image-2";
-import { isStepImageEdit2Config, normalizeStepImageEdit2Size } from "@/lib/step-image";
-import { boolConfig, isSeedanceVideoModel, normalizeSeedanceRatio, seedanceVideoReferenceError, seedanceVideoReferenceHint } from "@/lib/seedance-video";
-import { isVideos4VideoModel, normalizeVideos4Duration, normalizeVideos4Ratio, normalizeVideos4Resolution } from "@/lib/videos4-video";
-import { normalizeVideoResolutionValue, normalizeVideoSizeValue } from "@/components/video-settings-panel";
-import { UserStatusActions } from "@/components/layout/user-status-actions";
+import { seedanceVideoReferenceError, seedanceVideoReferenceHint } from "@/lib/seedance-video";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { cropDataUrl, splitDataUrl, upscaleDataUrl } from "../utils/canvas-image-data";
 import { fitNodeSize, nodeSizeFromRatio } from "../utils/canvas-node-size";
-import { App, Button, Dropdown, Modal } from "antd";
+import { App, Button, Modal } from "antd";
 import { NODE_DEFAULT_SIZE, getNodeSpec } from "../constants";
 import { ActiveConnectionPath, ConnectionPath } from "../components/canvas-connections";
 import { CanvasConfigComposer } from "../components/canvas-config-composer";
@@ -46,30 +36,31 @@ import { Minimap } from "../components/canvas-mini-map";
 import { CanvasNode } from "../components/canvas-node";
 import { CanvasNodePromptPanel, type CanvasNodeGenerationMode } from "../components/canvas-node-prompt-panel";
 import { CanvasToolbar } from "../components/canvas-toolbar";
+import { CanvasTopBar } from "../components/canvas-top-bar";
 import { AssetPickerModal, type InsertAssetPayload } from "../components/asset-picker-modal";
 import { CanvasZoomControls } from "../components/canvas-zoom-controls";
 import { useCanvasStore } from "../stores/use-canvas-store";
 import { applyCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } from "../utils/canvas-agent-ops";
 import { buildCanvasResourceReferences, buildNodeMentionReferences } from "../utils/canvas-resource-references";
+import { audioMetadata, buildAudioGenerationMetadata, buildGenerationConfig, buildImageGenerationMetadata, findRetrySourceNode, generationReferenceUrls, getGenerationCount, imageMetadata, isGenerationCanceled, resolveMetadataReferences, sourceNodeReferenceImages, supportsRichVideoReferences, videoMetadata, videoTaskFromMetadata, videoTaskMetadata, waitCanvasVideoTask } from "../utils/canvas-generation";
+import { buildScriptGeneratorPrompt, defaultScriptPrompt, formatSceneText, formatScriptScenes, getInputSummary, parseScriptResult, withCameraPrompt } from "../utils/canvas-script";
+import { useCanvasGenerationRequests } from "./use-canvas-generation-requests";
+import { useCanvasHistory, type CanvasHistoryEntry } from "./use-canvas-history";
+import { useCanvasProjectPersistence } from "./use-canvas-project-persistence";
 import type { CanvasAgentMode } from "../components/canvas-agent-chat-ui";
 import {
     CanvasNodeType,
     type CanvasAssistantImage,
     type CanvasAssistantSession,
     type CanvasConnection,
-    type CanvasImageGenerationType,
     type CanvasNodeData,
     type CanvasNodeMetadata,
-    type CanvasScriptMode,
-    type CanvasScriptScene,
     type ConnectionHandle,
     type ContextMenuState,
     type Position,
     type SelectionBox,
     type ViewportTransform,
 } from "../types";
-import type { ReferenceImage } from "@/types/image";
-import type { ReferenceAudio } from "@/types/media";
 
 type CanvasClipboard = {
     nodes: CanvasNodeData[];
@@ -86,24 +77,9 @@ type ConnectionDropTarget = {
     isNearNode: boolean;
 };
 
-type CanvasHistoryEntry = Pick<CanvasClipboard, "nodes" | "connections"> & {
-    chatSessions: CanvasAssistantSession[];
-    activeChatId: string | null;
-    backgroundMode: CanvasBackgroundMode;
-    showImageInfo: boolean;
-};
-
-type CanvasGenerationRequest = {
-    targetNodeId: string;
-    originNodeId: string;
-    runningNodeId: string;
-    controller: AbortController;
-};
-
 const VIDEO_NODE_MAX_WIDTH = 420;
 const VIDEO_NODE_MAX_HEIGHT = 420;
 const VIDEO_TASK_PENDING_MESSAGE = "视频任务仍在生成中，可稍后再拉取结果。";
-const CANVAS_VIDEO_POLL_TIMEOUT_MS = 30 * 60 * 1000;
 const CONNECTION_HANDLE_HIT_RADIUS = 40;
 const CONNECTION_NODE_HIT_PADDING = 32;
 const NODE_STATUS_IDLE = "idle" as const;
@@ -234,12 +210,6 @@ function InfiniteCanvasPage() {
     const imageInputRef = useRef<HTMLInputElement>(null);
     const uploadTargetRef = useRef<{ nodeId?: string; position?: Position; connectToNodeId?: string } | null>(null);
     const clipboardRef = useRef<CanvasClipboard | null>(null);
-    const historyRef = useRef<{ past: CanvasHistoryEntry[]; future: CanvasHistoryEntry[] }>({ past: [], future: [] });
-    const lastHistoryRef = useRef<CanvasHistoryEntry | null>(null);
-    const historyCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const viewportSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const applyingHistoryRef = useRef(false);
-    const historyPausedRef = useRef(false);
     const didInitialCenterRef = useRef(false);
     const rafRef = useRef<number | null>(null);
     const toolbarHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -264,10 +234,7 @@ function InfiniteCanvasPage() {
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
     const addAsset = useAssetStore((state) => state.addAsset);
     const cleanupAssetImages = useAssetStore((state) => state.cleanupImages);
-    const hydrated = useCanvasStore((state) => state.hydrated);
     const createProject = useCanvasStore((state) => state.createProject);
-    const openProject = useCanvasStore((state) => state.openProject);
-    const updateProject = useCanvasStore((state) => state.updateProject);
     const renameProject = useCanvasStore((state) => state.renameProject);
     const deleteProjects = useCanvasStore((state) => state.deleteProjects);
     const currentProject = useCanvasStore((state) => state.projects.find((project) => project.id === projectId));
@@ -314,7 +281,6 @@ function InfiniteCanvasPage() {
     const [agentUndoSnapshot, setAgentUndoSnapshot] = useState<CanvasAgentSnapshot | null>(null);
     const [titleEditing, setTitleEditing] = useState(false);
     const [titleDraft, setTitleDraft] = useState("");
-    const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false });
     const [collapsingBatchIds, setCollapsingBatchIds] = useState<Set<string>>(new Set());
     const [openingBatchIds, setOpeningBatchIds] = useState<Set<string>>(new Set());
     const [isNodeDragging, setIsNodeDragging] = useState(false);
@@ -331,58 +297,48 @@ function InfiniteCanvasPage() {
     const selectionBoxRef = useRef(selectionBox);
     const agentCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const pendingConnectionCreateRef = useRef(pendingConnectionCreate);
-    const generationRequestsRef = useRef(new Map<string, CanvasGenerationRequest>());
-
-    const createHistoryEntry = useCallback(
-        (): CanvasHistoryEntry => ({
-            nodes: nodesRef.current,
-            connections: connectionsRef.current,
-            chatSessions,
-            activeChatId,
-            backgroundMode,
-            showImageInfo,
-        }),
-        [activeChatId, backgroundMode, chatSessions, showImageInfo],
-    );
+    const { startGenerationRequest, finishGenerationRequest, abortGenerationRequestsForNodeIds, stopGenerationByRunningId } = useCanvasGenerationRequests({ setNodes, setRunningNodeId });
+    const historyEntry = useMemo<CanvasHistoryEntry>(() => ({ nodes, connections, chatSessions, activeChatId, backgroundMode, showImageInfo }), [activeChatId, backgroundMode, chatSessions, connections, nodes, showImageInfo]);
+    const applyHistoryEntry = useCallback((entry: CanvasHistoryEntry) => {
+        setNodes(entry.nodes);
+        setConnections(entry.connections);
+        setChatSessions(entry.chatSessions);
+        setActiveChatId(entry.activeChatId);
+        setBackgroundMode(entry.backgroundMode);
+        setShowImageInfo(entry.showImageInfo);
+        setSelectedNodeIds(new Set());
+        setSelectedConnectionId(null);
+        setContextMenu(null);
+    }, []);
+    const { historyState, resetHistory, undo: undoCanvas, redo: redoCanvas, pauseHistory, resumeHistory, isHistoryPaused, getHistoryCleanupState } = useCanvasHistory({ entry: historyEntry, enabled: projectLoaded, onApply: applyHistoryEntry });
+    useCanvasProjectPersistence({
+        projectId,
+        projectLoaded,
+        setProjectLoaded,
+        nodes,
+        setNodes,
+        connections,
+        setConnections,
+        chatSessions,
+        setChatSessions,
+        activeChatId,
+        setActiveChatId,
+        backgroundMode,
+        setBackgroundMode,
+        showImageInfo,
+        setShowImageInfo,
+        viewport,
+        setViewport,
+        resetHistory,
+        isHistoryPaused,
+    });
 
     const cleanupCanvasFiles = useCallback(
         (extra?: unknown) => {
-            cleanupAssetImages({ extra, history: historyRef.current, lastHistory: lastHistoryRef.current });
+            cleanupAssetImages({ extra, ...getHistoryCleanupState() });
         },
-        [cleanupAssetImages],
+        [cleanupAssetImages, getHistoryCleanupState],
     );
-
-    const startGenerationRequest = useCallback((targetNodeId: string, originNodeId: string, runningId = originNodeId, controller = new AbortController()) => {
-        const previous = generationRequestsRef.current.get(targetNodeId);
-        if (previous?.controller !== controller) previous?.controller.abort();
-        generationRequestsRef.current.set(targetNodeId, { targetNodeId, originNodeId, runningNodeId: runningId, controller });
-        return controller;
-    }, []);
-
-    const finishGenerationRequest = useCallback((targetNodeId: string, controller: AbortController) => {
-        const request = generationRequestsRef.current.get(targetNodeId);
-        if (request?.controller === controller) generationRequestsRef.current.delete(targetNodeId);
-    }, []);
-
-    const stopGenerationByRunningId = useCallback((runningId: string) => {
-        const affectedNodeIds = new Set<string>();
-        generationRequestsRef.current.forEach((request) => {
-            if (request.runningNodeId !== runningId) return;
-            request.controller.abort();
-            generationRequestsRef.current.delete(request.targetNodeId);
-            affectedNodeIds.add(request.targetNodeId);
-            affectedNodeIds.add(request.originNodeId);
-        });
-        setRunningNodeId((current) => (current === runningId ? null : current));
-        if (!affectedNodeIds.size) return;
-        setNodes((prev) =>
-            prev.map((node) =>
-                affectedNodeIds.has(node.id) && node.metadata?.status === NODE_STATUS_LOADING
-                    ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_IDLE, errorDetails: undefined } }
-                    : node,
-            ),
-        );
-    }, []);
 
     const confirmStopGeneration = useCallback(
         (nodeId: string) => {
@@ -398,106 +354,6 @@ function InfiniteCanvasPage() {
         [modal, stopGenerationByRunningId],
     );
 
-    useEffect(() => {
-        if (!hydrated) return;
-        setProjectLoaded(false);
-        const project = openProject(projectId);
-        if (!project) {
-            navigate("/canvas", { replace: true });
-            return;
-        }
-
-        const restore = async () => {
-            const restoredNodes = await hydrateCanvasImages(resetInterruptedGeneration(project.nodes));
-            const restoredSessions = await hydrateAssistantImages(project.chatSessions || []);
-            setNodes(restoredNodes);
-            setConnections(project.connections);
-            setChatSessions(restoredSessions);
-            setActiveChatId(project.activeChatId || null);
-            setBackgroundMode(project.backgroundMode);
-            setShowImageInfo(project.showImageInfo || false);
-            setViewport(project.viewport);
-            historyRef.current = { past: [], future: [] };
-            if (historyCommitTimerRef.current) {
-                clearTimeout(historyCommitTimerRef.current);
-                historyCommitTimerRef.current = null;
-            }
-            lastHistoryRef.current = {
-                nodes: restoredNodes,
-                connections: project.connections,
-                chatSessions: restoredSessions,
-                activeChatId: project.activeChatId || null,
-                backgroundMode: project.backgroundMode,
-                showImageInfo: project.showImageInfo || false,
-            };
-            setHistoryState({ canUndo: false, canRedo: false });
-            setProjectLoaded(true);
-
-            // 打开画布后：对仍只有远程 URL、没有本地 storageKey 的图片后台补落盘，写回节点，避免下次打开空白
-            restoredNodes.forEach((node) => {
-                if (node.type !== CanvasNodeType.Image || node.metadata?.storageKey) return;
-                const remote = node.metadata?.content || "";
-                if (!/^https?:\/\//i.test(remote) && !remote.startsWith("/api/proxy?")) return;
-                persistImageUrlInBackground(remote, (stored) => {
-                    setNodes((prev) =>
-                        prev.map((item) =>
-                            item.id === node.id
-                                ? {
-                                      ...item,
-                                      metadata: {
-                                          ...item.metadata,
-                                          ...imageMetadata(stored),
-                                          prompt: item.metadata?.prompt,
-                                          generationType: item.metadata?.generationType,
-                                          model: item.metadata?.model,
-                                          size: item.metadata?.size,
-                                          quality: item.metadata?.quality,
-                                          count: item.metadata?.count,
-                                          references: item.metadata?.references,
-                                          isBatchRoot: item.metadata?.isBatchRoot,
-                                          batchChildIds: item.metadata?.batchChildIds,
-                                          batchRootId: item.metadata?.batchRootId,
-                                          primaryImageId: item.metadata?.primaryImageId,
-                                          imageBatchExpanded: item.metadata?.imageBatchExpanded,
-                                          batchUsesReferenceImages: item.metadata?.batchUsesReferenceImages,
-                                      },
-                                  }
-                                : item,
-                        ),
-                    );
-                });
-            });
-        };
-        void restore();
-
-    }, [hydrated, openProject, projectId, navigate]);
-
-    useEffect(() => {
-        if (!projectLoaded || applyingHistoryRef.current || historyPausedRef.current) return;
-        const next = createHistoryEntry();
-        const previous = lastHistoryRef.current;
-        if (previous?.nodes === next.nodes && previous.connections === next.connections && previous.chatSessions === next.chatSessions && previous.activeChatId === next.activeChatId && previous.backgroundMode === next.backgroundMode && previous.showImageInfo === next.showImageInfo) return;
-
-        if (historyCommitTimerRef.current) clearTimeout(historyCommitTimerRef.current);
-        historyCommitTimerRef.current = setTimeout(() => {
-            const current = createHistoryEntry();
-            const last = lastHistoryRef.current;
-            if (!last) return;
-            historyRef.current.past = [...historyRef.current.past.slice(-49), last];
-            historyRef.current.future = [];
-            setHistoryState({ canUndo: true, canRedo: false });
-            lastHistoryRef.current = current;
-            historyCommitTimerRef.current = null;
-        }, 180);
-
-        return () => {
-            if (historyCommitTimerRef.current) {
-                clearTimeout(historyCommitTimerRef.current);
-                historyCommitTimerRef.current = null;
-            }
-        };
-    }, [activeChatId, backgroundMode, chatSessions, connections, createHistoryEntry, nodes, projectLoaded, showImageInfo]);
-
     useEffect(
         () => () => {
             if (agentCloseTimerRef.current) clearTimeout(agentCloseTimerRef.current);
@@ -506,25 +362,8 @@ function InfiniteCanvasPage() {
     );
 
     useEffect(() => {
-        if (!projectLoaded || historyPausedRef.current) return;
-        updateProject(projectId, { nodes, connections, chatSessions, activeChatId, backgroundMode, showImageInfo });
-    }, [activeChatId, backgroundMode, chatSessions, connections, nodes, projectId, projectLoaded, showImageInfo, updateProject]);
-
-    useEffect(() => {
         if (!dialogNodeId) setNodeImageSettingsOpen(false);
     }, [dialogNodeId]);
-
-    useEffect(() => {
-        if (!projectLoaded) return;
-        if (viewportSaveTimerRef.current) clearTimeout(viewportSaveTimerRef.current);
-        viewportSaveTimerRef.current = setTimeout(() => {
-            updateProject(projectId, { viewport: viewportRef.current });
-            viewportSaveTimerRef.current = null;
-        }, 500);
-        return () => {
-            if (viewportSaveTimerRef.current) clearTimeout(viewportSaveTimerRef.current);
-        };
-    }, [projectId, projectLoaded, updateProject, viewport]);
 
     useLayoutEffect(() => {
         nodesRef.current = nodes;
@@ -995,11 +834,7 @@ function InfiniteCanvasPage() {
             nodesRef.current.forEach((node) => {
                 if (ids.has(node.id)) node.metadata?.batchChildIds?.forEach((childId) => allIds.add(childId));
             });
-            generationRequestsRef.current.forEach((request) => {
-                if (!allIds.has(request.targetNodeId) && !allIds.has(request.originNodeId) && !allIds.has(request.runningNodeId)) return;
-                request.controller.abort();
-                generationRequestsRef.current.delete(request.targetNodeId);
-            });
+            abortGenerationRequestsForNodeIds(allIds);
             setNodes((prev) => {
                 const next = prev.filter((node) => !allIds.has(node.id));
                 return next.map((node) => {
@@ -1036,7 +871,7 @@ function InfiniteCanvasPage() {
             setContextMenu((current) => (current?.type === "node" && allIds.has(current.nodeId) ? null : current));
             cleanupCanvasFiles({ projectId, nodes: nodesRef.current.filter((node) => !allIds.has(node.id)), chatSessions });
         },
-        [chatSessions, cleanupCanvasFiles, projectId],
+        [abortGenerationRequestsForNodeIds, chatSessions, cleanupCanvasFiles, projectId],
     );
 
     const deleteConnection = useCallback((connectionId: string) => {
@@ -1181,44 +1016,6 @@ function InfiniteCanvasPage() {
         },
         [size.height, size.width],
     );
-
-    const applyHistory = useCallback((entry: CanvasHistoryEntry) => {
-        if (historyCommitTimerRef.current) {
-            clearTimeout(historyCommitTimerRef.current);
-            historyCommitTimerRef.current = null;
-        }
-        applyingHistoryRef.current = true;
-        setNodes(entry.nodes);
-        setConnections(entry.connections);
-        setChatSessions(entry.chatSessions);
-        setActiveChatId(entry.activeChatId);
-        setBackgroundMode(entry.backgroundMode);
-        setShowImageInfo(entry.showImageInfo);
-        setSelectedNodeIds(new Set());
-        setSelectedConnectionId(null);
-        setContextMenu(null);
-        setTimeout(() => {
-            lastHistoryRef.current = entry;
-            applyingHistoryRef.current = false;
-            setHistoryState({ canUndo: historyRef.current.past.length > 0, canRedo: historyRef.current.future.length > 0 });
-        });
-    }, []);
-
-    const undoCanvas = useCallback(() => {
-        const previous = historyRef.current.past.pop();
-        const current = lastHistoryRef.current;
-        if (!previous || !current) return;
-        historyRef.current.future.push(current);
-        applyHistory(previous);
-    }, [applyHistory]);
-
-    const redoCanvas = useCallback(() => {
-        const next = historyRef.current.future.pop();
-        const current = lastHistoryRef.current;
-        if (!next || !current) return;
-        historyRef.current.past.push(current);
-        applyHistory(next);
-    }, [applyHistory]);
 
     const tidyUpCanvas = useCallback(() => {
         if (nodes.length === 0) return;
@@ -1549,10 +1346,10 @@ function InfiniteCanvasPage() {
             startY: event.clientY,
             initialSelectedNodes: currentNodes.filter((node) => dragIds.has(node.id)).map((node) => ({ id: node.id, x: node.position.x, y: node.position.y })),
         };
-        historyPausedRef.current = true;
+        pauseHistory();
         nodeDraggingRef.current = true;
         setIsNodeDragging(true);
-    }, []);
+    }, [pauseHistory]);
 
     const finishNodeDrag = useCallback((clientX?: number, clientY?: number) => {
         if (rafRef.current) {
@@ -1568,7 +1365,7 @@ function InfiniteCanvasPage() {
         const dy = clientY == null ? 0 : (clientY - dragRef.current.startY) / currentViewport.k;
         const initialPositions = dragRef.current.initialSelectedNodes;
 
-        historyPausedRef.current = false;
+        resumeHistory();
         nodeDraggingRef.current = false;
         setIsNodeDragging(false);
         if (dragRef.current.hasMoved && clientX != null && clientY != null) {
@@ -1593,7 +1390,7 @@ function InfiniteCanvasPage() {
                 setDialogNodeId(clickedNodeId);
             }
         }
-    }, []);
+    }, [resumeHistory]);
 
     const handleGlobalMouseMove = useCallback(
         (event: MouseEvent) => {
@@ -3513,181 +3310,6 @@ function InfiniteCanvasPage() {
     );
 }
 
-function CanvasTopBar({
-    title,
-    titleDraft,
-    isTitleEditing,
-    onTitleDraftChange,
-    onStartTitleEditing,
-    onFinishTitleEditing,
-    onCancelTitleEditing,
-    canUndo,
-    canRedo,
-    onHome,
-    onProjects,
-    onCreateProject,
-    onDeleteProject,
-    onImportImage,
-    onUndo,
-    onRedo,
-    agentOpen,
-    onToggleAgent,
-}: {
-    title: string;
-    titleDraft: string;
-    isTitleEditing: boolean;
-    onTitleDraftChange: (value: string) => void;
-    onStartTitleEditing: () => void;
-    onFinishTitleEditing: () => void;
-    onCancelTitleEditing: () => void;
-    canUndo: boolean;
-    canRedo: boolean;
-    onHome: () => void;
-    onProjects: () => void;
-    onCreateProject: () => void;
-    onDeleteProject: () => void;
-    onImportImage: () => void;
-    onUndo: () => void;
-    onRedo: () => void;
-    agentOpen: boolean;
-    onToggleAgent: () => void;
-}) {
-    const colorTheme = useThemeStore((state) => state.theme);
-    const theme = canvasThemes[colorTheme];
-    const titleRef = useRef<HTMLDivElement>(null);
-    const [shortcutsOpen, setShortcutsOpen] = useState(false);
-
-    useEffect(() => {
-        if (!isTitleEditing) return;
-        const close = (event: PointerEvent) => {
-            if (!titleRef.current?.contains(event.target as Node)) onFinishTitleEditing();
-        };
-        document.addEventListener("pointerdown", close, true);
-        return () => document.removeEventListener("pointerdown", close, true);
-    }, [isTitleEditing, onFinishTitleEditing]);
-
-    return (
-        <>
-            <div className="pointer-events-none absolute left-0 right-0 top-0 z-50 flex h-16 items-center justify-between px-4">
-                <div className="pointer-events-auto flex min-w-0 items-center gap-3">
-                    <Dropdown
-                        trigger={["click"]}
-                        menu={{
-                            items: [
-                                { key: "home", icon: <Home className="size-4" />, label: "主页", onClick: onHome },
-                                { key: "docs", icon: <Key className="size-4" />, label: "中转服务 Key", onClick: () => window.open(DOCS_URL, "_blank", "noopener,noreferrer") },
-                                { key: "projects", icon: <Images className="size-4" />, label: "我的画布", onClick: onProjects },
-                                { type: "divider" },
-                                { key: "new", icon: <Plus className="size-4" />, label: "新建画布", onClick: onCreateProject },
-                                { key: "delete", danger: true, icon: <Trash2 className="size-4" />, label: "删除当前画布", onClick: onDeleteProject },
-                                { type: "divider" },
-                                { key: "import", icon: <Upload className="size-4" />, label: "导入素材", onClick: onImportImage },
-                                { type: "divider" },
-                                { key: "undo", disabled: !canUndo, icon: <Undo2 className="size-4" />, label: <MenuLabel text="撤销" shortcut="⌘ Z" />, onClick: onUndo },
-                                { key: "redo", disabled: !canRedo, icon: <Redo2 className="size-4" />, label: <MenuLabel text="重做" shortcut="⌘ ⇧ Z / ⌘ Y" />, onClick: onRedo },
-                            ],
-                        }}
-                    >
-                        <button type="button" className="grid size-9 place-items-center rounded-full transition hover:bg-black/5 dark:hover:bg-white/10" style={{ color: theme.node.text }} aria-label="打开画布菜单">
-                            <Menu className="size-5" />
-                        </button>
-                    </Dropdown>
-
-                    <div ref={titleRef} className="flex min-w-0 items-center gap-2">
-                        {isTitleEditing ? (
-                            <input
-                                autoFocus
-                                value={titleDraft}
-                                onChange={(event) => onTitleDraftChange(event.target.value)}
-                                onBlur={onFinishTitleEditing}
-                                onKeyDown={(event) => {
-                                    if (event.key === "Enter") onFinishTitleEditing();
-                                    if (event.key === "Escape") onCancelTitleEditing();
-                                }}
-                                className="max-w-[280px] bg-transparent p-0 text-left text-lg font-semibold tracking-normal outline-none"
-                                style={{ color: theme.node.text }}
-                            />
-                        ) : (
-                            <button
-                                type="button"
-                                className="max-w-[280px] truncate border-b border-dashed border-transparent text-left text-lg font-semibold tracking-normal transition hover:border-current"
-                                onDoubleClick={onStartTitleEditing}
-                                title="双击修改画布名称"
-                            >
-                                {title}
-                            </button>
-                        )}
-                    </div>
-                </div>
-
-                <div className="pointer-events-auto flex items-center gap-1.5">
-                    <UserStatusActions
-                        variant="canvas"
-                        onOpenShortcuts={() => setShortcutsOpen(true)}
-                    />
-                    <span className="h-6 w-px" style={{ background: theme.toolbar.border }} />
-                    <Button
-                        type="text"
-                        className="!h-10 !rounded-xl !px-3 !font-medium"
-                        style={{ background: agentOpen ? theme.toolbar.activeBg : theme.toolbar.panel, color: theme.node.text, boxShadow: "0 10px 30px rgba(28,25,23,.10)" }}
-                        icon={<Bot className="size-4" />}
-                        onClick={onToggleAgent}
-                    >
-                        Agent
-                    </Button>
-                </div>
-            </div>
-            <Modal title="快捷键" open={shortcutsOpen} onCancel={() => setShortcutsOpen(false)} footer={null} centered>
-                <div className="space-y-2 border-t pt-4 text-sm" style={{ borderColor: theme.node.stroke }}>
-                    <Shortcut keys={["拖动画布"]} value="平移视图" />
-                    <Shortcut keys={["滚轮"]} value="缩放画布" />
-                    <Shortcut keys={["缩放滑杆"]} value="精确调整缩放" />
-                    <Shortcut keys={["Ctrl / Cmd", "拖动"]} value="框选多个节点" />
-                    <Shortcut keys={["Shift / Ctrl / Cmd", "点击"]} value="追加选择节点" />
-                    <Shortcut keys={["Ctrl / Cmd", "A"]} value="全选节点" />
-                    <Shortcut keys={["Ctrl / Cmd", "C / V"]} value="复制 / 粘贴节点，或粘贴剪切板文本/图片" />
-                    <Shortcut keys={["Ctrl / Cmd", "Z"]} value="撤销" />
-                    <Shortcut keys={["Ctrl / Cmd", "Shift", "Z"]} value="重做" />
-                    <Shortcut keys={["Ctrl / Cmd", "Y"]} value="重做" />
-                    <Shortcut keys={["Delete / Backspace"]} value="删除选中" />
-                    <Shortcut keys={["Esc"]} value="取消选择并关闭浮层" />
-                    <Shortcut keys={["拖入图片/视频/音频"]} value="上传到画布" />
-                </div>
-            </Modal>
-        </>
-    );
-}
-
-function MenuLabel({ text, shortcut }: { text: string; shortcut: string }) {
-    return (
-        <span className="flex min-w-36 items-center justify-between gap-8">
-            <span>{text}</span>
-            <span className="text-xs opacity-45">{shortcut}</span>
-        </span>
-    );
-}
-
-function Shortcut({ keys, value }: { keys: string[]; value: string }) {
-    return (
-        <div className="grid grid-cols-[minmax(0,1fr)_120px] items-center gap-6 rounded-lg px-1 py-1.5">
-            <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-                {keys.map((key, index) => (
-                    <span key={`${key}-${index}`} className="flex items-center gap-1.5">
-                        {index ? <span className="text-xs opacity-35">+</span> : null}
-                        <kbd
-                            className="min-w-9 rounded-md border px-2.5 py-1.5 text-center text-xs font-medium leading-none shadow-[inset_0_-1px_0_rgba(0,0,0,.08),0_1px_2px_rgba(0,0,0,.06)]"
-                            style={{ borderColor: "rgba(120,113,108,.28)", background: "linear-gradient(#fff, rgba(245,245,244,.92))", color: "rgb(68,64,60)" }}
-                        >
-                            {key}
-                        </kbd>
-                    </span>
-                ))}
-            </span>
-            <span className="text-right text-sm opacity-55">{value}</span>
-        </div>
-    );
-}
-
 function imageExtension(dataUrl: string) {
     return dataUrl.match(/^data:image[/]([^;]+)/)?.[1] || dataUrl.match(/image[/]([^;]+)/)?.[1] || "png";
 }
@@ -3708,343 +3330,6 @@ function audioExtension(mimeType?: string) {
     if (mimeType?.includes("flac")) return "flac";
     if (mimeType?.includes("pcm")) return "pcm";
     return "mp3";
-}
-
-function imageMetadata(image: UploadedImage): CanvasNodeMetadata {
-    return { content: image.url, storageKey: image.storageKey, status: "success", naturalWidth: image.width, naturalHeight: image.height, bytes: image.bytes, mimeType: image.mimeType };
-}
-
-function videoMetadata(video: UploadedFile): CanvasNodeMetadata {
-    return { content: video.url, storageKey: video.storageKey, status: "success", naturalWidth: video.width, naturalHeight: video.height, bytes: video.bytes, mimeType: video.mimeType || "video/mp4", durationMs: video.durationMs };
-}
-
-function audioMetadata(audio: UploadedFile): CanvasNodeMetadata {
-    return { content: audio.url, storageKey: audio.storageKey, status: "success", bytes: audio.bytes, mimeType: audio.mimeType || "audio/mpeg", durationMs: audio.durationMs };
-}
-
-function buildScriptGeneratorPrompt(userPrompt: string, mode: CanvasScriptMode, summary: ReturnType<typeof getInputSummary>) {
-    const modeGuide =
-        mode === "image-copy"
-            ? "当前模式：参考图文案分析。请优先分析上游图片的主体、卖点、风格、构图、可转化的广告文案和适合复刻的视觉元素，再生成可用于批量生图的镜头提示词。"
-            : mode === "image-video"
-              ? "当前模式：图文转视频脚本。请优先分析上游图片/文本，把静态画面扩展为有动作、有镜头调度、有节奏的短视频分镜。"
-              : "当前模式：主题分镜。请根据用户主题和上游文本，生成完整短视频分镜。";
-    const referenceGuide = summary.imageCount
-        ? `上游参考包含 ${summary.imageCount} 张图片。必须先做画面文案分析，并让每个 imagePrompt 延续参考图的主体、风格、构图或品牌语气。`
-        : "如果没有上游图片，请按用户主题自行设计视觉风格。";
-
-    return `你是短视频分镜脚本生成器。请根据用户需求和上游参考内容，生成适合批量生图和生视频的结构化分镜。
-
-只输出 JSON，不要输出 markdown，不要解释。JSON 格式必须是：
-{
-  "analysis": "如果有参考图片或上游文本，先用 100 字以内总结画面主体、卖点、文案方向、视觉风格和可延展的视频节奏；没有参考内容时总结创作策略",
-  "scenes": [
-    {
-      "title": "镜头标题",
-      "visual": "画面描述，中文",
-      "imagePrompt": "可直接用于 AI 生图的中文提示词，包含主体、场景、构图、光线、风格和细节",
-      "videoPrompt": "可直接用于图生视频/文生视频的中文提示词，包含动作、镜头运动和氛围",
-      "camera": "自适应/推/拉/左移/右移/向上/向下/旋转/环绕",
-      "duration": "5",
-      "ratio": "9:16"
-    }
-  ]
-}
-
-要求：
-1. ${modeGuide}
-2. ${referenceGuide}
-3. 默认生成 8 个镜头，除非用户明确要求其他数量。
-4. 每个镜头必须能独立生成图片，再用图片作为参考生成视频。
-5. imagePrompt 要包含主体、场景、构图、光线、风格、材质、细节和可执行的中文文案方向。
-6. videoPrompt 要包含动作、镜头运动、节奏、情绪和转场建议。
-7. imagePrompt 和 videoPrompt 不要为空，不要写“同上”。
-8. ratio 只能使用 1:1、16:9、9:16、4:3、3:4。
-9. duration 使用 3 到 15 的秒数字符串。
-
-上游输入摘要：文本 ${summary.textCount} 个，图片 ${summary.imageCount} 张，视频 ${summary.videoCount} 个，音频 ${summary.audioCount} 个。
-
-用户需求：
-${userPrompt}`;
-}
-
-function defaultScriptPrompt(mode: CanvasScriptMode, summary: ReturnType<typeof getInputSummary>) {
-    if (summary.imageCount && mode === "image-copy") return "分析参考图片的主体、卖点、画面风格和可用于批量生图的广告文案方向。";
-    if (summary.imageCount && mode === "image-video") return "基于参考图片做画面文案分析，并扩展为适合图生视频的短视频分镜脚本。";
-    if (summary.imageCount) return "基于参考图片生成短视频分镜脚本。";
-    return "";
-}
-
-function parseScriptResult(value: string): { analysis: string; scenes: CanvasScriptScene[] } {
-    const parsed = parseJsonObject(value);
-    return {
-        analysis: stringField(parsed?.analysis).slice(0, 260),
-        scenes: parseScriptScenesFromParsed(parsed),
-    };
-}
-
-function parseScriptScenes(value: string): CanvasScriptScene[] {
-    return parseScriptScenesFromParsed(parseJsonObject(value));
-}
-
-function parseScriptScenesFromParsed(parsed: any): CanvasScriptScene[] {
-    const rawScenes = Array.isArray(parsed?.scenes) ? parsed.scenes : Array.isArray(parsed) ? parsed : [];
-    return rawScenes
-        .map((item: unknown, index: number) => normalizeScriptScene(item, index))
-        .filter((scene: CanvasScriptScene | null): scene is CanvasScriptScene => Boolean(scene?.imagePrompt && scene.videoPrompt))
-        .slice(0, 30);
-}
-
-function parseJsonObject(value: string): any {
-    const text = value.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
-    try {
-        return JSON.parse(text);
-    } catch {
-        const start = text.indexOf("{");
-        const end = text.lastIndexOf("}");
-        if (start >= 0 && end > start) {
-            try {
-                return JSON.parse(text.slice(start, end + 1));
-            } catch {
-                return null;
-            }
-        }
-        const arrayStart = text.indexOf("[");
-        const arrayEnd = text.lastIndexOf("]");
-        if (arrayStart >= 0 && arrayEnd > arrayStart) {
-            try {
-                return JSON.parse(text.slice(arrayStart, arrayEnd + 1));
-            } catch {
-                return null;
-            }
-        }
-        return null;
-    }
-}
-
-function normalizeScriptScene(value: any, index: number): CanvasScriptScene | null {
-    if (!value || typeof value !== "object") return null;
-    const title = stringField(value.title) || `镜头 ${index + 1}`;
-    const visual = stringField(value.visual) || stringField(value.description) || stringField(value.scene);
-    const imagePrompt = stringField(value.imagePrompt) || stringField(value.image_prompt) || visual;
-    const videoPrompt = stringField(value.videoPrompt) || stringField(value.video_prompt) || visual;
-    return {
-        id: stringField(value.id) || nanoid(),
-        title,
-        visual,
-        imagePrompt,
-        videoPrompt,
-        camera: normalizeScriptCamera(stringField(value.camera)),
-        duration: normalizeScriptDuration(stringField(value.duration)),
-        ratio: normalizeScriptRatio(stringField(value.ratio) || stringField(value.aspectRatio) || stringField(value.aspect_ratio)),
-    };
-}
-
-function stringField(value: unknown) {
-    return typeof value === "string" ? value.trim() : "";
-}
-
-function normalizeScriptCamera(value: string) {
-    return ["推", "拉", "左移", "右移", "向上", "向下", "旋转", "环绕"].includes(value) ? value : "自适应";
-}
-
-function normalizeScriptDuration(value: string) {
-    const seconds = Math.floor(Number(value) || 5);
-    return String(Math.max(3, Math.min(15, seconds)));
-}
-
-function normalizeScriptRatio(value: string) {
-    return ["1:1", "16:9", "9:16", "4:3", "3:4"].includes(value) ? value : "9:16";
-}
-
-function formatScriptScenes(scenes: CanvasScriptScene[], analysis?: string) {
-    const body = scenes.map((scene, index) => formatSceneText(scene, index)).join("\n\n");
-    return analysis ? `文案分析：${analysis}\n\n${body}` : body;
-}
-
-function formatSceneText(scene: CanvasScriptScene, index: number) {
-    return `第 ${index + 1} 镜：${scene.title}
-画面：${scene.visual}
-图片提示词：${scene.imagePrompt}
-视频提示词：${scene.videoPrompt}
-参数：${scene.ratio || "9:16"} · ${scene.duration || "5"}s · ${scene.camera || "自适应"}`;
-}
-
-function withCameraPrompt(prompt: string, camera?: string) {
-    const movement = camera && camera !== "自适应" ? camera : "";
-    return movement && !prompt.includes("[运镜：") ? `${prompt.trim()} [运镜：${movement}]` : prompt;
-}
-
-function buildImageGenerationMetadata(type: CanvasImageGenerationType, config: AiConfig, count: number, references: ReferenceImage[]): CanvasNodeMetadata {
-    return {
-        generationType: type,
-        model: config.model,
-        size: config.size,
-        quality: config.quality,
-        count,
-        references: references.map(referenceUrl).filter((url): url is string => Boolean(url)),
-    };
-}
-
-function buildAudioGenerationMetadata(config: AiConfig): CanvasNodeMetadata {
-    return {
-        model: config.model,
-        audioVoice: config.audioVoice,
-        audioFormat: config.audioFormat,
-        audioSpeed: config.audioSpeed,
-        audioInstructions: config.audioInstructions,
-    };
-}
-
-function videoTaskMetadata(task: VideoGenerationTask): CanvasNodeMetadata {
-    return { videoTaskId: task.id, videoTaskProvider: task.provider, videoTaskModel: task.model };
-}
-
-function videoTaskFromMetadata(node: CanvasNodeData): VideoGenerationTask | null {
-    const id = node.metadata?.videoTaskId?.trim();
-    if (!id) return null;
-    return {
-        id,
-        provider: node.metadata?.videoTaskProvider || "openai",
-        model: node.metadata?.videoTaskModel || node.metadata?.model || "",
-    };
-}
-
-async function waitCanvasVideoTask(config: AiConfig, task: VideoGenerationTask, options?: { signal?: AbortSignal; onProgress?: (progress?: number, message?: string) => void }): Promise<VideoGenerationTaskState> {
-    const delayMs = videoPollIntervalMs(task.provider);
-    const maxAttempts = Math.ceil(CANVAS_VIDEO_POLL_TIMEOUT_MS / delayMs);
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-        if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
-        const state = await pollVideoGenerationTask(config, task, options);
-        if (state.status !== "pending") return state;
-        if (state.progress !== undefined || state.message) {
-            options?.onProgress?.(state.progress, state.message);
-        }
-        if (attempt < maxAttempts - 1) await delay(delayMs, options?.signal);
-    }
-    return { status: "pending" };
-}
-
-function delay(ms: number, signal?: AbortSignal) {
-    return new Promise<void>((resolve, reject) => {
-        const timer = window.setTimeout(resolve, ms);
-        signal?.addEventListener(
-            "abort",
-            () => {
-                window.clearTimeout(timer);
-                reject(new DOMException("Aborted", "AbortError"));
-            },
-            { once: true },
-        );
-    });
-}
-
-function referenceUrl(image: ReferenceImage) {
-    return image.storageKey || image.url || (!image.dataUrl.startsWith("data:") ? image.dataUrl : undefined);
-}
-
-function generationReferenceUrls(context: { referenceImages: ReferenceImage[]; referenceVideos: Array<{ storageKey?: string; url?: string }>; referenceAudios?: Array<{ storageKey?: string; url?: string }> }) {
-    return [
-        ...context.referenceImages.map(referenceUrl).filter((url): url is string => Boolean(url)),
-        ...context.referenceVideos.map((video) => video.storageKey || video.url).filter((url): url is string => Boolean(url)),
-        ...(context.referenceAudios || []).map((audio) => audio.storageKey || audio.url).filter((url): url is string => Boolean(url)),
-    ];
-}
-
-async function resolveMetadataReferences(metadata: CanvasNodeMetadata) {
-    if (metadata.generationType !== "edit") return [];
-    if (!metadata.references?.length) return null;
-    const references = await Promise.all(
-        metadata.references.map(async (url, index) => {
-            const dataUrl = url.startsWith("image:") ? await resolveImageUrl(url, "") : url;
-            return dataUrl ? { id: `${index}`, name: `reference-${index}.png`, type: "image/png", dataUrl, storageKey: url.startsWith("image:") ? url : undefined } : null;
-        }),
-    );
-    return references.every(Boolean) ? (references as ReferenceImage[]) : null;
-}
-
-async function hydrateCanvasImages(nodes: CanvasNodeData[]): Promise<CanvasNodeData[]> {
-    return Promise.all(
-        nodes.map(async (node): Promise<CanvasNodeData> => {
-            const content = node.metadata?.content || "";
-            if ((node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio) && node.metadata?.storageKey) {
-                return { ...node, metadata: { ...node.metadata, content: await resolveMediaUrl(node.metadata.storageKey, content) } };
-            }
-            if (node.type !== CanvasNodeType.Image) return node;
-
-            if (node.metadata?.storageKey) {
-                const local = await resolveImageUrl(node.metadata.storageKey, content);
-                if (local) {
-                    return {
-                        ...node,
-                        metadata: {
-                            ...node.metadata,
-                            content: local,
-                            status: node.metadata.status === "loading" ? NODE_STATUS_SUCCESS : node.metadata.status,
-                        },
-                    };
-                }
-            }
-
-            if (!content) return node;
-
-            if (content.startsWith("blob:") && !node.metadata?.storageKey) {
-                return {
-                    ...node,
-                    metadata: {
-                        ...node.metadata,
-                        content: "",
-                        status: NODE_STATUS_ERROR,
-                        errorDetails: "本地图片缓存已失效，请重新生成",
-                    },
-                };
-            }
-
-            if (content.startsWith("data:image/")) {
-                return { ...node, metadata: { ...node.metadata, ...imageMetadata(await persistImageUrl(content)) } };
-            }
-
-            if (/^https?:\/\//i.test(content) || content.startsWith("/api/proxy?")) {
-                return {
-                    ...node,
-                    metadata: {
-                        ...node.metadata,
-                        status: node.metadata?.status === "loading" ? NODE_STATUS_SUCCESS : node.metadata?.status || NODE_STATUS_SUCCESS,
-                    },
-                };
-            }
-
-            return node;
-        }),
-    );
-}
-
-
-
-async function hydrateAssistantImages(sessions: CanvasAssistantSession[]) {
-    const hydrateItem = async <T extends { dataUrl?: string; storageKey?: string }>(item: T) => {
-        if (item.storageKey) return { ...item, dataUrl: await resolveImageUrl(item.storageKey, item.dataUrl) };
-        if (item.dataUrl?.startsWith("data:image/")) {
-            const image = await persistImageUrl(item.dataUrl);
-            return { ...item, dataUrl: image.url, storageKey: image.storageKey };
-        }
-        return item;
-    };
-    return Promise.all(
-        sessions.map(async (session) => ({
-            ...session,
-            messages: await Promise.all(
-                session.messages.map(async (message) => ({
-                    ...message,
-                    references: await Promise.all((message.references || []).map(hydrateItem)),
-                })),
-            ),
-        })),
-    );
-}
-
-function getGenerationCount(count: string) {
-    return Math.max(1, Math.min(15, Math.floor(Math.abs(Number(count)) || 1)));
 }
 
 function applyNodeConfigPatch(node: CanvasNodeData, patch: Partial<CanvasNodeData["metadata"]>) {
@@ -4071,132 +3356,6 @@ function normalizeConnection(firstNodeId: string, secondNodeId: string, nodes: C
     if (first.type === CanvasNodeType.Config && firstHandleType === "target") return { fromNodeId: second.id, toNodeId: first.id };
     if (first.type === CanvasNodeType.Config) return { fromNodeId: first.id, toNodeId: second.id };
     return { fromNodeId: first.id, toNodeId: second.id };
-}
-
-function getInputSummary(inputs: NodeGenerationInput[]) {
-    return {
-        textCount: inputs.filter((input) => input.type === "text").length,
-        imageCount: inputs.filter((input) => input.type === "image").length,
-        videoCount: inputs.filter((input) => input.type === "video").length,
-        audioCount: inputs.filter((input) => input.type === "audio").length,
-    };
-}
-
-function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefined, mode: CanvasNodeGenerationMode): AiConfig {
-    const defaultModel = mode === "image" ? config.imageModel : mode === "video" ? config.videoModel : mode === "audio" ? config.audioModel : config.textModel;
-    const nextConfig = {
-        ...config,
-        model: node?.metadata?.model || defaultModel || (mode === "audio" ? defaultConfig.audioModel : config.model || defaultConfig.model),
-        quality: node?.metadata?.quality || config.quality || defaultConfig.quality,
-        size: node?.metadata?.size || config.size || defaultConfig.size,
-        videoSeconds: node?.metadata?.seconds || config.videoSeconds || defaultConfig.videoSeconds,
-        vquality: node?.metadata?.vquality || config.vquality || defaultConfig.vquality,
-        videoGenerateAudio: node?.metadata?.generateAudio || config.videoGenerateAudio || defaultConfig.videoGenerateAudio,
-        videoWatermark: node?.metadata?.watermark || config.videoWatermark || defaultConfig.videoWatermark,
-        audioVoice: node?.metadata?.audioVoice || config.audioVoice || defaultConfig.audioVoice,
-        audioFormat: node?.metadata?.audioFormat || config.audioFormat || defaultConfig.audioFormat,
-        audioSpeed: node?.metadata?.audioSpeed || config.audioSpeed || defaultConfig.audioSpeed,
-        audioInstructions: node?.metadata?.audioInstructions || config.audioInstructions || defaultConfig.audioInstructions,
-        count: String(node?.metadata?.count || (mode === "image" ? config.canvasImageCount || config.count : config.count) || defaultConfig.count),
-    };
-    if (mode === "image" && isGrokImagineImageConfig(nextConfig)) {
-        return {
-            ...nextConfig,
-            quality: normalizeGrokImagineImageResolution(nextConfig.quality),
-            size: normalizeGrokImagineImageRatio(nextConfig.size),
-            count: String(normalizeGrokImagineImageCount(nextConfig.count)),
-        };
-    }
-    if (mode === "image" && isGptImage2StyleConfig(nextConfig)) {
-        return {
-            ...nextConfig,
-            quality: normalizeGptImage2Resolution(nextConfig.quality),
-            size: normalizeGptImage2Ratio(nextConfig.size),
-        };
-    }
-    if (mode === "image" && isStepImageEdit2Config(nextConfig)) {
-        return {
-            ...nextConfig,
-            size: normalizeStepImageEdit2Size(nextConfig.size),
-        };
-    }
-    if (mode !== "video") return nextConfig;
-    const grokImagineVideo = isGrokImagineVideoModel(nextConfig.model);
-    const seedance = isSeedanceVideoConfig(nextConfig);
-    const videos4 = isVideos4VideoModel(nextConfig.model);
-    return {
-        ...nextConfig,
-        videoModel: nextConfig.model,
-        size: grokImagineVideo ? normalizeGrokImagineVideoRatio(nextConfig.size) : videos4 ? normalizeVideos4Ratio(nextConfig.size) : seedance ? normalizeSeedanceRatio(nextConfig.size) : normalizeVideoSizeValue(nextConfig.size),
-        videoSeconds: videos4 ? String(normalizeVideos4Duration(nextConfig.videoSeconds)) : normalizeCanvasVideoSeconds(nextConfig.videoSeconds),
-        vquality: grokImagineVideo ? normalizeGrokImagineVideoResolution(nextConfig.vquality, nextConfig.model) : videos4 ? normalizeVideos4Resolution(nextConfig.vquality, nextConfig.model) : normalizeVideoResolutionValue(nextConfig.vquality),
-        videoGenerateAudio: String(boolConfig(nextConfig.videoGenerateAudio, true)),
-        videoWatermark: String(boolConfig(nextConfig.videoWatermark, false)),
-    };
-}
-
-function normalizeCanvasVideoSeconds(value: string) {
-    if (String(value).trim() === "-1") return "-1";
-    const seconds = Math.floor(Number(value) || 6);
-    return String(Math.max(1, Math.min(15, seconds)));
-}
-
-function isSeedanceVideoConfig(config: AiConfig) {
-    return isSeedanceVideoModel(modelOptionName(config.model || config.videoModel));
-}
-
-function supportsRichVideoReferences(config: AiConfig) {
-    return isSeedanceVideoConfig(config) || isVideos4VideoModel(config.model || config.videoModel);
-}
-
-function resetInterruptedGeneration(nodes: CanvasNodeData[]): CanvasNodeData[] {
-    return nodes.map((node): CanvasNodeData => {
-        if (node.metadata?.status !== "loading") return node;
-        // 图片已有可展示内容时（远程 URL 已返回），不要当成中断失败
-        if (node.type === CanvasNodeType.Image && node.metadata?.content && !node.metadata.content.startsWith("blob:")) {
-            return { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS, errorDetails: undefined } };
-        }
-        return {
-            ...node,
-            metadata: {
-                ...node.metadata,
-                status: NODE_STATUS_ERROR,
-                errorDetails: node.type === CanvasNodeType.Video && node.metadata.videoTaskId ? "页面刷新后生成轮询已中断，可手动拉取结果。" : "页面刷新后生成已中断，请重新生成。",
-            },
-        };
-    });
-}
-
-
-function isGenerationCanceled(error: unknown) {
-    return error instanceof Error && (error.message === "请求已取消" || error.name === "AbortError");
-}
-
-function findRetrySourceNode(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
-    const queue = connections.filter((connection) => connection.toNodeId === nodeId).map((connection) => connection.fromNodeId);
-    const visited = new Set<string>();
-    while (queue.length) {
-        const id = queue.shift()!;
-        if (visited.has(id)) continue;
-        visited.add(id);
-        const node = nodes.find((item) => item.id === id);
-        if (node?.type === CanvasNodeType.Config) return node;
-        connections.filter((connection) => connection.toNodeId === id).forEach((connection) => queue.push(connection.fromNodeId));
-    }
-    return null;
-}
-
-function sourceNodeReferenceImages(node: CanvasNodeData | null) {
-    if (!node || node.type !== CanvasNodeType.Image || !node.metadata?.content) return [];
-    return [
-        {
-            id: node.id,
-            name: `${node.title || node.id}.png`,
-            type: node.metadata.mimeType || "image/png",
-            dataUrl: node.metadata.content,
-            storageKey: node.metadata.storageKey,
-        },
-    ];
 }
 
 function isAudioFile(file: File) {

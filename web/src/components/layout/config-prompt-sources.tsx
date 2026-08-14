@@ -1,5 +1,3 @@
-"use client";
-
 import { App, Button, Select, Switch, Tag } from "antd";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Eye, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";

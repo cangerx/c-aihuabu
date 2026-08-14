@@ -1,27 +1,19 @@
-"use client";
-
-import { useMemo } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
-
-export type ApiCallFormat = "openai";
 
 export type ModelChannel = {
     id: string;
     name: string;
     baseUrl: string;
     apiKey: string;
-    apiFormat: ApiCallFormat;
     models: string[];
 };
 
 export type AiConfig = {
-    channelMode: "remote" | "local";
     aiProxyEnabled: boolean;
     baseUrl: string;
     apiKey: string;
-    apiFormat: ApiCallFormat;
     channels: ModelChannel[];
     model: string;
     imageModel: string;
@@ -57,25 +49,22 @@ export type WebdavSyncConfig = {
     lastSyncedAt: string;
 };
 
-export type ConfigDialogTab = "account" | "channels" | "models" | "prompt-sources" | "preferences" | "webdav";
+export type ConfigDialogTab = "channels" | "models" | "prompt-sources" | "preferences" | "webdav";
 export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
 export type ModelCapability = "image" | "video" | "text" | "audio";
 const CHANNEL_MODEL_SEPARATOR = "::";
 const OPENAI_BASE_URL = "https://api.openai.com";
 
 export const defaultConfig: AiConfig = {
-    channelMode: "local",
     aiProxyEnabled: true,
     baseUrl: OPENAI_BASE_URL,
     apiKey: "",
-    apiFormat: "openai",
     channels: [
         {
             id: "default",
             name: "默认渠道",
             baseUrl: OPENAI_BASE_URL,
             apiKey: "",
-            apiFormat: "openai",
             models: ["gpt-image-2", "grok-imagine-image-quality", "grok-imagine-image", "grok-imagine-image-lite", "grok-imagine-video", "grok-imagine-video-1.5", "gpt-5.5", "gpt-4o-mini-tts"],
         },
     ],
@@ -175,7 +164,7 @@ function isAiConfigReady(config: AiConfig, model: string) {
 
 export const useConfigStore = create<ConfigStore>()(
     persist(
-        (set, get) => ({
+        (set) => ({
             config: defaultConfig,
             webdav: defaultWebdavSyncConfig,
             isConfigOpen: false,
@@ -204,56 +193,15 @@ export const useConfigStore = create<ConfigStore>()(
         {
             name: CONFIG_STORE_KEY,
             version: 2,
-            migrate: (persistedState: any, version: number) => {
-                if (version < 1) {
-                    if (persistedState && persistedState.config) {
-                        if (persistedState.config.canvasImageCount === "3" || persistedState.config.canvasImageCount === undefined) {
-                            persistedState.config.canvasImageCount = "1";
-                        }
-                    }
-                }
-                if (version < 2 && persistedState?.config) {
-                    persistedState.config.aiProxyEnabled = true;
-                }
-                return persistedState;
-            },
             partialize: (state) => ({ config: state.config, webdav: state.webdav }),
             merge: (persisted, current) => {
                 const persistedState = (persisted || {}) as Partial<ConfigStore>;
                 const persistedConfig = (persistedState.config || {}) as Partial<AiConfig>;
                 const persistedWebdav = (persistedState.webdav || {}) as Partial<WebdavSyncConfig>;
-                const config = { ...defaultConfig, ...persistedConfig };
-                if (!Array.isArray(persistedConfig.channels)) config.channels = [];
-                const channels = normalizeChannels(config);
-                const models = modelOptionsFromChannels(channels);
                 return {
                     ...current,
                     webdav: { ...defaultWebdavSyncConfig, ...persistedWebdav, proxyMode: "direct" },
-                    config: {
-                        ...config,
-                        channelMode: "local",
-                        aiProxyEnabled: config.aiProxyEnabled !== false,
-                        apiFormat: "openai",
-                        channels,
-                        models,
-                        imageModel: normalizeModelOptionValue(config.imageModel || config.model, channels),
-                        videoModel: normalizeModelOptionValue(config.videoModel || "grok-imagine-video", channels),
-                        textModel: normalizeModelOptionValue(config.textModel || config.model, channels),
-                        audioModel: normalizeModelOptionValue(config.audioModel || defaultConfig.audioModel, channels),
-                        audioVoice: config.audioVoice || defaultConfig.audioVoice,
-                        audioFormat: config.audioFormat || defaultConfig.audioFormat,
-                        audioSpeed: config.audioSpeed || defaultConfig.audioSpeed,
-                        audioInstructions: config.audioInstructions || "",
-                        videoSeconds: config.videoSeconds || "6",
-                        vquality: config.vquality || "720",
-                        videoGenerateAudio: config.videoGenerateAudio || "true",
-                        videoWatermark: config.videoWatermark || "false",
-                        canvasImageCount: config.canvasImageCount || "1",
-                        imageModels: Array.isArray(persistedConfig.imageModels) ? normalizeModelList(config.imageModels, channels) : filterModelsByCapability(models, "image"),
-                        videoModels: Array.isArray(persistedConfig.videoModels) ? normalizeModelList(config.videoModels, channels) : filterModelsByCapability(models, "video"),
-                        textModels: Array.isArray(persistedConfig.textModels) ? normalizeModelList(config.textModels, channels) : filterModelsByCapability(models, "text"),
-                        audioModels: Array.isArray(persistedConfig.audioModels) ? normalizeModelList(config.audioModels, channels) : filterModelsByCapability(models, "audio"),
-                    },
+                    config: normalizeAiConfig(persistedConfig),
                 };
             },
         },
@@ -268,8 +216,37 @@ function normalizeModelList(models: string[], channels: ModelChannel[]) {
 }
 
 export function useEffectiveConfig() {
-    const config = useConfigStore((state) => state.config);
-    return useMemo(() => ({ ...config, channelMode: "local" as const }), [config]);
+    return useConfigStore((state) => state.config);
+}
+
+export function normalizeAiConfig(value?: Partial<AiConfig>): AiConfig {
+    const source = (value || {}) as Record<string, unknown>;
+    const config = Object.fromEntries(Object.keys(defaultConfig).map((key) => [key, source[key] ?? defaultConfig[key as keyof AiConfig]])) as AiConfig;
+    const channels = normalizeChannels(config);
+    const models = modelOptionsFromChannels(channels);
+    return {
+        ...config,
+        aiProxyEnabled: config.aiProxyEnabled !== false,
+        channels,
+        models,
+        imageModel: normalizeModelOptionValue(config.imageModel || config.model, channels),
+        videoModel: normalizeModelOptionValue(config.videoModel || "grok-imagine-video", channels),
+        textModel: normalizeModelOptionValue(config.textModel || config.model, channels),
+        audioModel: normalizeModelOptionValue(config.audioModel || defaultConfig.audioModel, channels),
+        audioVoice: config.audioVoice || defaultConfig.audioVoice,
+        audioFormat: config.audioFormat || defaultConfig.audioFormat,
+        audioSpeed: config.audioSpeed || defaultConfig.audioSpeed,
+        audioInstructions: config.audioInstructions || "",
+        videoSeconds: config.videoSeconds || "6",
+        vquality: config.vquality || "720",
+        videoGenerateAudio: config.videoGenerateAudio || "true",
+        videoWatermark: config.videoWatermark || "false",
+        canvasImageCount: config.canvasImageCount || "1",
+        imageModels: Array.isArray(value?.imageModels) ? normalizeModelList(config.imageModels, channels) : filterModelsByCapability(models, "image"),
+        videoModels: Array.isArray(value?.videoModels) ? normalizeModelList(config.videoModels, channels) : filterModelsByCapability(models, "video"),
+        textModels: Array.isArray(value?.textModels) ? normalizeModelList(config.textModels, channels) : filterModelsByCapability(models, "text"),
+        audioModels: Array.isArray(value?.audioModels) ? normalizeModelList(config.audioModels, channels) : filterModelsByCapability(models, "audio"),
+    };
 }
 
 export function createModelChannel(channel?: Partial<ModelChannel>): ModelChannel {
@@ -278,7 +255,6 @@ export function createModelChannel(channel?: Partial<ModelChannel>): ModelChanne
         name: channel?.name?.trim() || "新渠道",
         baseUrl: channel?.baseUrl?.trim() || OPENAI_BASE_URL,
         apiKey: channel?.apiKey || "",
-        apiFormat: "openai",
         models: uniqueRawModels(channel?.models || []),
     };
 }
@@ -329,7 +305,7 @@ export function resolveModelChannel(config: AiConfig, value: string) {
     const decoded = decodeChannelModel(value);
     const model = decoded?.model || value;
     const matched = decoded ? config.channels.find((channel) => channel.id === decoded.channelId) : config.channels.find((channel) => channel.models.includes(model));
-    return matched || config.channels[0] || createModelChannel({ id: "default", name: "默认渠道", baseUrl: config.baseUrl, apiKey: config.apiKey, apiFormat: config.apiFormat, models: config.models.map(modelOptionName) });
+    return matched || config.channels[0] || createModelChannel({ id: "default", name: "默认渠道", baseUrl: config.baseUrl, apiKey: config.apiKey, models: config.models.map(modelOptionName) });
 }
 
 export function resolveModelRequestConfig(config: AiConfig, value: string) {
@@ -339,7 +315,6 @@ export function resolveModelRequestConfig(config: AiConfig, value: string) {
         model: modelOptionName(value || config.model),
         baseUrl: channel.baseUrl,
         apiKey: channel.apiKey,
-        apiFormat: channel.apiFormat,
     };
 }
 
@@ -360,7 +335,6 @@ function normalizeChannels(config: AiConfig) {
                 name: "默认渠道",
                 baseUrl: config.baseUrl || defaultConfig.baseUrl,
                 apiKey: config.apiKey || "",
-                apiFormat: config.apiFormat || defaultConfig.apiFormat,
                 models: uniqueRawModels([
                     ...(config.models || []),
                     config.model,

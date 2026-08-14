@@ -8,7 +8,7 @@ export const stepImageEdit2SizeOptions = [
     { value: "1184x896", label: "3:4", width: 896, height: 1184 },
 ] as const;
 
-export function isStepImageEdit2Config(config: AiConfig | Pick<AiConfig, "model" | "imageModel" | "baseUrl" | "apiFormat">) {
+export function isStepImageEdit2Config(config: AiConfig | Pick<AiConfig, "model" | "imageModel" | "baseUrl">) {
     const requestConfig = "channels" in config ? resolveModelRequestConfig(config, config.model || config.imageModel) : config;
     return isStepImageEdit2Model(modelOptionName(requestConfig.model || requestConfig.imageModel));
 }

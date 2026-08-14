@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect } from "react";
 import type { ReactNode } from "react";
 import { FileText, Image as ImageIcon, List, Music2, Plus, Settings2, Trash2, Video } from "lucide-react";

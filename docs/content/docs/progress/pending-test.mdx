@@ -7,6 +7,8 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 ## 本轮重点测试
 
+- 旧代码清理：配置弹窗不再显示不可用的账号 Tab 和云端渠道按钮；画布生成按钮不再显示恒为 0 的积分；Agent 消息继续显示默认用户图标；渠道配置导入、保存、模型选择和实际请求不再依赖 `channelMode` / `apiFormat` 字段。
+- 画布详情页首轮拆分：顶部菜单、标题编辑与快捷键弹窗应保持原交互；脚本生成器的三种模式、分镜 JSON 解析与拆分工作流应保持一致；撤销/重做按钮与快捷键可正常恢复节点、连线、对话和画布设置，拖动节点后可撤销且不会记录拖动中的临时位置；刷新后图片/视频/音频、画布内容与视口位置正常恢复，生成重试和视频轮询行为不变；停止生成或删除生成中节点时应正常取消对应请求并重置状态。
 - 渠道抽屉拉取模型：渠道列表不再显示单渠道“拉取模型”和“拉取全部”；新增或编辑渠道时，在抽屉填写 Base URL 与 Key 后点击“拉取模型”，应真实请求渠道 `/v1/models` 并回填返回模型，失败或空结果应保留原手工列表，保存渠道后模型配置可正常选择；本地同域代理未启动或返回 500/503 时应尝试浏览器直连，不再直接显示代理 500。
 - 异步生图内容拉取：图片任务返回 `task_id` 后应轮询 `GET /v1/images/generations/{task_id}`；完成时优先携带渠道鉴权请求 `GET /v1/images/generations/{task_id}/content` 并把图片内容落到浏览器本地，内容接口不可用时再回退任务返回的图片 URL。
 - 新视频模型：渠道 `/v1/models` 返回 `sd-2.0-720p`、`sd-2.0-1080p`、`sd-2.0-4k`、`seedance-2.5` 后应可配置使用；四个模型均按 videos-4 的 JSON `POST /v1/videos`、`GET /v1/videos/{task_id}` 和 `/content` 流程调用。`sd-2.0-*` 应按模型后缀锁定分辨率并限制为 9 图/3 视频/3 音频；`seedance-2.5` 可选 480p/720p/1080p，并支持 30 图/10 视频/10 音频。
@@ -19,19 +21,19 @@ description: 当前版本已实现但仍需人工验证的变更项
 - 本地 Agent 工具确认队列：开启「工具确认」后，Codex 连续多次 `canvas_apply_ops` 应依次入队，不再因「仍有待确认」直接失败；确认卡显示 `1/N` 与队列数量，支持「批准/拒绝当前」和「全部批准/全部拒绝」；执行中新到的写操作仍会入队，断开连接或清会话时队列清空。
 - 图片模型：渠道填入 `gpt-image-2`，文生图应 POST `/v1/images/generations` 并带 `size/quality=auto/output_format/moderation`；连接参考图后应 POST `/v1/images/edits` multipart（优先 `image[]`）；设置面板应显示 1K/2K/4K 与宽高比。选择 `gemini-3-pro-image-preview` / `gemini-3.1-flash-image-preview` 应按模型名走 Gemini 生图请求，并带 `imageConfig.imageSize` / `aspectRatio`。
 - 参考素材临时上传（Docker）：配置 `C_AI_PUBLIC_BASE_URL=https://你的域名` 并挂载 `data/uploads` 后，本地图片/视频/音频提交视频或 NewToken/Lingdong 生图时应先 `POST /api/uploads/references` 成功，返回公网 HTTPS URL；`HEAD/GET` 该 URL 可读；Grok 1.5 图生视频 payload 应使用直链而不是超大 base64；文件默认保留 15 天后清理。
-- 开发调试日志：配置 → 生成偏好 → 开启「调试日志」后，发起视频/生图应出现右下角「调试日志」入口；日志含模型、apiFormat、请求 URL、payload 大小、代理失败直连、错误 status/message；复制内容不含 Key/Authorization/完整 base64；关闭开关后入口消失并可清空。
+- 开发调试日志：配置 → 生成偏好 → 开启「调试日志」后，发起视频/生图应出现右下角「调试日志」入口；日志含模型、请求 URL、payload 大小、代理失败直连、错误 status/message；复制内容不含 Key/Authorization/完整 base64；关闭开关后入口消失并可清空。
 - 视频创建请求失败修复：Cai / Duomi / Lingdong / NewToken / Seedance 等异步视频接口，参考图若已是公网 HTTPS URL，应直接提交上游，不再误报“静态前端版本没有服务端临时上传能力”；本地 blob/dataURL 参考素材仍应明确提示需公网 HTTPS。视频创建与轮询在同域代理 403/408/502/504/520-524（含 Cloudflare 524）时应与生图一致自动直连兜底。
 - OpenAI 格式 Grok Imagine 视频（`grok-imagine-video` / `1.5`）：创建仍走 `POST /v1/videos/generations`；图生视频参考图优先公网 HTTPS URL，本地图超过约 1.5MB 应压缩为 JPEG 后再提交；代理 524 后应自动直连 `euee.eu.cc` 等渠道 URL 重试。
 - 画布新建视频节点：在全局尺寸为图片比例（如 `2:1`）或像素尺寸（如 `1280x720`）时，点击「新建视频」应正常打开节点与底部提示词面板，不再出现 `Cannot read properties of undefined (reading 'value')` / 页面加载失败；视频设置摘要应回退到可用宽高比（如 `16:9`）。
 - 同域代理 Origin 校验：通过域名、带端口域名、Docker 外层反代和本地 `bun run dev`（Vite → 8787）访问时，开启同域代理后的同步生图不应再出现 `origin is not allowed`；若代理仍 403，前端应提示来源被拒绝而不是笼统鉴权失败。外层反代需透传 `Host`（或 `X-Forwarded-Host`）为浏览器访问域名。
 - 同步生图结果即时展示：`gpt-image-2` 等通用模型应优先按 `response_format=url` 请求；上游返回图片 URL 后工作台和画布应立即结束“生成中”并显示图片，不再等待本地下载完整落盘；若返回 `b64_json` 应转成可展示的 PNG/blob 后立刻显示。
-- Grok Imagine 图片尺寸：选择 `grok-imagine-image` / `grok-imagine-image-lite` / `grok-imagine-image-quality` 时，生图工作台与画布尺寸组件应动态切换为 `1k/2k` + 宽高比（不依赖渠道 apiFormat）；摘要标签同步显示对应比例；提交 `/v1/images/generations` 与 `/v1/images/edits` 时应发送 `aspect_ratio` / `resolution`。
+- Grok Imagine 图片尺寸：选择 `grok-imagine-image` / `grok-imagine-image-lite` / `grok-imagine-image-quality` 时，生图工作台与画布尺寸组件应动态切换为 `1k/2k` + 宽高比；摘要标签同步显示对应比例；提交 `/v1/images/generations` 与 `/v1/images/edits` 时应发送 `aspect_ratio` / `resolution`。
 - 画布一键优化提示词：魔法棒应调用配置的文本模型；输入框有文字时优化提示词；无文字但节点/参考素材有图片时反推图片提示词；两者都没有时应提示先输入或连接参考图；请求走非流式 chat/completions（失败再回退 /responses），约 90s 超时后应提示失败而不是一直转圈；完成后写回输入框。
 - 生图工作台缩略图：生成成功后右侧结果卡与左侧历史记录应显示缩略图；刷新页面后历史记录仍能通过 storageKey 解析出缩略图，不应因 blob: URL 失效而空白。
 - Grok/原生生图结果：上游约十几秒返回后本地应立刻显示；Grok 请求优先 `url`，响应含 `data[].url` / `b64_json` 或顶层 `url` 都能解析；若上游返回 `Generated image rejected by content moderation` 应直接提示该文案。
 - URL 先显后下：远程图片 URL 应立即显示在结果卡/画布节点；浏览器空闲后再后台下载到本地 IndexedDB；下载完成后结果卡切换为本地 blob，刷新后历史缩略图仍可显示。
 - Vite 静态前端迁移：`web/` 应通过 `bun run dev` 启动 Vite，通过 `bun run build` 生成 `web/dist`；首页、生图、视频、素材、提示词、画布列表、画布详情和 404 路由都应由 React Router 正常打开，刷新深层路由时 Docker/nginx 应回退到 `index.html`。
-- 静态版运行边界：配置页“请求方式”应显示“浏览器直连 / 同域代理”；升级后默认应选中同域代理，AI 请求应走 `/api/proxy?url=...`；手动切回浏览器直连时才直接请求上游；账号/云端个人渠道操作应提示静态版不包含账号后端；提示词页应由浏览器直拉 GitHub Raw 并写入本地缓存；WebDAV 只支持前端直连；纯静态托管下本地参考素材无法临时上传，Docker 版应走 `/api/uploads/references`。
+- 静态版运行边界：配置页“请求方式”应显示“浏览器直连 / 同域代理”；升级后默认应选中同域代理，AI 请求应走 `/api/proxy?url=...`；手动切回浏览器直连时才直接请求上游；提示词页应由浏览器直拉 GitHub Raw 并写入本地缓存；WebDAV 只支持前端直连；纯静态托管下本地参考素材无法临时上传，Docker 版应走 `/api/uploads/references`。
 - Docker 静态镜像：`docker compose up -d --build` 应构建 Vite 产物并用 nginx 监听 3000，同时启动 Go 代理监听容器内 8787；`/healthz` 应返回 `ok`，`/api/proxy` 应能转发公网 http/https 上游、拒绝跨站 Origin 和私网目标，`/api/uploads/references` 可上传与读取参考素材，静态 JS/CSS 响应应支持 gzip。
 - 同域 AI 代理请求头清洗：经 CDN/反代访问 `/api/proxy?url=...` 时，不应把 `Cdn-Loop`、`Eo-*`、`X-Forwarded-*`、`X-Real-IP`、`Range` 等边缘节点头继续透传给上游；图片同步请求如果遇到线上代理返回 nginx HTML 403/502/504，应优先自动直连当前渠道 URL 兜底，688.qzz.io 这类已开放 CORS 的渠道不应再因代理链路 403 直接失败。
 - AI 上游错误提示：图片、视频和音频请求遇到上游 JSON 错误时，应优先展示上游返回的 `message` / `msg` / `error.message`，例如 `Invalid token`；只有上游没有返回可读错误正文时，才显示“鉴权失败，请检查 Key、套餐权限或模型权限”等兜底文案。
@@ -62,7 +64,6 @@ description: 当前版本已实现但仍需人工验证的变更项
 - Docker 本地编译部署：默认 `docker-compose.yml` 应从当前目录 Dockerfile 构建 `c-aihuabu:local` 静态镜像；线上更新时执行 `git pull` 后直接 `docker compose build --no-cache && docker compose up -d --force-recreate`，不再依赖远端 `latest` 镜像缓存。
 
 - 画布脚本生成器：工具栏和右键菜单新增“脚本生成器”节点，可根据输入需求和上游参考内容调用文本模型生成结构化分镜；节点内展示镜头卡片，并支持一键拆分为“镜头文本 -> 图片节点 -> 视频节点”的批量图片/视频工作流。脚本节点新增“主题分镜 / 参考图文案 / 图文转视频”模式切换和“上传参考图”入口，上传图片会自动创建图片节点并连线到脚本生成器；有上游图片时会先生成画面与文案分析摘要，再生成图片提示词和视频脚本。
-- 账号与云端个人渠道：静态前端版本不包含账号后端；配置弹窗账号 Tab 的登录、注册、保存云端渠道应给出不可用提示，本地渠道配置仍应正常保存到浏览器。
 - 高并发任务系统底座：静态前端版本已移除 PostgreSQL/Redis 依赖和服务端 schema 草案；后续高性能重构需要在独立后端重新设计用户、渠道、任务、队列和对象存储。
 - 画布图片去元数据工具：图片节点悬浮工具栏新增“去元数据”，会把当前图片通过 Canvas 重编码为 PNG，移除 EXIF/GPS/软件信息等文件元数据，并做轻微像素扰动以弱化简单文件哈希指纹；该功能不承诺对抗专业感知哈希或水印识别。
 - 无限画布复制图片：在图片节点悬浮工具栏新增“复制图片”功能，支持将图片（自动转换为 PNG）复制到系统剪切板，可直接在其他应用中粘贴或在画布中 Ctrl+V 粘贴新建节点。
@@ -110,7 +111,7 @@ description: 当前版本已实现但仍需人工验证的变更项
     - 模型选择、运镜（仅视频）、风格（仅图片）改造为灰色细边框药丸胶囊；
     - 参数设置（如 `CanvasVideoSettingsPopover`）的触发器重构为 `[9:16 (竖屏)]` 胶囊（带小设备图标） + 时长文本（`15s`） + 分辨率文本（`720P`） + `...` 省略号的参数组合；图片模式整合为 `[21:9 · 4K]` 等宽胶囊并带布局图标；
     - **新增一键优化提示词 (🪄)**：点击魔法棒图标，自动将当前输入内容智能拓宽并丰富高级渲染细节修饰词，提示“已智能优化提示词”；
-    - 积分消耗使用紫色的 `✦` 星芒标识，生图/生视频按钮调整为圆形渐变 `ArrowUp` 提交按钮。
+    - 生图/生视频按钮使用紧凑图标样式，并在生成中切换为停止操作。
   - **声音配置扬声器联动**：当在视频设置中开启“生成声音”时，设置面板触发按钮上会自动展示扬声器（Volume2）图标联动。
 - **画布生成输入面板缩放优化**：当画布缩放比例较低时，节点下方的生成输入面板会进行反向缩放，保持提示词输入框和底部控制项可读；视频模式输入区同步提高最小高度，避免缩小视图下文字内容难以查看。
 - **画布视频提交变量修复**：修复视频生成提交时读取视频模式和运镜配置误用未定义变量导致连续弹出 `node is not defined` 的问题。

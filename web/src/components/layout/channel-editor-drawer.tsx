@@ -1,5 +1,3 @@
-"use client";
-
 import { App, Button, Drawer, Input, Select, Space } from "antd";
 import { RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";

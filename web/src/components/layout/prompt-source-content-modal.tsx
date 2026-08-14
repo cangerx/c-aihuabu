@@ -1,5 +1,3 @@
-"use client";
-
 import { App, Button, Empty, Modal, Space, Table, Tag } from "antd";
 import { Copy, FolderPlus, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";

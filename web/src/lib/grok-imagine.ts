@@ -44,13 +44,12 @@ export const grokImagineVideoResolutionOptions = [
 export const grokImagineImageMaxCount = 10;
 export const grokImagineImageEditMaxCount = 3;
 
-export function isGrokImagineImageConfig(config: AiConfig | Pick<AiConfig, "model" | "imageModel" | "baseUrl" | "apiFormat">) {
-    // 尺寸/分辨率面板按模型名切换，不依赖渠道 apiFormat，避免 lite 等同族模型 UI 不刷新。
+export function isGrokImagineImageConfig(config: AiConfig | Pick<AiConfig, "model" | "imageModel" | "baseUrl">) {
     const model = "channels" in config ? modelOptionName(config.model || config.imageModel) : modelOptionName(config.model || config.imageModel || "");
     return isGrokImagineImageModel(model);
 }
 
-export function isGrokImagineVideoConfig(config: AiConfig | Pick<AiConfig, "model" | "videoModel" | "baseUrl" | "apiFormat">) {
+export function isGrokImagineVideoConfig(config: AiConfig | Pick<AiConfig, "model" | "videoModel" | "baseUrl">) {
     const requestConfig = "channels" in config ? resolveModelRequestConfig(config, config.model || config.videoModel) : config;
     return isGrokImagineVideoModel(modelOptionName(requestConfig.model || requestConfig.videoModel));
 }

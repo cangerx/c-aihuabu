@@ -1,6 +1,6 @@
 import { saveAs } from "file-saver";
 
-import { useConfigStore, type AiConfig, type WebdavSyncConfig } from "@/stores/use-config-store";
+import { defaultWebdavSyncConfig, normalizeAiConfig, useConfigStore, type AiConfig, type WebdavSyncConfig } from "@/stores/use-config-store";
 
 type AppConfigFile = {
     app: "infinite-canvas";
@@ -24,5 +24,5 @@ export async function importAppConfig(file: File) {
         throw new Error("配置文件格式不正确");
     }
     if (data.app !== "infinite-canvas" || data.version !== 1 || !data.config || !data.webdav) throw new Error("配置文件格式不正确");
-    useConfigStore.setState({ config: data.config, webdav: data.webdav });
+    useConfigStore.setState({ config: normalizeAiConfig(data.config), webdav: { ...defaultWebdavSyncConfig, ...data.webdav, proxyMode: "direct" } });
 }

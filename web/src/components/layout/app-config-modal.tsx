@@ -1,15 +1,12 @@
-"use client";
-
 import { App, Button, Form, Input, Modal, Progress, Segmented, Select, Tabs } from "antd";
 import { CircleAlert, Cloud, Download, Pencil, Plus, RefreshCw, Trash2, Upload, Wifi } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 import { DebugLogPreference } from "@/components/layout/debug-log-panel";
 import { ChannelEditorDrawer } from "@/components/layout/channel-editor-drawer";
 import { ConfigPromptSources } from "@/components/layout/config-prompt-sources";
 import { ModelPicker } from "@/components/model-picker";
 import { exportAppConfig, importAppConfig } from "@/services/config-file";
-import { createCloudChannel, fetchAccountMe, fetchCloudChannels, loginAccount, logoutAccount, registerAccount, type AccountUser, type CloudModelChannel } from "@/services/api/account";
 import { syncAppDataToWebdav, type AppSyncDomainKey, type AppSyncProgressEvent } from "@/services/app-sync";
 import { testWebdavConnection, WEBDAV_MANIFEST_FILE_NAME } from "@/services/webdav-sync";
 import { audioFormatOptions, audioVoiceOptions, normalizeAudioSpeedValue } from "@/lib/audio-generation";
@@ -67,11 +64,6 @@ export function AppConfigModal() {
     const [syncingWebdav, setSyncingWebdav] = useState(false);
     const [webdavSyncStatus, setWebdavSyncStatus] = useState("");
     const [webdavDomainProgress, setWebdavDomainProgress] = useState(createWebdavDomainProgress);
-    const [accountUser, setAccountUser] = useState<AccountUser | null>(null);
-    const [accountEmail, setAccountEmail] = useState("");
-    const [accountPassword, setAccountPassword] = useState("");
-    const [accountLoading, setAccountLoading] = useState(false);
-    const [cloudChannels, setCloudChannels] = useState<CloudModelChannel[]>([]);
     const config = useConfigStore((state) => state.config);
     const webdav = useConfigStore((state) => state.webdav);
     const updateConfig = useConfigStore((state) => state.updateConfig);
@@ -85,17 +77,6 @@ export function AppConfigModal() {
     const modelOptionsFor = (capability: ModelCapability) => filterModelsByCapability(config.models, capability).map((model) => ({ label: modelOptionLabel(config, model), value: model }));
     const webdavReady = Boolean(webdav.url.trim());
 
-    useEffect(() => {
-        if (isConfigOpen) void refreshAccount().catch(() => {});
-    }, [isConfigOpen]);
-
-    const refreshAccount = async () => {
-        const data = await fetchAccountMe();
-        setAccountUser(data.user);
-        if (data.user) await refreshCloudChannels();
-        else setCloudChannels([]);
-    };
-
     const saveConfig = (nextConfig: AiConfig) => {
         (Object.keys(nextConfig) as Array<keyof AiConfig>).forEach((key) => updateConfig(key, nextConfig[key]));
     };
@@ -106,68 +87,6 @@ export function AppConfigModal() {
         if (!ready) return;
         message.success(shouldPromptContinue ? "配置已保存，请继续刚才的请求" : "配置已保存");
         clearPromptContinue();
-    };
-
-    const submitAccount = async (mode: "login" | "register") => {
-        setAccountLoading(true);
-        try {
-            const data = mode === "login" ? await loginAccount(accountEmail, accountPassword) : await registerAccount(accountEmail, accountPassword);
-            setAccountUser(data.user);
-            setAccountPassword("");
-            await refreshCloudChannels();
-            window.dispatchEvent(new Event("ai-huabu-account-change"));
-            message.success(mode === "login" ? "已登录" : "账号已创建");
-        } catch (error) {
-            message.error(error instanceof Error ? error.message : "账号操作失败");
-        } finally {
-            setAccountLoading(false);
-        }
-    };
-
-    const logout = async () => {
-        setAccountLoading(true);
-        try {
-            await logoutAccount();
-            setAccountUser(null);
-            setCloudChannels([]);
-            window.dispatchEvent(new Event("ai-huabu-account-change"));
-            message.success("已退出登录");
-        } catch (error) {
-            message.error(error instanceof Error ? error.message : "退出失败");
-        } finally {
-            setAccountLoading(false);
-        }
-    };
-
-    const refreshCloudChannels = async () => {
-        const data = await fetchCloudChannels();
-        setCloudChannels(data.channels);
-    };
-
-    const saveLocalChannelToCloud = async (channel: ModelChannel) => {
-        if (!channel.apiKey.trim()) return message.error("该本地渠道没有 Key");
-        setAccountLoading(true);
-        try {
-            await createCloudChannel({ name: channel.name, baseUrl: channel.baseUrl, apiKey: channel.apiKey, apiFormat: channel.apiFormat, models: channel.models });
-            await refreshCloudChannels();
-            message.success("已保存到云端个人渠道");
-        } catch (error) {
-            message.error(error instanceof Error ? error.message : "保存失败");
-        } finally {
-            setAccountLoading(false);
-        }
-    };
-
-    const copyCloudChannelModels = (channel: CloudModelChannel) => {
-        navigator.clipboard?.writeText(channel.models.join("\n")).catch(() => {});
-        message.success("已复制云端渠道模型名");
-    };
-
-    const useCloudChannel = (channel: CloudModelChannel) => {
-        if (!channel.apiKey) return message.error("云端 Key 解密失败，无法应用");
-        updateChannels([...config.channels.filter((item) => item.id !== channel.id), createModelChannel(channel)]);
-        setConfigDialogTab("channels");
-        message.success("已应用云端个人渠道");
     };
 
     const updateChannels = (channels: ModelChannel[]) => {
@@ -307,75 +226,6 @@ export function AppConfigModal() {
                 onChange={(key) => setConfigDialogTab(key as typeof configDialogTab)}
                 items={[
                     {
-                        key: "account",
-                        label: "账号",
-                        children: (
-                            <Form layout="vertical" requiredMark={false}>
-                                <section className="rounded-lg border border-stone-200 p-3 dark:border-stone-800">
-                                    <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-                                        <div>
-                                            <div className="text-sm font-semibold">{accountUser ? `已登录：${accountUser.email}` : "静态版使用本地配置"}</div>
-                                            <div className="mt-1 text-xs leading-5 text-stone-500">静态前端版本不包含账号后端和云端个人渠道；请在“渠道”Tab 维护本地 Key，跨设备可用 WebDAV 同步画布和素材。</div>
-                                        </div>
-                                        {accountUser ? (
-                                            <Button loading={accountLoading} onClick={() => void logout()}>
-                                                退出登录
-                                            </Button>
-                                        ) : null}
-                                    </div>
-                                    {!accountUser ? (
-                                        <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto_auto]">
-                                            <Form.Item label="邮箱" className="mb-0">
-                                                <Input disabled value={accountEmail} autoComplete="email" onChange={(event) => setAccountEmail(event.target.value)} />
-                                            </Form.Item>
-                                            <Form.Item label="密码" className="mb-0">
-                                                <Input.Password disabled value={accountPassword} autoComplete="current-password" onChange={(event) => setAccountPassword(event.target.value)} />
-                                            </Form.Item>
-                                            <Form.Item label=" " className="mb-0">
-                                                <Button disabled type="primary" block loading={accountLoading} onClick={() => void submitAccount("login")}>
-                                                    登录
-                                                </Button>
-                                            </Form.Item>
-                                            <Form.Item label=" " className="mb-0">
-                                                <Button disabled block loading={accountLoading} onClick={() => void submitAccount("register")}>
-                                                    注册
-                                                </Button>
-                                            </Form.Item>
-                                        </div>
-                                    ) : (
-                                        <div className="space-y-3">
-                                            <div className="flex items-center justify-between gap-3">
-                                                <div className="text-sm font-semibold">云端个人渠道</div>
-                                                <Button size="small" loading={accountLoading} icon={<RefreshCw className="size-3.5" />} onClick={() => void refreshCloudChannels()}>
-                                                    刷新
-                                                </Button>
-                                            </div>
-                                            {cloudChannels.map((channel) => (
-                                                <div key={channel.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-stone-200 p-3 dark:border-stone-800">
-                                                    <div className="min-w-0">
-                                                        <div className="truncate text-sm font-semibold">{channel.name}</div>
-                                                        <div className="mt-1 text-xs text-stone-500">
-                                                            {channel.models.length} 个模型 · Key {channel.apiKeyPreview}
-                                                        </div>
-                                                    </div>
-                                                    <div className="flex shrink-0 gap-2">
-                                                        <Button size="small" onClick={() => copyCloudChannelModels(channel)}>
-                                                            复制模型
-                                                        </Button>
-                                                        <Button size="small" type="primary" onClick={() => useCloudChannel(channel)}>
-                                                            应用
-                                                        </Button>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                            {!cloudChannels.length ? <div className="rounded-lg border border-dashed border-stone-300 p-6 text-center text-sm text-stone-500 dark:border-stone-700">还没有云端个人渠道，可在“渠道”Tab 将本地渠道保存到云端。</div> : null}
-                                        </div>
-                                    )}
-                                </section>
-                            </Form>
-                        ),
-                    },
-                    {
                         key: "channels",
                         label: "渠道",
                         children: (
@@ -406,11 +256,6 @@ export function AppConfigModal() {
                                                     </div>
                                                 </div>
                                                 <div className="flex shrink-0 gap-2">
-                                                    {accountUser ? (
-                                                        <Button size="small" loading={accountLoading} onClick={() => void saveLocalChannelToCloud(channel)}>
-                                                            存云端
-                                                        </Button>
-                                                    ) : null}
                                                     <Button size="small" icon={<Pencil className="size-3.5" />} onClick={() => {
                                                         setIsCreatingChannel(false);
                                                         setEditingChannel(channel);
@@ -599,7 +444,6 @@ function withChannels(config: AiConfig, channels: ModelChannel[]): AiConfig {
         models,
         baseUrl: channels[0]?.baseUrl || config.baseUrl,
         apiKey: channels[0]?.apiKey || config.apiKey,
-        apiFormat: channels[0]?.apiFormat || config.apiFormat,
         imageModels,
         videoModels,
         textModels,

@@ -72,7 +72,6 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
     debugLog("video", "创建视频任务", {
         model: selectedModel,
         resolvedModel: requestConfig.model,
-        apiFormat: requestConfig.apiFormat,
         baseUrl: requestConfig.baseUrl,
         proxy: requestConfig.aiProxyEnabled !== false,
         videoMode: options?.videoMode || "text-to-video",
@@ -93,7 +92,7 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
         }
         return await createOpenAIVideoTask(requestConfig, selectedModel, prompt, references, options);
     } catch (error) {
-        debugError("video", "创建视频任务失败", { model: selectedModel, apiFormat: requestConfig.apiFormat, error: summarizeAxiosError(error), message: error instanceof Error ? error.message : String(error) });
+        debugError("video", "创建视频任务失败", { model: selectedModel, error: summarizeAxiosError(error), message: error instanceof Error ? error.message : String(error) });
         throw error;
     }
 }
@@ -171,14 +170,14 @@ async function createVideos4VideoTask(config: AiConfig, model: string, prompt: s
 /** /v1/videos JSON 协议只接受公网 http/https 参考素材，本地素材需先上传。 */
 async function resolveVideos4ImageUrl(image: ReferenceImage, options?: RequestOptions) {
     const directUrl = String(image.url || "").trim();
-    if (isCaiReachableUrl(directUrl)) return directUrl;
+    if (isPublicReferenceUrl(directUrl)) return directUrl;
     const file = await dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) });
     return uploadReferenceFile(file, options);
 }
 
 async function resolveVideos4MediaUrl(media: ReferenceVideo | ReferenceAudio, label: string, options?: RequestOptions) {
     const directUrl = String(media.url || "").trim();
-    if (isCaiReachableUrl(directUrl)) return directUrl;
+    if (isPublicReferenceUrl(directUrl)) return directUrl;
     const blob = media.storageKey ? await getMediaBlob(media.storageKey) : undefined;
     if (!blob) throw new Error(`${label}需要公网 HTTPS 地址，请先上传后再提交`);
     const file = new File([blob], media.name || label, { type: media.type || blob.type });
@@ -234,7 +233,7 @@ async function createGrokImagineVideoTask(config: AiConfig, model: string, promp
 
 async function resolveGrokImagineImageUrl(image: ReferenceImage, options?: RequestOptions) {
     const directUrl = String(image.url || image.dataUrl || "").trim();
-    if (isCaiReachableUrl(directUrl)) {
+    if (isPublicReferenceUrl(directUrl)) {
         debugLog("video", "Grok 参考图使用公网 URL", { host: safeHost(directUrl) });
         return directUrl;
     }
@@ -450,7 +449,7 @@ function stringValue(value: unknown) {
 
 function statusMessage(status: number | undefined, fallback: string) {
     if (status === 401 || status === 403) return "鉴权失败，请检查 Key、套餐权限或模型权限";
-    if (status === 408) return `${fallback}（408）：Cai 接口请求超时，请确认参考图片/视频/音频是公网 URL，不能使用本地 blob、dataURL 或浏览器本地素材`;
+    if (status === 408) return `${fallback}（408）：视频接口请求超时，请确认参考图片/视频/音频是公网 URL，不能使用本地 blob、dataURL 或浏览器本地素材`;
     if (status === 429) return "请求被限流或额度不足，请稍后重试";
     return status ? `${fallback}（${status}）` : fallback;
 }
@@ -463,7 +462,7 @@ async function uploadReferenceFile(file: File, options?: RequestOptions): Promis
         const response = await axios.post<{ code?: number; data?: { url?: string }; msg?: string }>("/api/uploads/references", form, { signal: options?.signal });
         const url = response.data?.data?.url;
         if (!url) throw new Error(response.data?.msg || "参考素材上传失败");
-        if (!isCaiReachableUrl(url)) throw new Error("参考素材已上传，但返回地址不是公网 HTTPS URL。请配置 C_AI_PUBLIC_BASE_URL 为当前站点公网 HTTPS 域名。");
+        if (!isPublicReferenceUrl(url)) throw new Error("参考素材已上传，但返回地址不是公网 HTTPS URL。请配置 C_AI_PUBLIC_BASE_URL 为当前站点公网 HTTPS 域名。");
         debugLog("video", "参考素材上传成功", { host: safeHost(url), bytes: file.size });
         return assertPublicReferenceReachable(url, file.type, "参考素材", options);
     } catch (error) {
@@ -598,7 +597,7 @@ function assertReferenceContentType(contentType: string, mimeType: string) {
     if (expected.startsWith("audio/") && !contentType.startsWith("audio/")) throw new Error(`Content-Type=${contentType}`);
 }
 
-function isCaiReachableUrl(value: string) {
+function isPublicReferenceUrl(value: string) {
     if (!/^https:\/\//i.test(value || "")) return false;
     try {
         const host = new URL(value).hostname.toLowerCase();

@@ -1,12 +1,9 @@
-"use client";
-
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp, Camera, LoaderCircle, Music2, Wand2, Plus, ChevronDown, Palette } from "lucide-react";
 import { App, Button, Tooltip, Dropdown } from "antd";
 
 import { ModelPicker } from "@/components/model-picker";
 import { defaultConfig, modelOptionName, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
-import { requestCreditCost } from "@/constant/credits";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { isGrokImagineImageConfig, normalizeGrokImagineImageCount, normalizeGrokImagineImageRatio, normalizeGrokImagineImageResolution } from "@/lib/grok-imagine";
 import { isGptImage2StyleConfig, normalizeGptImage2Ratio, normalizeGptImage2Resolution } from "@/lib/gpt-image-2";
@@ -49,8 +46,6 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     const hasImageContent = node.type === CanvasNodeType.Image && Boolean(node.metadata?.content);
     const [prompt, setPrompt] = useState(node.metadata?.prompt || "");
     const [promptLibraryOpen, setPromptLibraryOpen] = useState(false);
-    const credits = requestCreditCost({ channelMode: config.channelMode, model: config.model, count: mode === "image" && isGrokImagineImageConfig(config) ? String(normalizeGrokImagineImageCount(config.count)) : mode === "image" ? config.count : 1 });
-
     const [activeVideoTab, setActiveVideoTab] = useState<string>(node.metadata?.videoMode || "text-to-video");
     const [cameraMovement, setCameraMovement] = useState<string>(node.metadata?.cameraMovement || "自适应");
     const [mentionTriggerKey, setMentionTriggerKey] = useState(0);
@@ -443,9 +438,6 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                             {optimizing ? <LoaderCircle className="size-4 animate-spin" /> : <Wand2 className="size-4" />}
                         </button>
                     </Tooltip>
-                    <span className="inline-flex items-center gap-0.5 text-xs font-semibold tabular-nums text-violet-500 dark:text-violet-400">
-                        ✦ {credits}
-                    </span>
                     <Button
                         type="primary"
                         className="!h-8 !w-8 shrink-0 !rounded-full !p-0 flex items-center justify-center bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 border-none transition-all shadow-md active:scale-95 disabled:!bg-gray-100 disabled:!text-gray-300 dark:disabled:!bg-zinc-800 dark:disabled:!text-zinc-600"

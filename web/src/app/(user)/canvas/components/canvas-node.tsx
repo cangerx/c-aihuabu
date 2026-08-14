@@ -1,5 +1,3 @@
-"use client";
-
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { ChevronRight, DownloadCloud, Film, FileText, Image as ImageIcon, MessageSquareText, Music2, RefreshCw, SplitSquareHorizontal, Star, Video, Wand2 } from "lucide-react";

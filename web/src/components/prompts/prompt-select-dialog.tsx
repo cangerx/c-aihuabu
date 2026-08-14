@@ -1,5 +1,3 @@
-"use client";
-
 import { Check, Search } from "lucide-react";
 import { type UIEvent, useEffect, useMemo, useState } from "react";
 import { App, Empty, Input, Modal, Spin } from "antd";

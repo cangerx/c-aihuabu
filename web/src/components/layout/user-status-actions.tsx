@@ -1,5 +1,3 @@
-"use client";
-
 import type { CSSProperties } from "react";
 import { Key, Keyboard, Settings2 } from "lucide-react";
 

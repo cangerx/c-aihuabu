@@ -1,5 +1,3 @@
-"use client";
-
 import { App, Button, Drawer, Input, Space, Switch } from "antd";
 import { useEffect, useState } from "react";
 
