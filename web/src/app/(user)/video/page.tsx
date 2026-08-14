@@ -14,7 +14,7 @@ import { VideoSettingsPanel, normalizeVideoResolutionValue, normalizeVideoSizeVa
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceReferenceLabel, seedanceVideoReferenceError, seedanceVideoReferenceHint, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
-import { isVideos4VideoModel, normalizeVideos4Duration, normalizeVideos4Ratio, normalizeVideos4Resolution } from "@/lib/videos4-video";
+import { isVideos4VideoModel, normalizeVideos4Duration, normalizeVideos4Ratio, normalizeVideos4Resolution, videos4ReferenceLimits } from "@/lib/videos4-video";
 import { deleteStoredMedia, resolveMediaUrl, uploadMediaFile } from "@/services/file-storage";
 import { resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo, videoPollIntervalMs, type VideoGenerationTask } from "@/services/api/video";
@@ -114,6 +114,7 @@ export default function VideoPage() {
 
     const model = effectiveConfig.videoModel || effectiveConfig.model;
     const displayConfig = buildVideoConfig(effectiveConfig, model);
+    const referenceLimits = isVideos4VideoModel(model) ? videos4ReferenceLimits(model) : SEEDANCE_REFERENCE_LIMITS;
     const canGenerate = Boolean(prompt.trim());
     const running = runningCount > 0;
     const promptReferences = buildVideoPromptReferences(references, videoReferences, audioReferences);
@@ -144,9 +145,9 @@ export default function VideoPage() {
         const selectedFiles = Array.from(files || []);
         const unsupported = selectedFiles.filter((file) => !file.type.startsWith("image/") && !file.type.startsWith("video/") && !isSupportedAudioFile(file));
         if (unsupported.length) message.warning("已忽略不支持的参考素材，请使用图片、mp4/mov 视频或 mp3/wav 音频");
-        const imageFiles = selectedFiles.filter((file) => file.type.startsWith("image/") && file.size <= SEEDANCE_REFERENCE_LIMITS.imageMaxBytes).slice(0, SEEDANCE_REFERENCE_LIMITS.images - references.length);
-        const videoFiles = selectedFiles.filter((file) => file.type.startsWith("video/") && file.size <= SEEDANCE_REFERENCE_LIMITS.videoMaxBytes).slice(0, SEEDANCE_REFERENCE_LIMITS.videos - videoReferences.length);
-        const audioFiles = selectedFiles.filter((file) => isSupportedAudioFile(file) && file.size <= SEEDANCE_REFERENCE_LIMITS.audioMaxBytes).slice(0, SEEDANCE_REFERENCE_LIMITS.audios - audioReferences.length);
+        const imageFiles = selectedFiles.filter((file) => file.type.startsWith("image/") && file.size <= SEEDANCE_REFERENCE_LIMITS.imageMaxBytes).slice(0, Math.max(0, referenceLimits.images - references.length));
+        const videoFiles = selectedFiles.filter((file) => file.type.startsWith("video/") && file.size <= SEEDANCE_REFERENCE_LIMITS.videoMaxBytes).slice(0, Math.max(0, referenceLimits.videos - videoReferences.length));
+        const audioFiles = selectedFiles.filter((file) => isSupportedAudioFile(file) && file.size <= SEEDANCE_REFERENCE_LIMITS.audioMaxBytes).slice(0, Math.max(0, referenceLimits.audios - audioReferences.length));
         if (selectedFiles.some((file) => file.type.startsWith("image/") && file.size > SEEDANCE_REFERENCE_LIMITS.imageMaxBytes)) message.warning("已忽略超过 30MB 的参考图");
         if (selectedFiles.some((file) => file.type.startsWith("video/") && file.size > SEEDANCE_REFERENCE_LIMITS.videoMaxBytes)) message.warning("已忽略超过 50MB 的参考视频");
         if (selectedFiles.some((file) => isSupportedAudioFile(file) && file.size > SEEDANCE_REFERENCE_LIMITS.audioMaxBytes)) message.warning("已忽略超过 15MB 的参考音频");
@@ -168,19 +169,16 @@ export default function VideoPage() {
                 }),
             );
             if (audioFiles.length) setReferenceUploadLabel(`正在上传 ${audioFiles.length} 段参考音频`);
-            const nextAudioReferences = filterAudioReferencesByDuration(
-                audioReferences,
-                await Promise.all(
-                    audioFiles.map(async (file) => {
-                        const audio = await uploadMediaFile(file, "audio-reference");
-                        return { id: nanoid(), name: file.name, type: audio.mimeType, url: audio.url, storageKey: audio.storageKey, durationMs: audio.durationMs };
-                    }),
-                ),
-                message.warning,
+            const uploadedAudioReferences = await Promise.all(
+                audioFiles.map(async (file) => {
+                    const audio = await uploadMediaFile(file, "audio-reference");
+                    return { id: nanoid(), name: file.name, type: audio.mimeType, url: audio.url, storageKey: audio.storageKey, durationMs: audio.durationMs };
+                }),
             );
-            setReferences((value) => [...value, ...nextReferences].slice(0, SEEDANCE_REFERENCE_LIMITS.images));
-            setVideoReferences((value) => [...value, ...nextVideoReferences].slice(0, SEEDANCE_REFERENCE_LIMITS.videos));
-            setAudioReferences((value) => [...value, ...nextAudioReferences].slice(0, SEEDANCE_REFERENCE_LIMITS.audios));
+            const nextAudioReferences = isVideos4VideoModel(model) ? uploadedAudioReferences : filterAudioReferencesByDuration(audioReferences, uploadedAudioReferences, message.warning);
+            setReferences((value) => [...value, ...nextReferences].slice(0, referenceLimits.images));
+            setVideoReferences((value) => [...value, ...nextVideoReferences].slice(0, referenceLimits.videos));
+            setAudioReferences((value) => [...value, ...nextAudioReferences].slice(0, referenceLimits.audios));
         } finally {
             setReferenceUploading(false);
             setReferenceUploadLabel("");
@@ -198,12 +196,12 @@ export default function VideoPage() {
                 return;
             }
             const nextReferences = await Promise.all(
-                blobs.slice(0, SEEDANCE_REFERENCE_LIMITS.images - references.length).map(async (blob, index) => {
+                blobs.slice(0, Math.max(0, referenceLimits.images - references.length)).map(async (blob, index) => {
                     const image = await uploadImage(blob);
                     return { id: nanoid(), name: `clipboard-${index + 1}.png`, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey };
                 }),
             );
-            setReferences((value) => [...value, ...nextReferences].slice(0, SEEDANCE_REFERENCE_LIMITS.images));
+            setReferences((value) => [...value, ...nextReferences].slice(0, referenceLimits.images));
             message.success(`已读取 ${nextReferences.length} 张参考图`);
         } catch {
             message.error("剪切板里没有可读取的图片");
@@ -245,7 +243,7 @@ export default function VideoPage() {
             openConfigDialog(true);
             return null;
         }
-        const videoReferenceError = seedanceVideoReferenceError(videoReferences);
+        const videoReferenceError = isVideos4VideoModel(model) ? "" : seedanceVideoReferenceError(videoReferences);
         if (videoReferenceError) {
             message.error(`${videoReferenceError}。${seedanceVideoReferenceHint}`);
             return null;
@@ -285,20 +283,22 @@ export default function VideoPage() {
         if (payload.kind === "text") {
             setPrompt(payload.content);
         } else if (payload.kind === "image") {
+            if (references.length >= referenceLimits.images) return message.warning(`当前模型最多支持 ${referenceLimits.images} 张参考图`);
             setReferenceUploading(true);
             setReferenceUploadLabel("正在加入参考图");
             try {
                 const stored = await uploadImage(payload.dataUrl);
-                setReferences((value) => [...value, { id: nanoid(), name: payload.title, type: stored.mimeType, dataUrl: stored.url, storageKey: stored.storageKey }].slice(0, SEEDANCE_REFERENCE_LIMITS.images));
+                setReferences((value) => [...value, { id: nanoid(), name: payload.title, type: stored.mimeType, dataUrl: stored.url, storageKey: stored.storageKey }].slice(0, referenceLimits.images));
             } finally {
                 setReferenceUploading(false);
                 setReferenceUploadLabel("");
             }
         } else if (payload.kind === "video") {
+            if (videoReferences.length >= referenceLimits.videos) return message.warning(`当前模型最多支持 ${referenceLimits.videos} 个参考视频`);
             setReferenceUploading(true);
             setReferenceUploadLabel("正在加入参考视频");
             try {
-                setVideoReferences((value) => [...value, { id: nanoid(), name: payload.title, type: "video/mp4", url: payload.url, storageKey: payload.storageKey, width: payload.width, height: payload.height }].slice(0, SEEDANCE_REFERENCE_LIMITS.videos));
+                setVideoReferences((value) => [...value, { id: nanoid(), name: payload.title, type: "video/mp4", url: payload.url, storageKey: payload.storageKey, width: payload.width, height: payload.height }].slice(0, referenceLimits.videos));
             } finally {
                 setReferenceUploading(false);
                 setReferenceUploadLabel("");
@@ -569,12 +569,12 @@ export default function VideoPage() {
 
                             <div className="min-w-0">
                                 <div className="mb-2 flex items-center justify-between gap-3">
-                                    <span className="text-base font-semibold">参考图</span>
+                                    <span className="text-base font-semibold">参考图 <span className="text-xs font-normal text-stone-500">{references.length}/{referenceLimits.images}</span></span>
                                     <div className="flex gap-2">
-                                        <Button size="small" icon={<ClipboardPaste className="size-3.5" />} loading={referenceUploading} disabled={referenceUploading} onClick={() => void addReferencesFromClipboard()}>
+                                        <Button size="small" icon={<ClipboardPaste className="size-3.5" />} loading={referenceUploading} disabled={referenceUploading || references.length >= referenceLimits.images} onClick={() => void addReferencesFromClipboard()}>
                                             剪切板
                                         </Button>
-                                        <Button size="small" icon={<Upload className="size-3.5" />} loading={referenceUploading} disabled={referenceUploading} onClick={() => fileInputRef.current?.click()}>
+                                        <Button size="small" icon={<Upload className="size-3.5" />} loading={referenceUploading} disabled={referenceUploading || references.length >= referenceLimits.images} onClick={() => fileInputRef.current?.click()}>
                                             上传
                                         </Button>
                                     </div>
@@ -590,14 +590,14 @@ export default function VideoPage() {
                                             </button>
                                         </div>
                                     ))}
-                                    {!references.length ? <div className="flex min-w-full items-center justify-center text-sm text-stone-500">暂无参考图，最多 9 张</div> : null}
+                                    {!references.length ? <div className="flex min-w-full items-center justify-center text-sm text-stone-500">暂无参考图，最多 {referenceLimits.images} 张</div> : null}
                                 </div>
                             </div>
 
                             <div className="min-w-0">
                                 <div className="mb-2 flex items-center justify-between gap-3">
-                                    <span className="text-base font-semibold">参考视频</span>
-                                    <Button size="small" icon={<Upload className="size-3.5" />} loading={referenceUploading} disabled={referenceUploading} onClick={() => fileInputRef.current?.click()}>
+                                    <span className="text-base font-semibold">参考视频 <span className="text-xs font-normal text-stone-500">{videoReferences.length}/{referenceLimits.videos}</span></span>
+                                    <Button size="small" icon={<Upload className="size-3.5" />} loading={referenceUploading} disabled={referenceUploading || videoReferences.length >= referenceLimits.videos} onClick={() => fileInputRef.current?.click()}>
                                         上传
                                     </Button>
                                 </div>
@@ -612,14 +612,14 @@ export default function VideoPage() {
                                             </button>
                                         </div>
                                     ))}
-                                    {!videoReferences.length ? <div className="flex min-w-full items-center justify-center text-sm text-stone-500">暂无参考视频，最多 3 个</div> : null}
+                                    {!videoReferences.length ? <div className="flex min-w-full items-center justify-center text-sm text-stone-500">暂无参考视频，最多 {referenceLimits.videos} 个</div> : null}
                                 </div>
                             </div>
 
                             <div className="min-w-0">
                                 <div className="mb-2 flex items-center justify-between gap-3">
-                                    <span className="text-base font-semibold">参考音频</span>
-                                    <Button size="small" icon={<Upload className="size-3.5" />} loading={referenceUploading} disabled={referenceUploading} onClick={() => fileInputRef.current?.click()}>
+                                    <span className="text-base font-semibold">参考音频 <span className="text-xs font-normal text-stone-500">{audioReferences.length}/{referenceLimits.audios}</span></span>
+                                    <Button size="small" icon={<Upload className="size-3.5" />} loading={referenceUploading} disabled={referenceUploading || audioReferences.length >= referenceLimits.audios} onClick={() => fileInputRef.current?.click()}>
                                         上传
                                     </Button>
                                 </div>
@@ -638,7 +638,7 @@ export default function VideoPage() {
                                             </button>
                                         </div>
                                     ))}
-                                    {!audioReferences.length ? <div className="flex min-w-full items-center justify-center text-center text-sm text-stone-500">暂无参考音频，最多 3 个，mp3/wav，单个 15MB 内</div> : null}
+                                    {!audioReferences.length ? <div className="flex min-w-full items-center justify-center text-center text-sm text-stone-500">暂无参考音频，最多 {referenceLimits.audios} 个，mp3/wav，单个 15MB 内</div> : null}
                                 </div>
                             </div>
 

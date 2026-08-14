@@ -7,7 +7,10 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 ## 本轮重点测试
 
-- videos-4 系列视频：配置页「填入 videos-4 视频模型」应补齐 9 个模型；选 `videos-4-fast-480p` 等带后缀模型时，视频设置的分辨率两个按钮应禁用并提示「已固定 480p」，选 `videos-4-fast` 等不带后缀模型时恢复可选。时长低于 4 秒或高于 15 秒应被夹到区间内。提交后请求应是 JSON 的 `POST /v1/videos`（含 `duration`/`ratio`/`resolution`），不是 multipart；轮询 `GET /v1/videos/{task_id}` 约 5 秒一次，完成后能播放。参考图/视频/音频需公网 HTTPS，超过 9/3/3 个应报错；选首尾帧模式应提示不支持。
+- 渠道抽屉拉取模型：渠道列表不再显示单渠道“拉取模型”和“拉取全部”；新增或编辑渠道时，在抽屉填写 Base URL 与 Key 后点击“拉取模型”，应真实请求渠道 `/v1/models` 并回填返回模型，失败或空结果应保留原手工列表，保存渠道后模型配置可正常选择；本地同域代理未启动或返回 500/503 时应尝试浏览器直连，不再直接显示代理 500。
+- 异步生图内容拉取：图片任务返回 `task_id` 后应轮询 `GET /v1/images/generations/{task_id}`；完成时优先携带渠道鉴权请求 `GET /v1/images/generations/{task_id}/content` 并把图片内容落到浏览器本地，内容接口不可用时再回退任务返回的图片 URL。
+- 新视频模型：渠道 `/v1/models` 返回 `sd-2.0-720p`、`sd-2.0-1080p`、`sd-2.0-4k`、`seedance-2.5` 后应可配置使用；四个模型均按 videos-4 的 JSON `POST /v1/videos`、`GET /v1/videos/{task_id}` 和 `/content` 流程调用。`sd-2.0-*` 应按模型后缀锁定分辨率并限制为 9 图/3 视频/3 音频；`seedance-2.5` 可选 480p/720p/1080p，并支持 30 图/10 视频/10 音频。
+- videos-4 系列视频：渠道拉取返回 videos-4 模型后应可配置使用；选 `videos-4-fast-480p` 等带后缀模型时，视频设置的分辨率按钮应禁用并提示「已固定 480p」，选 `videos-4-fast` 等不带后缀模型时恢复可选。时长低于 4 秒或高于 15 秒应被夹到区间内。提交后请求应是 JSON 的 `POST /v1/videos`（含 `duration`/`ratio`/`resolution`），不是 multipart；轮询 `GET /v1/videos/{task_id}` 约 5 秒一次，完成后能播放。参考图/视频/音频需公网 HTTPS，超过 4 图/3 视频/1 音频应报错；选首尾帧模式应提示不支持。
 - 调用格式收敛为 OpenAI：配置弹窗渠道卡片不再有「调用格式」下拉，也不再显示格式标签和内置模型一键填入按钮；新增渠道默认 Base URL 为 `https://api.openai.com`，所有渠道都可「拉取模型」。原先用 Cai / Cai 二号 / NewToken / Duomi / Lingdong / Gemini / 火山方舟格式保存的渠道，重开配置后应回落为 OpenAI 格式并保留原有 Base URL、Key 和模型列表。
 - 收敛后的生图与视频：`gpt-image-2` 等模型走 `/v1/images/generations` 与 `/v1/images/edits`；`gemini-3-pro-image-preview` / `gemini-3.1-flash-image-preview` 仍按模型名走 Gemini 生图；`grok-imagine-video` 系列仍按模型名走 Grok 视频创建与轮询；Seedance / `veo-3-1` 等模型的比例、分辨率、首尾帧和全能参考面板应保持原样。原先只在 Cai/NewToken/Duomi/Lingdong/火山方舟格式下才走的异步协议已移除，这些渠道现在统一按 OpenAI 兼容接口请求。
 

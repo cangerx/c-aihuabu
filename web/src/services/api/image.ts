@@ -791,15 +791,46 @@ async function pollOpenAiCompatibleImageTask(config: AiConfig, taskId: string, o
         const task = unwrapImageTask((await getWithProxyFallback<ImageTaskResponse>(config, `/images/generations/${taskId}`, options)).data);
         const status = normalizeImageTaskStatus(task.status || task.state || task.task_status);
         const imageUrl = readAsyncImageUrl(task);
-        if (status === "completed" || imageUrl) {
-            if (!imageUrl) throw new Error("图片任务成功但没有返回图片 URL");
-            return imageUrl;
+        if (status === "completed") {
+            try {
+                return await readImageTaskContent(config, taskId, options);
+            } catch (contentError) {
+                if (options?.signal?.aborted) throw contentError;
+                if (imageUrl) return resolveImageProviderUrl(config, imageUrl);
+                throw contentError;
+            }
         }
+        if (imageUrl) return resolveImageProviderUrl(config, imageUrl);
         if (status === "failed") throw new Error(task.error?.message || task.msg || "图片生成失败");
         if (attempt === maxAttempts - 1) throw new Error("图片生成超时，请稍后重试");
         await delay(NEW_TOKEN_IMAGE_POLL_MS, options?.signal);
     }
     throw new Error("图片生成超时，请稍后重试");
+}
+
+async function readImageTaskContent(config: AiConfig, taskId: string, options?: RequestOptions) {
+    const response = await getBlobWithProxyFallback(config, `/images/generations/${taskId}/content`, options);
+    const blob = response.data;
+    const contentType = blob.type.toLowerCase();
+    if (!blob.size || contentType.includes("json") || contentType.includes("html") || contentType.startsWith("text/")) {
+        throw new Error("图片内容接口没有返回有效图片");
+    }
+    return blobToDataUrl(blob);
+}
+
+function resolveImageProviderUrl(config: AiConfig, url: string) {
+    const value = url.trim();
+    if (/^https?:\/\//i.test(value) || value.startsWith("data:") || value.startsWith("blob:")) return value;
+    return new URL(value, `${config.baseUrl.trim().replace(/\/+$/, "")}/`).toString();
+}
+
+function blobToDataUrl(blob: Blob) {
+    return new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("读取图片内容失败"));
+        reader.readAsDataURL(blob);
+    });
 }
 
 function parseGeminiImagePayload(payload: GeminiPayload) {
@@ -1103,7 +1134,7 @@ export async function fetchChannelModels(channel: ModelChannel) {
 async function getModelsWithProxyFallback(baseUrl: string, apiKey: string) {
     const headers = { Authorization: `Bearer ${apiKey}` };
     const request = (url: string) => axios.get<{ data?: Array<{ id?: string }>; error?: { message?: string } }>(url, { headers });
-    return withDirectFallback(request(buildAiApiUrl(baseUrl, "/models")), () => request(buildApiUrl(baseUrl, "/models")));
+    return withDirectFallback(request(buildAiApiUrl(baseUrl, "/models")), () => request(buildApiUrl(baseUrl, "/models")), { method: "GET", path: "/models", retryStatuses: [500, 501, 502, 503, 504] });
 }
 
 type DataResponse<T> = { data: T };
@@ -1124,11 +1155,19 @@ async function getWithProxyFallback<T>(config: AiConfig, path: string, options?:
     return withDirectFallback(request(proxyUrl), () => request(directUrl), { method: "GET", path });
 }
 
-async function withDirectFallback<T>(proxied: Promise<T>, direct: () => Promise<T>, meta?: { method?: string; path?: string }) {
+async function getBlobWithProxyFallback(config: AiConfig, path: string, options?: RequestOptions) {
+    const proxyUrl = aiApiUrl(config, path);
+    const directUrl = buildApiUrl(config.baseUrl, path);
+    debugLog("image", "GET 图片内容", { path, proxyUrl, directUrl });
+    const request = (url: string): Promise<DataResponse<Blob>> => axios.get<Blob>(url, { headers: aiHeaders(config), signal: options?.signal, responseType: "blob" });
+    return withDirectFallback(request(proxyUrl), () => request(directUrl), { method: "GET", path });
+}
+
+async function withDirectFallback<T>(proxied: Promise<T>, direct: () => Promise<T>, meta?: { method?: string; path?: string; retryStatuses?: number[] }) {
     try {
         return await proxied;
     } catch (error) {
-        if (!shouldRetryDirect(error)) {
+        if (!shouldRetryDirect(error, meta?.retryStatuses)) {
             debugError("image", "请求失败", { ...(meta || {}), error: summarizeAxiosError(error) });
             throw error;
         }
@@ -1145,13 +1184,13 @@ async function withDirectFallback<T>(proxied: Promise<T>, direct: () => Promise<
     }
 }
 
-function shouldRetryDirect(error: unknown) {
+function shouldRetryDirect(error: unknown, retryStatuses: number[] = []) {
     if (!axios.isAxiosError(error)) return false;
     const url = String(error.config?.url || "");
     if (!url.startsWith("/api/proxy")) return false;
     if (!error.response) return true;
     const status = error.response.status;
-    return status === 403 || status === 408 || status === 502 || status === 504 || (status >= 520 && status <= 524) || isProxyHtmlError(error);
+    return status === 403 || status === 408 || status === 502 || status === 504 || retryStatuses.includes(status) || (status >= 520 && status <= 524) || isProxyHtmlError(error);
 }
 
 function isProxyHtmlError(error: unknown) {
@@ -1183,4 +1222,3 @@ function delay(ms: number, signal?: AbortSignal) {
         );
     });
 }
-

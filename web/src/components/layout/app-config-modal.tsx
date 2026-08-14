@@ -10,7 +10,6 @@ import { ConfigPromptSources } from "@/components/layout/config-prompt-sources";
 import { ModelPicker } from "@/components/model-picker";
 import { exportAppConfig, importAppConfig } from "@/services/config-file";
 import { createCloudChannel, fetchAccountMe, fetchCloudChannels, loginAccount, logoutAccount, registerAccount, type AccountUser, type CloudModelChannel } from "@/services/api/account";
-import { fetchChannelModels } from "@/services/api/image";
 import { syncAppDataToWebdav, type AppSyncDomainKey, type AppSyncProgressEvent } from "@/services/app-sync";
 import { testWebdavConnection, WEBDAV_MANIFEST_FILE_NAME } from "@/services/webdav-sync";
 import { audioFormatOptions, audioVoiceOptions, normalizeAudioSpeedValue } from "@/lib/audio-generation";
@@ -64,7 +63,6 @@ export function AppConfigModal() {
     const configInputRef = useRef<HTMLInputElement>(null);
     const [editingChannel, setEditingChannel] = useState<ModelChannel | null>(null);
     const [isCreatingChannel, setIsCreatingChannel] = useState(false);
-    const [loadingChannelId, setLoadingChannelId] = useState("");
     const [testingWebdav, setTestingWebdav] = useState(false);
     const [syncingWebdav, setSyncingWebdav] = useState(false);
     const [webdavSyncStatus, setWebdavSyncStatus] = useState("");
@@ -202,42 +200,6 @@ export function AppConfigModal() {
             return;
         }
         updateChannels(config.channels.filter((channel) => channel.id !== id));
-    };
-
-    const refreshChannelModels = async (channel: ModelChannel) => {
-        if (!channel.baseUrl.trim() || !channel.apiKey.trim()) {
-            message.error("请先填写该渠道的 Base URL 和 Key");
-            return;
-        }
-        setLoadingChannelId(channel.id);
-        try {
-            const models = await fetchChannelModels(channel);
-            updateChannels(config.channels.map((item) => (item.id === channel.id ? { ...item, models } : item)));
-            message.success(`${channel.name} 模型列表已更新`);
-        } catch (error) {
-            message.error(error instanceof Error ? error.message : "读取模型失败");
-        } finally {
-            setLoadingChannelId("");
-        }
-    };
-
-    const refreshAllModels = async () => {
-        const runnable = config.channels.filter((channel) => channel.baseUrl.trim() && channel.apiKey.trim());
-        if (!runnable.length) {
-            message.error("请先填写至少一个可拉取渠道的 Base URL 和 Key");
-            return;
-        }
-        setLoadingChannelId("all");
-        try {
-            const entries = await Promise.all(runnable.map(async (channel) => [channel.id, await fetchChannelModels(channel)] as const));
-            const modelMap = new Map(entries);
-            updateChannels(config.channels.map((channel) => (modelMap.has(channel.id) ? { ...channel, models: modelMap.get(channel.id) || [] } : channel)));
-            message.success("模型列表已更新");
-        } catch (error) {
-            message.error(error instanceof Error ? error.message : "读取模型失败");
-        } finally {
-            setLoadingChannelId("");
-        }
     };
 
     const updateCapabilityModels = (group: ModelGroup, models: string[]) => {
@@ -429,14 +391,9 @@ export function AppConfigModal() {
                                             </Button>
                                         </div>
                                     </div>
-                                    <div className="flex shrink-0 gap-2">
-                                        <Button icon={<RefreshCw className="size-4" />} loading={Boolean(loadingChannelId)} onClick={() => void refreshAllModels()}>
-                                            拉取全部
-                                        </Button>
-                                        <Button type="primary" icon={<Plus className="size-4" />} onClick={addChannel}>
-                                            新增渠道
-                                        </Button>
-                                    </div>
+                                    <Button type="primary" icon={<Plus className="size-4" />} onClick={addChannel}>
+                                        新增渠道
+                                    </Button>
                                 </div>
                                 <div className="space-y-3">
                                     {config.channels.map((channel) => (
@@ -454,9 +411,6 @@ export function AppConfigModal() {
                                                             存云端
                                                         </Button>
                                                     ) : null}
-                                                    <Button size="small" loading={loadingChannelId === channel.id} onClick={() => void refreshChannelModels(channel)}>
-                                                        拉取模型
-                                                    </Button>
                                                     <Button size="small" icon={<Pencil className="size-3.5" />} onClick={() => {
                                                         setIsCreatingChannel(false);
                                                         setEditingChannel(channel);
@@ -625,7 +579,7 @@ export function AppConfigModal() {
                     },
                 ]}
             />
-            <ChannelEditorDrawer open={Boolean(editingChannel)} channel={editingChannel} onSave={saveChannel} onClose={() => {
+            <ChannelEditorDrawer open={Boolean(editingChannel)} channel={editingChannel} creating={isCreatingChannel} onSave={saveChannel} onClose={() => {
                 setIsCreatingChannel(false);
                 setEditingChannel(null);
             }} />

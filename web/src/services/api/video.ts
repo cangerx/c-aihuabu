@@ -6,7 +6,7 @@ import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/fil
 import { imageToDataUrl } from "@/services/image-storage";
 import { isGrokImagineVideo15Model, isGrokImagineVideoModel, normalizeGrokImagineVideoDuration, normalizeGrokImagineVideoRatio, normalizeGrokImagineVideoResolution } from "@/lib/grok-imagine";
 import { buildSeedancePromptText, caiVideoModelCapabilities } from "@/lib/seedance-video";
-import { isVideos4VideoModel, normalizeVideos4Duration, normalizeVideos4Ratio, normalizeVideos4Resolution, VIDEOS4_POLL_INTERVAL_MS, VIDEOS4_REFERENCE_LIMITS } from "@/lib/videos4-video";
+import { isVideos4VideoModel, normalizeVideos4Duration, normalizeVideos4Ratio, normalizeVideos4Resolution, VIDEOS4_POLL_INTERVAL_MS, videos4ReferenceLimits } from "@/lib/videos4-video";
 import { buildAiApiUrl, modelOptionName, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
@@ -134,10 +134,11 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
 
 async function createVideos4VideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
     const modelName = modelOptionName(model);
-    if (options?.videoMode === "first-last") throw new Error("videos-4 系列暂不支持首尾帧生成");
-    if (references.length > VIDEOS4_REFERENCE_LIMITS.images) throw new Error(`参考图片最多 ${VIDEOS4_REFERENCE_LIMITS.images} 张`);
-    if (videoReferences.length > VIDEOS4_REFERENCE_LIMITS.videos) throw new Error(`参考视频最多 ${VIDEOS4_REFERENCE_LIMITS.videos} 个`);
-    if (audioReferences.length > VIDEOS4_REFERENCE_LIMITS.audios) throw new Error(`参考音频最多 ${VIDEOS4_REFERENCE_LIMITS.audios} 个`);
+    const referenceLimits = videos4ReferenceLimits(modelName);
+    if (options?.videoMode === "first-last") throw new Error("当前 /v1/videos 模型暂不支持首尾帧生成");
+    if (references.length > referenceLimits.images) throw new Error(`参考图片最多 ${referenceLimits.images} 张`);
+    if (videoReferences.length > referenceLimits.videos) throw new Error(`参考视频最多 ${referenceLimits.videos} 个`);
+    if (audioReferences.length > referenceLimits.audios) throw new Error(`参考音频最多 ${referenceLimits.audios} 个`);
 
     const requestPrompt = buildSeedancePromptText(prompt, references, videoReferences, audioReferences);
     const [imageUrls, videoUrls, audioUrls] = await Promise.all([
@@ -167,7 +168,7 @@ async function createVideos4VideoTask(config: AiConfig, model: string, prompt: s
     }
 }
 
-/** videos-4 参考素材只接受公网 http/https，本地素材需先上传。 */
+/** /v1/videos JSON 协议只接受公网 http/https 参考素材，本地素材需先上传。 */
 async function resolveVideos4ImageUrl(image: ReferenceImage, options?: RequestOptions) {
     const directUrl = String(image.url || "").trim();
     if (isCaiReachableUrl(directUrl)) return directUrl;

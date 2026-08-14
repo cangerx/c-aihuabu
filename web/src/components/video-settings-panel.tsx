@@ -6,7 +6,7 @@ import { Switch } from "antd";
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
 import { grokImagineVideoRatioOptions, grokImagineVideoResolutionOptions, isGrokImagineVideo15Model, isGrokImagineVideoConfig, normalizeGrokImagineVideoRatio, normalizeGrokImagineVideoResolution } from "@/lib/grok-imagine";
 import { boolConfig, isSeedanceFastModel, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceDurationOptions, seedancePixelLabel, seedanceRatioOptions, seedanceResolutionOptions } from "@/lib/seedance-video";
-import { isVideos4VideoModel, normalizeVideos4Duration, normalizeVideos4Ratio, normalizeVideos4Resolution, videos4RatioOptions, videos4ResolutionFromModel, videos4ResolutionOptions } from "@/lib/videos4-video";
+import { isVideos4VideoModel, normalizeVideos4Duration, normalizeVideos4Ratio, normalizeVideos4Resolution, videos4RatioOptions, videos4ResolutionFromModel, videos4ResolutionOptionsForModel } from "@/lib/videos4-video";
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
 
@@ -113,6 +113,7 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
 function Videos4VideoSettingsPanel({ config, onConfigChange, theme, showTitle, className }: VideoSettingsPanelProps) {
     const model = modelOptionName(config.model || config.videoModel);
     const lockedResolution = videos4ResolutionFromModel(model);
+    const resolutionOptions = videos4ResolutionOptionsForModel(model);
     const resolution = normalizeVideos4Resolution(config.vquality, model);
     const ratio = normalizeVideos4Ratio(config.size);
     const duration = normalizeVideos4Duration(config.videoSeconds);
@@ -123,7 +124,7 @@ function Videos4VideoSettingsPanel({ config, onConfigChange, theme, showTitle, c
                 {showTitle ? <div className="text-lg font-semibold">视频设置</div> : null}
                 <SettingGroup title="分辨率" color={theme.node.muted}>
                     <div className="grid grid-cols-3 gap-2.5">
-                        {videos4ResolutionOptions.map((value) => (
+                        {resolutionOptions.map((value) => (
                             <OptionPill key={value} selected={resolution === value} disabled={Boolean(lockedResolution)} theme={theme} onClick={() => onConfigChange("vquality", value)}>
                                 {value}
                             </OptionPill>

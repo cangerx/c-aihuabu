@@ -92,7 +92,7 @@ export function caiVideoModelCapabilities(model: string) {
         textToVideo: !isGrok15,
         imageToVideo: true,
         imageReference: !isGrok15,
-        // videos-4 文档明确不支持首尾帧，传了会被上游拒绝。
+        // /v1/videos JSON 协议明确不支持首尾帧，传了会被上游拒绝。
         firstLastFrame: (isSeedance || isVeo31) && !isVideos4,
         allAroundReference: isSeedance || isNewTokenAllAround || isVeo31 || isVideos4,
         requiresImage: isGrok15,
