@@ -229,7 +229,8 @@ func (h Handler) refreshPaymentConfig() {
 func stringValue(value any) string { text, _ := value.(string); return strings.TrimSpace(text) }
 
 func (h Handler) AdminDashboard(c *gin.Context) {
-	stats, err := h.Service.Repo.Dashboard()
+	days, _ := strconv.Atoi(c.DefaultQuery("days", "7"))
+	stats, err := h.Service.Repo.Dashboard(days)
 	if err != nil {
 		Fail(c, 500, err)
 		return

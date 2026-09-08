@@ -1,8 +1,8 @@
-import { AudioLines, Building2, Coins, CreditCard, Crown, Gauge, Globe2, ImageIcon, KeyRound, LockKeyhole, LogOut, MessageSquareText, Package, ReceiptText, Settings2, ShieldAlert, ShieldCheck, Sparkles, UserRoundPlus, Users, Video, WalletCards } from "lucide-react";
+import { Activity, AlertTriangle, AudioLines, Building2, CheckCircle2, Coins, CreditCard, Crown, Gauge, Globe2, ImageIcon, KeyRound, LockKeyhole, LogOut, MessageSquareText, Package, ReceiptText, RefreshCw, Settings2, ShieldAlert, ShieldCheck, Sparkles, UserRoundPlus, Users, Video, WalletCards, XCircle } from "lucide-react";
 import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Alert, App, Avatar, Button, Dropdown, Tag } from "antd";
-import { ModalForm, PageContainer, ProCard, ProForm, ProFormDigit, ProFormRadio, ProFormSelect, ProFormSwitch, ProFormText, ProFormTextArea, ProLayout, ProTable, StatisticCard, type ActionType, type ProColumns, type ProFormInstance } from "@ant-design/pro-components";
+import { Alert, App, Avatar, Button, Dropdown, Progress, Tag } from "antd";
+import { ModalForm, PageContainer, ProCard, ProForm, ProFormDigit, ProFormRadio, ProFormSelect, ProFormSwitch, ProFormText, ProFormTextArea, ProLayout, ProTable, type ActionType, type ProColumns, type ProFormInstance } from "@ant-design/pro-components";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
@@ -70,20 +70,58 @@ function AdminContent({ path }: { path: string }) {
 }
 
 function DashboardPage() {
-    const { data } = useQuery({ queryKey: ["admin-dashboard"], queryFn: () => memberRequest<DashboardStats>("/api/admin/dashboard") });
+    const navigate = useNavigate();
+    const [days, setDays] = useState<7 | 30>(7);
+    const { data, isFetching, refetch } = useQuery({ queryKey: ["admin-dashboard", days], queryFn: () => memberRequest<DashboardStats>(`/api/admin/dashboard?days=${days}`) });
+    const { data: channels = [] } = useQuery({ queryKey: ["admin-dashboard-channels"], queryFn: () => memberRequest<AIChannel[]>("/api/admin/channels") });
+    const { data: prices = [] } = useQuery({ queryKey: ["admin-dashboard-prices"], queryFn: () => memberRequest<GenerationPrice[]>("/api/admin/prices") });
+    const { data: payment } = useQuery({ queryKey: ["admin-dashboard-payment"], queryFn: () => memberRequest<PaymentSettings>("/api/admin/settings/payment") });
+    const channelModels = channels.flatMap((channel) => channel.models);
+    const pricedModels = new Set(prices.filter((price) => price.enabled).map((price) => price.model));
+    const pricedChannelModels = channelModels.filter((model) => pricedModels.has(model));
+    const configuredChannels = channels.filter((channel) => channel.enabled && channel.apiKeyConfigured);
+    const issues = [
+        ...(channels.filter((channel) => channel.enabled && !channel.apiKeyConfigured).map((channel) => ({ text: `${channel.name} 尚未配置 API Key`, path: "/admin/channels" }))),
+        ...(channelModels.filter((model) => !pricedModels.has(model)).slice(0, 3).map((model) => ({ text: `${model} 尚未设置计价`, path: "/admin/prices" }))),
+        ...(payment && !payment.enabled ? [{ text: "积分充值未启用", path: "/admin/settings/payment" }] : []),
+    ];
+    const maxRevenue = Math.max(...(data?.trend || []).map((item) => item.revenueCent), 1);
+    const totalPointsFlow = (data?.pointsIssued || 0) + (data?.pointsSpent || 0);
+    const formatMoney = (cent: number) => `¥${(cent / 100).toFixed(2)}`;
+    const formatDate = (value: string) => value.slice(5).replace("-", "/");
     return (
-        <PageContainer title="数据概览" subTitle="会员、积分与收入的实时摘要">
-            <div className="mb-5 overflow-hidden rounded-2xl bg-[#17181b] p-7 text-white shadow-sm">
-                <div className="text-xs font-semibold uppercase tracking-[.22em] text-amber-300">Operations overview</div>
-                <div className="mt-3 text-2xl font-semibold tracking-tight">每一笔积分，都能追溯到用户、订单或生成任务。</div>
-                <div className="mt-2 text-sm text-white/45">当前为会员系统基础阶段，支付与生成扣费将在后续模块启用。</div>
+        <PageContainer title="数据概览" subTitle="业务经营、积分流转与上游配置状态" extra={<div className="flex items-center gap-2"><div className="flex rounded-lg border border-[var(--ant-color-border)] p-0.5"><Button type={days === 7 ? "primary" : "text"} size="small" onClick={() => setDays(7)}>近 7 天</Button><Button type={days === 30 ? "primary" : "text"} size="small" onClick={() => setDays(30)}>近 30 天</Button></div><Button icon={<RefreshCw className="size-4" />} loading={isFetching} onClick={() => void refetch()}>刷新</Button></div>}>
+            <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                {[{ label: "今日收入", value: formatMoney(data?.todayRevenueCent || 0), note: `${data?.todayPaidOrders || 0} 笔已支付`, color: "text-emerald-600" }, { label: "今日新增用户", value: `${data?.todayUsers || 0}`, note: `累计 ${data?.users || 0} 人`, color: "text-sky-600" }, { label: "待支付订单", value: `${data?.pendingOrders || 0}`, note: "需要跟进的订单", color: "text-orange-600" }, { label: "积分余额", value: `${data?.totalPoints || 0}`, note: "全站会员余额", color: "text-amber-600" }, { label: "累计收入", value: formatMoney(data?.revenueCent || 0), note: `${data?.paidOrders || 0} 笔已支付`, color: "text-violet-600" }].map((item) => <div key={item.label} className="rounded-xl border border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] px-4 py-4"><div className="text-sm text-[var(--ant-color-text-secondary)]">{item.label}</div><div className={`mt-2 text-2xl font-semibold ${item.color}`}>{item.value}</div><div className="mt-1 text-xs text-[var(--ant-color-text-tertiary)]">{item.note}</div></div>)}
             </div>
-            <StatisticCard.Group direction="row">
-                <StatisticCard statistic={{ title: "注册用户", value: data?.users || 0, suffix: "人" }} />
-                <StatisticCard statistic={{ title: "流通积分", value: data?.totalPoints || 0, suffix: "积分" }} />
-                <StatisticCard statistic={{ title: "已支付订单", value: data?.paidOrders || 0, suffix: "笔" }} />
-                <StatisticCard statistic={{ title: "累计收入", value: (data?.revenueCent || 0) / 100, prefix: "¥", precision: 2 }} />
-            </StatisticCard.Group>
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)]">
+                <ProCard title="收入与充值趋势" subTitle={`按自然日统计，${days} 天范围`} bordered>
+                    <div className="flex h-56 items-end gap-1.5 sm:gap-2">{(data?.trend || []).map((item) => <div key={item.date} className="group flex min-w-0 flex-1 flex-col items-center justify-end gap-2"><div className="relative flex h-44 w-full items-end justify-center"><div className="w-full max-w-8 rounded-t-md bg-amber-400 transition-all group-hover:bg-amber-500" style={{ height: `${Math.max(item.revenueCent ? (item.revenueCent / maxRevenue) * 100 : 3, 3)}%` }} title={`${item.date} ${formatMoney(item.revenueCent)}`} /></div><div className="truncate text-[10px] text-[var(--ant-color-text-tertiary)]">{days === 7 || item.date.endsWith("-01") ? formatDate(item.date) : ""}</div></div>)}</div>
+                    <div className="mt-3 flex items-center gap-4 text-xs text-[var(--ant-color-text-secondary)]"><span><i className="mr-1 inline-block size-2 rounded-full bg-amber-400" />每日收入</span><span>合计 {formatMoney((data?.trend || []).reduce((sum, item) => sum + item.revenueCent, 0))}</span><span>订单 {(data?.trend || []).reduce((sum, item) => sum + item.paidOrders, 0)} 笔</span></div>
+                </ProCard>
+                <ProCard title="积分健康度" subTitle="近期开支与发放" bordered>
+                    <div className="mb-4 flex items-center justify-between"><div><div className="text-3xl font-semibold">{data?.totalPoints || 0}</div><div className="text-xs text-[var(--ant-color-text-secondary)]">当前流通积分</div></div><Coins className="size-8 text-amber-500" /></div>
+                    <div className="space-y-3"><div><div className="mb-1 flex justify-between text-xs"><span>发放积分</span><span>{data?.pointsIssued || 0}</span></div><Progress percent={totalPointsFlow ? Math.round(((data?.pointsIssued || 0) / totalPointsFlow) * 100) : 0} showInfo={false} strokeColor="#10b981" /></div><div><div className="mb-1 flex justify-between text-xs"><span>消耗积分</span><span>{data?.pointsSpent || 0}</span></div><Progress percent={totalPointsFlow ? Math.round(((data?.pointsSpent || 0) / totalPointsFlow) * 100) : 0} showInfo={false} strokeColor="#f59e0b" /></div><div className="flex justify-between border-t border-[var(--ant-color-border-secondary)] pt-3 text-xs text-[var(--ant-color-text-secondary)]"><span>人工调整</span><span>{data?.pointsAdjusted || 0}</span></div></div>
+                </ProCard>
+            </div>
+            <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
+                <ProCard title="上游接口可用性" subTitle="配置层检查；真实成功率和延迟监控尚未接入" bordered extra={<Button type="link" onClick={() => navigate("/admin/channels")}>管理渠道</Button>}>
+                    <div className="mb-4 grid grid-cols-3 gap-3"><div className="rounded-lg bg-emerald-50 px-3 py-2 dark:bg-emerald-950/20"><div className="text-xs text-emerald-700 dark:text-emerald-300">可用渠道</div><div className="mt-1 text-xl font-semibold text-emerald-700 dark:text-emerald-300">{configuredChannels.length}/{channels.length}</div></div><div className="rounded-lg bg-sky-50 px-3 py-2 dark:bg-sky-950/20"><div className="text-xs text-sky-700 dark:text-sky-300">模型总数</div><div className="mt-1 text-xl font-semibold text-sky-700 dark:text-sky-300">{channelModels.length}</div></div><div className="rounded-lg bg-violet-50 px-3 py-2 dark:bg-violet-950/20"><div className="text-xs text-violet-700 dark:text-violet-300">计价覆盖</div><div className="mt-1 text-xl font-semibold text-violet-700 dark:text-violet-300">{channelModels.length ? `${Math.round((pricedChannelModels.length / channelModels.length) * 100)}%` : "-"}</div></div></div>
+                    <div className="space-y-2">{channels.length ? channels.slice(0, 5).map((channel) => <div key={channel.id} className="flex items-center justify-between border-t border-[var(--ant-color-border-secondary)] py-2.5"><div className="flex min-w-0 items-center gap-2"><span className={`size-2 rounded-full ${channel.enabled && channel.apiKeyConfigured ? "bg-emerald-500" : channel.enabled ? "bg-orange-400" : "bg-stone-300"}`} /><span className="truncate text-sm">{channel.name}</span><span className="text-xs text-[var(--ant-color-text-tertiary)]">{channel.models.length} 个模型</span></div><Tag color={channel.enabled && channel.apiKeyConfigured ? "green" : channel.enabled ? "orange" : "default"}>{channel.enabled && channel.apiKeyConfigured ? "配置正常" : channel.enabled ? "缺少密钥" : "已停用"}</Tag></div>) : <div className="py-6 text-center text-sm text-[var(--ant-color-text-secondary)]">暂无上游渠道，请先添加模型渠道</div>}</div>
+                    <div className="mt-3 flex items-center gap-2 text-xs text-[var(--ant-color-text-tertiary)]"><Activity className="size-3.5" />接口成功率、P95 延迟将在生成任务日志接入后显示</div>
+                </ProCard>
+                <ProCard title="需要处理" subTitle="按影响优先级列出配置问题" bordered>
+                    {issues.length ? <div className="space-y-1">{issues.slice(0, 6).map((issue, index) => <button key={`${issue.path}-${index}`} type="button" onClick={() => navigate(issue.path)} className="flex w-full items-center gap-3 rounded-lg px-2 py-2.5 text-left transition hover:bg-[var(--ant-color-fill-quaternary)]"><AlertTriangle className="size-4 shrink-0 text-orange-500" /><span className="min-w-0 flex-1 truncate text-sm">{issue.text}</span><span className="text-xs text-[var(--ant-color-text-tertiary)]">处理</span></button>)}</div> : <div className="flex min-h-36 flex-col items-center justify-center gap-2 text-center text-sm text-[var(--ant-color-text-secondary)]"><CheckCircle2 className="size-7 text-emerald-500" />当前没有待处理配置</div>}
+                </ProCard>
+            </div>
+            <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                <ProCard title="套餐表现" subTitle="近期开通收入排名" bordered extra={<Button type="link" onClick={() => navigate("/admin/packages")}>管理套餐</Button>}>
+                    {data?.packages?.length ? <div className="space-y-3">{data.packages.map((item, index) => <div key={item.name} className="flex items-center gap-3"><span className="w-5 text-center text-xs font-semibold text-[var(--ant-color-text-tertiary)]">{index + 1}</span><div className="min-w-0 flex-1"><div className="flex justify-between gap-3 text-sm"><span className="truncate">{item.name}</span><span className="font-medium">{formatMoney(item.revenueCent)}</span></div><div className="mt-1 text-xs text-[var(--ant-color-text-tertiary)]">{item.paidOrders} 笔已支付</div></div></div>)}</div> : <div className="py-8 text-center text-sm text-[var(--ant-color-text-secondary)]">所选时间范围暂无成交数据</div>}
+                </ProCard>
+                <ProCard title="监控说明" subTitle="当前数据的可信边界" bordered>
+                    <div className="space-y-3 text-sm text-[var(--ant-color-text-secondary)]"><div className="flex gap-3"><CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-500" /><span>用户、订单、积分和渠道配置均来自服务端实时数据库。</span></div><div className="flex gap-3"><XCircle className="mt-0.5 size-4 shrink-0 text-stone-400" /><span>上游生成成功率、响应时间、错误分类暂未统计，不显示虚假百分比。</span></div><div className="flex gap-3"><RefreshCw className="mt-0.5 size-4 shrink-0 text-sky-500" /><span>刷新按钮只重新拉取当前范围数据，不会触发上游生成请求。</span></div></div>
+                </ProCard>
+            </div>
         </PageContainer>
     );
 }

@@ -2,6 +2,8 @@ package repository
 
 import (
 	"errors"
+	"sort"
+	"time"
 
 	"c-aihuabu-server/model"
 	"gorm.io/gorm"
@@ -15,6 +17,32 @@ type DashboardStats struct {
 	TotalPoints int64 `json:"totalPoints"`
 	PaidOrders  int64 `json:"paidOrders"`
 	RevenueCent int64 `json:"revenueCent"`
+}
+
+type DashboardTrend struct {
+	Date        string `json:"date"`
+	Users       int64  `json:"users"`
+	PaidOrders  int64  `json:"paidOrders"`
+	RevenueCent int64  `json:"revenueCent"`
+}
+
+type DashboardPackage struct {
+	Name        string `json:"name"`
+	PaidOrders  int64  `json:"paidOrders"`
+	RevenueCent int64  `json:"revenueCent"`
+}
+
+type DashboardOverview struct {
+	DashboardStats
+	TodayUsers       int64              `json:"todayUsers"`
+	TodayPaidOrders  int64              `json:"todayPaidOrders"`
+	TodayRevenueCent int64              `json:"todayRevenueCent"`
+	PendingOrders    int64              `json:"pendingOrders"`
+	PointsIssued     int64              `json:"pointsIssued"`
+	PointsSpent      int64              `json:"pointsSpent"`
+	PointsAdjusted   int64              `json:"pointsAdjusted"`
+	Trend            []DashboardTrend   `json:"trend"`
+	Packages         []DashboardPackage `json:"packages"`
 }
 
 func (r Repository) CreateUser(user *model.User) error { return r.DB.Create(user).Error }
@@ -57,8 +85,14 @@ func (r Repository) ListUsers(keyword string, page, pageSize int) ([]model.User,
 	return rows, total, err
 }
 
-func (r Repository) Dashboard() (DashboardStats, error) {
-	var stats DashboardStats
+func (r Repository) Dashboard(days int) (DashboardOverview, error) {
+	var stats DashboardOverview
+	if days != 7 && days != 30 {
+		days = 7
+	}
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	start := today.AddDate(0, 0, -(days - 1))
 	if err := r.DB.Model(&model.User{}).Count(&stats.Users).Error; err != nil {
 		return stats, err
 	}
@@ -68,8 +102,80 @@ func (r Repository) Dashboard() (DashboardStats, error) {
 	if err := r.DB.Model(&model.RechargeOrder{}).Where("status = ?", "paid").Count(&stats.PaidOrders).Error; err != nil {
 		return stats, err
 	}
-	err := r.DB.Model(&model.RechargeOrder{}).Where("status = ?", "paid").Select("COALESCE(SUM(amount_cent), 0)").Scan(&stats.RevenueCent).Error
-	return stats, err
+	if err := r.DB.Model(&model.RechargeOrder{}).Where("status = ?", "paid").Select("COALESCE(SUM(amount_cent), 0)").Scan(&stats.RevenueCent).Error; err != nil {
+		return stats, err
+	}
+	if err := r.DB.Model(&model.User{}).Where("created_at >= ?", today).Count(&stats.TodayUsers).Error; err != nil {
+		return stats, err
+	}
+	if err := r.DB.Model(&model.RechargeOrder{}).Where("status = ? AND paid_at >= ?", "paid", today).Count(&stats.TodayPaidOrders).Error; err != nil {
+		return stats, err
+	}
+	if err := r.DB.Model(&model.RechargeOrder{}).Where("status = ? AND paid_at >= ?", "paid", today).Select("COALESCE(SUM(amount_cent), 0)").Scan(&stats.TodayRevenueCent).Error; err != nil {
+		return stats, err
+	}
+	if err := r.DB.Model(&model.RechargeOrder{}).Where("status = ?", "pending").Count(&stats.PendingOrders).Error; err != nil {
+		return stats, err
+	}
+	var ledgers []model.PointLedger
+	if err := r.DB.Where("created_at >= ?", start).Find(&ledgers).Error; err != nil {
+		return stats, err
+	}
+	for _, row := range ledgers {
+		if row.Type == "admin_adjustment" {
+			stats.PointsAdjusted += row.Amount
+		} else if row.Amount > 0 {
+			stats.PointsIssued += row.Amount
+		} else {
+			stats.PointsSpent += -row.Amount
+		}
+	}
+	trend := map[string]*DashboardTrend{}
+	for day := start; !day.After(today); day = day.AddDate(0, 0, 1) {
+		key := day.Format("2006-01-02")
+		trend[key] = &DashboardTrend{Date: key}
+	}
+	var users []model.User
+	if err := r.DB.Where("created_at >= ?", start).Find(&users).Error; err != nil {
+		return stats, err
+	}
+	for _, user := range users {
+		if row := trend[user.CreatedAt.In(now.Location()).Format("2006-01-02")]; row != nil {
+			row.Users++
+		}
+	}
+	var orders []model.RechargeOrder
+	if err := r.DB.Where("status = ? AND paid_at >= ?", "paid", start).Find(&orders).Error; err != nil {
+		return stats, err
+	}
+	packages := map[string]*DashboardPackage{}
+	for _, order := range orders {
+		if order.PaidAt != nil {
+			if row := trend[order.PaidAt.In(now.Location()).Format("2006-01-02")]; row != nil {
+				row.PaidOrders++
+				row.RevenueCent += order.AmountCent
+			}
+		}
+		row := packages[order.PackageName]
+		if row == nil {
+			row = &DashboardPackage{Name: order.PackageName}
+			packages[order.PackageName] = row
+		}
+		row.PaidOrders++
+		row.RevenueCent += order.AmountCent
+	}
+	for _, row := range trend {
+		stats.Trend = append(stats.Trend, *row)
+	}
+	sort.Slice(stats.Trend, func(i, j int) bool { return stats.Trend[i].Date < stats.Trend[j].Date })
+	for _, row := range packages {
+		stats.Packages = append(stats.Packages, *row)
+	}
+	sort.Slice(stats.Packages, func(i, j int) bool { return stats.Packages[i].RevenueCent > stats.Packages[j].RevenueCent })
+	if len(stats.Packages) > 5 {
+		stats.Packages = stats.Packages[:5]
+	}
+	return stats, nil
 }
 
 func (r Repository) ListPackages(admin bool) ([]model.PointPackage, error) {

@@ -10,7 +10,9 @@ export type MemberUser = {
     createdAt: string;
 };
 
-export type DashboardStats = { users: number; totalPoints: number; paidOrders: number; revenueCent: number };
+export type DashboardTrend = { date: string; users: number; paidOrders: number; revenueCent: number };
+export type DashboardPackage = { name: string; paidOrders: number; revenueCent: number };
+export type DashboardStats = { users: number; totalPoints: number; paidOrders: number; revenueCent: number; todayUsers: number; todayPaidOrders: number; todayRevenueCent: number; pendingOrders: number; pointsIssued: number; pointsSpent: number; pointsAdjusted: number; trend: DashboardTrend[]; packages: DashboardPackage[] };
 export type PointPackage = { id: string; name: string; points: number; priceCent: number; enabled: boolean; sort: number };
 export type GenerationPrice = { id: string; model: string; mediaType: string; points: number; enabled: boolean };
 export type PaymentSettings = { enabled: boolean; wechatEnabled: boolean; alipayEnabled: boolean; sandbox: boolean; host: string; productionHost: string; orgId: string; mno: string; subMechId: string; signType: string; version: string; notifyUrl: string; privateKeyConfigured: boolean; publicKeyConfigured: boolean };
