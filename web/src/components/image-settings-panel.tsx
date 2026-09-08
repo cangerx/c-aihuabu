@@ -4,7 +4,7 @@ import { ConfigProvider, Switch } from "antd";
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import { glmImageSizeLabel, glmImageSizeOptions, isGlmImageConfig, normalizeGlmImageSize, normalizeGlmImageSteps } from "@/lib/glm-image";
 import { grokImagineImageMaxCount, grokImagineImageRatioOptions, grokImagineImageResolutionOptions, grokImagineImageRatioLabel, isGrokImagineImageConfig, normalizeGrokImagineImageRatio, normalizeGrokImagineImageResolution } from "@/lib/grok-imagine";
-import { gptImage2RatioOptions, gptImage2ResolutionOptions, isGptImage2StyleConfig, normalizeGptImage2Ratio, normalizeGptImage2Resolution } from "@/lib/gpt-image-2";
+import { geminiImageRatioOptions, geminiImageResolutionOptions, gptImage2RatioOptions, gptImage2ResolutionOptions, isGeminiImagePreviewConfig, isGptImage2StyleConfig, normalizeGeminiImageRatio, normalizeGeminiImageResolution, normalizeGptImage2Ratio, normalizeGptImage2Resolution } from "@/lib/gpt-image-2";
 import { isStepImageEdit2Config, normalizeStepImageEdit2Size, stepImageEdit2SizeOptions, stepImageEdit2SizeLabel } from "@/lib/step-image";
 import type { AiConfig } from "@/stores/use-config-store";
 
@@ -47,9 +47,10 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const isGlmImage = isGlmImageConfig(config);
     const isStepImageEdit2 = isStepImageEdit2Config(config);
     const isGrokImagineImage = isGrokImagineImageConfig(config);
+    const isGeminiImage = isGeminiImagePreviewConfig(config);
     const isGptImage2Style = isGptImage2StyleConfig(config);
     const effectiveMaxCount = isGrokImagineImage ? Math.min(maxCount, grokImagineImageMaxCount) : maxCount;
-    const quality = isGrokImagineImage ? normalizeGrokImagineImageResolution(config.quality) : isGptImage2Style ? normalizeGptImage2Resolution(config.quality) : config.quality || "auto";
+    const quality = isGrokImagineImage ? normalizeGrokImagineImageResolution(config.quality) : isGeminiImage ? normalizeGeminiImageResolution(config.quality) : isGptImage2Style ? normalizeGptImage2Resolution(config.quality) : config.quality || "auto";
     const count = Math.max(1, Math.min(effectiveMaxCount, Math.floor(Math.abs(Number(config.count)) || 1)));
     const activeSize = config.size || "auto";
     const quickOptions = Array.from({ length: Math.min(quickCount, effectiveMaxCount) }, (_, index) => index + 1);
@@ -157,12 +158,12 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
                             </div>
                         </div>
                     </>
-                ) : isGptImage2Style ? (
+                ) : isGeminiImage || isGptImage2Style ? (
                     <>
                         <div className="space-y-2.5">
                             <SettingTitle color={theme.node.muted}>分辨率</SettingTitle>
                             <div className="grid grid-cols-3 gap-2.5">
-                                {gptImage2ResolutionOptions.map((item) => (
+                                {(isGeminiImage ? geminiImageResolutionOptions : gptImage2ResolutionOptions).map((item) => (
                                     <OptionPill key={item.value} selected={quality === item.value} theme={theme} onClick={() => onConfigChange("quality", item.value)}>
                                         {item.label}
                                     </OptionPill>
@@ -172,14 +173,14 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
                         <div className="space-y-2.5">
                             <SettingTitle color={theme.node.muted}>宽高比</SettingTitle>
                             <div className="grid grid-cols-4 gap-2.5">
-                                {gptImage2RatioOptions.map((item) => {
+                                {(isGeminiImage ? geminiImageRatioOptions : gptImage2RatioOptions).map((item) => {
                                     const [w, h] = item.value.split(":").map(Number);
                                     return (
                                         <button
                                             key={item.value}
                                             type="button"
                                             className="flex h-[72px] cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border bg-transparent text-sm transition hover:opacity-80"
-                                            style={{ borderColor: normalizeGptImage2Ratio(activeSize) === item.value ? theme.node.text : theme.node.stroke, background: "transparent", color: theme.node.text }}
+                                            style={{ borderColor: (isGeminiImage ? normalizeGeminiImageRatio(activeSize) : normalizeGptImage2Ratio(activeSize)) === item.value ? theme.node.text : theme.node.stroke, background: "transparent", color: theme.node.text }}
                                             onMouseDown={(event) => event.stopPropagation()}
                                             onClick={() => onConfigChange("size", item.value)}
                                         >
@@ -278,6 +279,7 @@ export function imageSizeLabel(size: string) {
     const raw = String(size || "").trim().toLowerCase();
     if (glmImageSizeOptions.some((item) => item.value === raw)) return glmImageSizeLabel(raw);
     if (stepImageEdit2SizeOptions.some((item) => item.value === raw)) return stepImageEdit2SizeLabel(raw);
+    if (geminiImageRatioOptions.some((item) => item.value === raw)) return raw;
     if (grokImagineImageRatioOptions.some((item) => item.value === raw)) return grokImagineImageRatioLabel(raw);
     if (gptImage2RatioOptions.some((item) => item.value === raw)) return raw;
     return aspectOptions.find((item) => (item.size || item.value) === size || item.value === size)?.label || size;

@@ -6,7 +6,7 @@ import { ModelPicker } from "@/components/model-picker";
 import { defaultConfig, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { isGrokImagineImageConfig, normalizeGrokImagineImageCount, normalizeGrokImagineImageRatio, normalizeGrokImagineImageResolution } from "@/lib/grok-imagine";
-import { isGptImage2StyleConfig, normalizeGptImage2Ratio, normalizeGptImage2Resolution } from "@/lib/gpt-image-2";
+import { isGeminiImagePreviewConfig, isGptImage2StyleConfig, normalizeGeminiImageRatio, normalizeGeminiImageResolution, normalizeGptImage2Ratio, normalizeGptImage2Resolution } from "@/lib/gpt-image-2";
 import { isGlmImageConfig, normalizeGlmImageSize } from "@/lib/glm-image";
 import { isStepImageEdit2Config, normalizeStepImageEdit2Size } from "@/lib/step-image";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -178,6 +178,9 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
             quality: normalizeGptImage2Resolution(nextConfig.quality),
             size: normalizeGptImage2Ratio(nextConfig.size),
         };
+    }
+    if (mode === "image" && isGeminiImagePreviewConfig(nextConfig)) {
+        return { ...nextConfig, quality: normalizeGeminiImageResolution(nextConfig.quality), size: normalizeGeminiImageRatio(nextConfig.size) };
     }
     if (mode === "image" && isStepImageEdit2Config(nextConfig)) {
         return {

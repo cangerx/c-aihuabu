@@ -3,6 +3,19 @@ import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
 export const gptImage2Model = "gpt-image-2";
 export const geminiImagePreviewModels = ["gemini-3-pro-image-preview", "gemini-3.1-flash-image-preview"] as const;
 
+export const geminiImageRatioOptions = [
+    { value: "1:1", label: "1:1" },
+    { value: "2:3", label: "2:3" },
+    { value: "3:2", label: "3:2" },
+    { value: "3:4", label: "3:4" },
+    { value: "4:3", label: "4:3" },
+    { value: "4:5", label: "4:5" },
+    { value: "5:4", label: "5:4" },
+    { value: "9:16", label: "9:16" },
+    { value: "16:9", label: "16:9" },
+    { value: "21:9", label: "21:9" },
+] as const;
+
 export const gptImage2RatioOptions = [
     { value: "1:1", label: "1:1" },
     { value: "16:9", label: "16:9" },
@@ -18,6 +31,8 @@ export const gptImage2ResolutionOptions = [
     { value: "2k", label: "2K" },
     { value: "4k", label: "4K" },
 ] as const;
+
+export const geminiImageResolutionOptions = gptImage2ResolutionOptions;
 
 /** 文档尺寸映射：分辨率档位 × 宽高比 → size */
 const SIZE_MAP: Record<string, Record<string, string>> = {
@@ -56,7 +71,7 @@ export function isGptImage2Model(model: string) {
 
 export function isGeminiImagePreviewModel(model: string) {
     const value = modelOptionName(model).toLowerCase();
-    return geminiImagePreviewModels.some((item) => value === item || value.includes(item));
+    return geminiImagePreviewModels.some((item) => value === item || value.includes(item)) || value.includes("nano-banana") || (value.includes("gemini") && value.includes("image"));
 }
 
 export function isGptImage2Config(config: AiConfig | Pick<AiConfig, "model" | "imageModel">) {
@@ -68,7 +83,22 @@ export function isGeminiImagePreviewConfig(config: AiConfig | Pick<AiConfig, "mo
 }
 
 export function isGptImage2StyleConfig(config: AiConfig | Pick<AiConfig, "model" | "imageModel">) {
-    return isGptImage2Config(config) || isGeminiImagePreviewConfig(config);
+    return isGptImage2Config(config);
+}
+
+export const normalizeGeminiImageResolution = normalizeGptImage2Resolution;
+
+export function normalizeGeminiImageRatio(value: string) {
+    const raw = String(value || "").trim().toLowerCase();
+    if (geminiImageRatioOptions.some((item) => item.value === raw)) return raw;
+    const match = raw.match(/^(\d+(?:\.\d+)?)(?:x|:)(\d+(?:\.\d+)?)/);
+    if (!match) return "1:1";
+    const ratio = Number(match[1]) / Number(match[2]);
+    return geminiImageRatioOptions.reduce((best, item) => {
+        const [width, height] = item.value.split(":").map(Number);
+        const [bestWidth, bestHeight] = best.split(":").map(Number);
+        return Math.abs(width / height - ratio) < Math.abs(bestWidth / bestHeight - ratio) ? item.value : best;
+    }, "1:1");
 }
 
 export function normalizeGptImage2Resolution(value: string) {

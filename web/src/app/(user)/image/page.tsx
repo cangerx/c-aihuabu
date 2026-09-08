@@ -23,7 +23,7 @@ import type { ReferenceImage } from "@/types/image";
 import type { CanvasResourceReference } from "@/app/(user)/canvas/utils/canvas-resource-references";
 import { imageSizeLabel } from "@/components/image-settings-panel";
 import { isGrokImagineImageConfig, normalizeGrokImagineImageRatio, normalizeGrokImagineImageResolution } from "@/lib/grok-imagine";
-import { isGptImage2StyleConfig, normalizeGptImage2Ratio, normalizeGptImage2Resolution } from "@/lib/gpt-image-2";
+import { isGeminiImagePreviewConfig, isGptImage2StyleConfig, normalizeGeminiImageRatio, normalizeGeminiImageResolution, normalizeGptImage2Ratio, normalizeGptImage2Resolution } from "@/lib/gpt-image-2";
 import { isGlmImageConfig, normalizeGlmImageSize } from "@/lib/glm-image";
 import { isStepImageEdit2Config, normalizeStepImageEdit2Size } from "@/lib/step-image";
 
@@ -864,6 +864,13 @@ function buildImageConfig(config: AiConfig, model: string): AiConfig {
             ...nextConfig,
             quality: normalizeGptImage2Resolution(nextConfig.quality),
             size: normalizeGptImage2Ratio(nextConfig.size),
+        };
+    }
+    if (isGeminiImagePreviewConfig(nextConfig)) {
+        nextConfig = {
+            ...nextConfig,
+            quality: normalizeGeminiImageResolution(nextConfig.quality),
+            size: normalizeGeminiImageRatio(nextConfig.size),
         };
     }
     if (isStepImageEdit2Config(nextConfig)) {

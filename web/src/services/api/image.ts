@@ -1,7 +1,7 @@
 import axios from "axios";
 
 import { grokImagineImageEditMaxCount, grokImagineImageMaxCount, isGrokImagineImageModel, normalizeGrokImagineImageRatio, normalizeGrokImagineImageResolution } from "@/lib/grok-imagine";
-import { isGeminiImagePreviewModel, isGptImage2Model, normalizeGptImage2Ratio, normalizeGptImage2Resolution, resolveGptImage2Size } from "@/lib/gpt-image-2";
+import { isGeminiImagePreviewModel, isGptImage2Model, normalizeGeminiImageRatio, normalizeGeminiImageResolution, normalizeGptImage2Ratio, normalizeGptImage2Resolution, resolveGptImage2Size } from "@/lib/gpt-image-2";
 import { isStepImageEdit2Model, normalizeStepImageEdit2Size } from "@/lib/step-image";
 import { glmImageApiDimensions, isGlmImageModel, isZImageTurboModel, normalizeGlmImageSteps } from "@/lib/glm-image";
 import { debugError, debugLog, debugWarn, estimatePayloadBytes, summarizeAxiosError } from "@/lib/debug-log";
@@ -84,7 +84,7 @@ type ChatToolDefinition = {
 };
 type ChatCompletionPayload = {
     choices?: Array<{
-        message?: { content?: string | null; tool_calls?: Array<{ id?: string; type?: string; function?: { name?: string; arguments?: string } }> };
+        message?: { content?: string | null; images?: Array<{ image_url?: { url?: string } }>; tool_calls?: Array<{ id?: string; type?: string; function?: { name?: string; arguments?: string } }> };
     }>;
     error?: { message?: string };
     code?: number;
@@ -386,7 +386,7 @@ function geminiBaseUrl(config: Pick<AiConfig, "baseUrl">) {
     const lowerBaseUrl = normalizedBaseUrl.toLowerCase();
     // 兼容 aicost/Cai：Base 以 /v1 结尾时改为 /v1beta
     if (lowerBaseUrl.endsWith("/v1beta")) return normalizedBaseUrl;
-    if (lowerBaseUrl.endsWith("/v1")) return `${normalizedBaseUrl.slice(0, -3)}v1beta`;
+    if (lowerBaseUrl.endsWith("/v1")) return `${normalizedBaseUrl.slice(0, -3)}/v1beta`;
     return `${normalizedBaseUrl}/v1beta`;
 }
 
@@ -400,8 +400,10 @@ function geminiApiUrl(config: Pick<AiConfig, "baseUrl" | "model"> & Partial<Pick
     return buildProxiedUrl(targetUrl, config.aiProxyEnabled);
 }
 
-function geminiHeaders(config: Pick<AiConfig, "apiKey">): Record<string, string> {
-    // Cai/aicost 等 OpenAI 兼容中转的 Gemini 预览模型使用 Bearer。
+function geminiHeaders(config: Pick<AiConfig, "apiKey" | "baseUrl">): Record<string, string> {
+    if (config.baseUrl.toLowerCase().includes("generativelanguage.googleapis.com")) {
+        return { "x-goog-api-key": config.apiKey, "Content-Type": "application/json" };
+    }
     return {
         Authorization: `Bearer ${config.apiKey}`,
         "Content-Type": "application/json",
@@ -699,22 +701,42 @@ async function requestGeminiImagesOnce(config: AiConfig, prompt: string, referen
     for (const image of references) {
         parts.push(toGeminiImagePart(await imageToDataUrl(image)));
     }
-    const imageSize = normalizeGptImage2Resolution(config.quality).toUpperCase();
-    const aspectRatio = normalizeGptImage2Ratio(config.size);
-    const response = await axios.post<GeminiPayload>(
-        geminiApiUrl(config, "generateContent"),
-        {
-            ...toGeminiBody(config, [{ role: "user", content: prompt }], {
-                generationConfig: {
-                    responseModalities: ["TEXT", "IMAGE"],
-                    imageConfig: { imageSize, aspectRatio },
-                },
-            }),
-            contents: [{ role: "user", parts }],
-        },
-        { headers: geminiHeaders(config), signal: options?.signal },
-    );
-    return parseGeminiImagePayload(response.data);
+    const imageSize = normalizeGeminiImageResolution(config.quality).toUpperCase();
+    const aspectRatio = normalizeGeminiImageRatio(config.size);
+    debugLog("image", "Gemini 生图", { model: modelOptionName(config.model), imageSize, aspectRatio, references: references.length });
+    try {
+        const response = await axios.post<GeminiPayload>(
+            geminiApiUrl(config, "generateContent"),
+            {
+                ...toGeminiBody(config, [{ role: "user", content: prompt }], {
+                    generationConfig: {
+                        responseModalities: ["TEXT", "IMAGE"],
+                        imageConfig: { imageSize, aspectRatio },
+                    },
+                }),
+                contents: [{ role: "user", parts }],
+            },
+            { headers: geminiHeaders(config), signal: options?.signal },
+        );
+        return parseGeminiImagePayload(response.data);
+    } catch (error) {
+        if (!axios.isAxiosError(error) || (error.response?.status !== 404 && error.response?.status !== 405)) throw error;
+        debugWarn("image", "Gemini 原生接口不可用，回退 chat/completions", { model: modelOptionName(config.model), status: error.response.status });
+        const content = [{ type: "text", text: withSystemPrompt(config, prompt) }, ...await Promise.all(references.map(async (image) => ({ type: "image_url", image_url: { url: await imageToDataUrl(image) } })))] as Array<{ type: string; text?: string; image_url?: { url: string } }>;
+        const response = await postWithProxyFallback<ChatCompletionPayload>(config, "/chat/completions", {
+            model: modelOptionName(config.model),
+            messages: [{ role: "user", content }],
+            extra_body: { google: { image_config: { image_size: imageSize, aspect_ratio: aspectRatio } } },
+        }, "application/json", options);
+        const message = response.data.choices?.[0]?.message;
+        const urls = [...(message?.images || []).map((item) => item.image_url?.url || ""), ...extractMarkdownImageUrls(message?.content || "")].filter(Boolean);
+        if (!urls.length) throw new Error("Gemini 兼容接口没有返回图片");
+        return urls.map((dataUrl) => ({ id: nanoid(), dataUrl }));
+    }
+}
+
+function extractMarkdownImageUrls(content: string) {
+    return Array.from(content.matchAll(/!\[[^\]]*\]\((data:image\/[^;]+;base64,[A-Za-z0-9+/=_-]+|https?:\/\/[^\s)]+)\)/g), (match) => match[1]);
 }
 
 async function requestGptImage2Generation(config: AiConfig, prompt: string, count: number, options?: RequestOptions) {

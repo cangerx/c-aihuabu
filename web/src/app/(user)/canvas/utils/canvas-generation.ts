@@ -1,5 +1,5 @@
 import { normalizeVideoResolutionValue, normalizeVideoSizeValue } from "@/components/video-settings-panel";
-import { isGptImage2StyleConfig, normalizeGptImage2Ratio, normalizeGptImage2Resolution } from "@/lib/gpt-image-2";
+import { isGeminiImagePreviewConfig, isGptImage2StyleConfig, normalizeGeminiImageRatio, normalizeGeminiImageResolution, normalizeGptImage2Ratio, normalizeGptImage2Resolution } from "@/lib/gpt-image-2";
 import { isGlmImageConfig, normalizeGlmImageSize } from "@/lib/glm-image";
 import { isGrokImagineImageConfig, isGrokImagineVideoModel, normalizeGrokImagineImageCount, normalizeGrokImagineImageRatio, normalizeGrokImagineImageResolution, normalizeGrokImagineVideoRatio, normalizeGrokImagineVideoResolution } from "@/lib/grok-imagine";
 import { boolConfig, isSeedanceVideoModel, normalizeSeedanceRatio } from "@/lib/seedance-video";
@@ -193,6 +193,9 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
     }
     if (mode === "image" && isGptImage2StyleConfig(nextConfig)) {
         return { ...nextConfig, quality: normalizeGptImage2Resolution(nextConfig.quality), size: normalizeGptImage2Ratio(nextConfig.size) };
+    }
+    if (mode === "image" && isGeminiImagePreviewConfig(nextConfig)) {
+        return { ...nextConfig, quality: normalizeGeminiImageResolution(nextConfig.quality), size: normalizeGeminiImageRatio(nextConfig.size) };
     }
     if (mode === "image" && isStepImageEdit2Config(nextConfig)) {
         return { ...nextConfig, size: normalizeStepImageEdit2Size(nextConfig.size) };
