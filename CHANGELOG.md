@@ -2,6 +2,7 @@
 
 ## Unreleased
 
++ [修复] 同域 AI 代理按目标地址区分鉴权方式：Google 官方 Gemini 域名使用 `x-goog-api-key`，普通 OpenAI 兼容渠道继续使用 `Authorization: Bearer`，避免官方接口返回 `Invalid API Key`。
 + [安全] 前端调试日志与错误摘要不再展示上游完整请求地址，统一仅显示接口路径，避免暴露渠道域名和端口。
 + [修复] Gemini 原生生图请求通过同域代理失败时增加受控直连回退，降低代理 500 导致的生图失败；尺寸参数保持一致。
 + [适配] Gemini Image 与 Nano Banana 系列统一使用 Gemini 生图尺寸参数，支持 1K/2K/4K 和十种宽高比；修复 `/v1` 转 `/v1beta` 时端口后缺少斜杠，原生生成接口不可用时回退 OpenAI `chat/completions` 兼容协议。

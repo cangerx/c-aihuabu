@@ -99,7 +99,15 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "model channel is not configured", http.StatusBadGateway)
 		return
 	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
+	// Google Gemini 官方接口要求 x-goog-api-key；OpenAI 兼容中转仍使用 Bearer。
+	// 不同时发送两种鉴权头，避免上游优先读取错误的 Authorization。
+	req.Header.Del("Authorization")
+	if isGoogleGeminiHost(target.Hostname()) {
+		req.Header.Set("x-goog-api-key", apiKey)
+	} else {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+		req.Header.Del("x-goog-api-key")
+	}
 	req.Host = target.Host
 
 	resp, err := upstreamHTTPClient.Do(req)
@@ -115,6 +123,11 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	if err := copyResponseBody(w, resp.Body); err != nil {
 		log.Printf("copy response failed: %v", err)
 	}
+}
+
+func isGoogleGeminiHost(host string) bool {
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	return host == "generativelanguage.googleapis.com" || strings.HasSuffix(host, ".generativelanguage.googleapis.com")
 }
 
 func resolveAPIKey(ctx context.Context, target string) (string, error) {

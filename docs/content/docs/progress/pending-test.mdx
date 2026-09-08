@@ -5,6 +5,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 # 待测试
 
+- Gemini 官方鉴权头：将模型渠道 Base URL 配置为 Google 官方 Gemini API 域名并通过同域代理生图时，应使用 `x-goog-api-key`，不再返回 `Invalid API Key`；普通 IP/域名中转仍使用 `Authorization: Bearer`，两种鉴权头不应同时发送。
 - 前端上游地址保护：开启调试日志并发起图片/视频请求，日志和错误详情不得显示渠道完整域名、IP、端口、Key 或代理 `url` 查询参数，仅显示 `/api/proxy` 或接口路径；请求失败提示应优先显示模型、状态和可执行建议。
 - Gemini 500 回退：Gemini 原生 `generateContent` 经同域代理返回 500/502/504 时，应按现有代理回退策略尝试直连；原生接口 404/405 时回退 OpenAI 兼容 `chat/completions`，两条路径均传递 `imageConfig` 对应尺寸。
 - Gemini 系列生图：模型 ID 包含 `gemini` + `image`，或包含 `nano-banana` 时，应归入图片模型并显示 1K/2K/4K 与 `1:1`、`2:3`、`3:2`、`3:4`、`4:3`、`4:5`、`5:4`、`9:16`、`16:9`、`21:9` 比例；生图工作台、画布节点和配置节点切换模型后尺寸应保持一致。Base URL 为 `http://host:port/v1` 时，原生地址必须正确转换为 `http://host:port/v1beta/models/...:generateContent`。原生 Gemini 请求提交 `generationConfig.imageConfig.imageSize/aspectRatio`；原生路径返回 404/405 时自动回退 `/chat/completions`，提交 `extra_body.google.image_config.image_size/aspect_ratio`，并解析 Markdown 或 `message.images` 图片结果。
