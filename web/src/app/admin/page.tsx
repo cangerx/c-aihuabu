@@ -2,7 +2,7 @@ import { AudioLines, Building2, Coins, CreditCard, Crown, Gauge, Globe2, ImageIc
 import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { App, Avatar, Button, Dropdown, Tag } from "antd";
-import { ModalForm, PageContainer, ProCard, ProForm, ProFormDigit, ProFormRadio, ProFormSelect, ProFormSwitch, ProFormText, ProFormTextArea, ProLayout, ProTable, StatisticCard, type ActionType, type ProColumns } from "@ant-design/pro-components";
+import { ModalForm, PageContainer, ProCard, ProForm, ProFormDigit, ProFormRadio, ProFormSelect, ProFormSwitch, ProFormText, ProFormTextArea, ProLayout, ProTable, StatisticCard, type ActionType, type ProColumns, type ProFormInstance } from "@ant-design/pro-components";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
@@ -151,6 +151,7 @@ type PaymentSettingsForm = PaymentSettings & { privateKey?: string; publicKey?: 
 
 function PaymentSettingsPage() {
     const { message } = App.useApp();
+    const formRef = useRef<ProFormInstance<PaymentSettingsForm>>(null);
     const { data, error, isFetching, refetch } = useQuery({ queryKey: ["admin-payment-settings"], queryFn: () => memberRequest<PaymentSettings>("/api/admin/settings/payment") });
     if (!data) return <PageContainer title="支付配置" subTitle="平台收款渠道与签名凭据">{error ? <ProCard><div className="grid min-h-52 place-items-center text-center"><div><div className="font-medium">支付配置加载失败</div><div className="mt-1 text-sm text-[var(--ant-color-text-secondary)]">{error.message}</div><Button className="mt-4" loading={isFetching} onClick={() => void refetch()}>重新加载</Button></div></div></ProCard> : <ProCard loading />}</PageContainer>;
 
@@ -163,14 +164,15 @@ function PaymentSettingsPage() {
     ];
 
     return (
-        <PageContainer title="支付配置" subTitle="统一管理随行付 / TianQue 收款渠道，所有凭据仅保存在服务端">
+        <PageContainer title="支付配置" subTitle="统一管理随行付 / TianQue 收款渠道，所有凭据仅保存在服务端" extra={<Button type="primary" size="large" onClick={() => formRef.current?.submit()}>保存支付配置</Button>}>
             <div className="mb-5 grid gap-3 md:grid-cols-3">
                 {summaries.map((item) => <div key={item.label} className="rounded-xl border border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] px-5 py-4"><div className="text-xs text-[var(--ant-color-text-secondary)]">{item.label}</div><div className="mt-1 text-lg font-semibold text-[var(--ant-color-text)]">{item.value}</div><div className="mt-1 text-xs text-[var(--ant-color-text-tertiary)]">{item.note}</div></div>)}
             </div>
             <ProForm<PaymentSettingsForm>
+                formRef={formRef}
                 key={JSON.stringify(data)}
                 initialValues={data}
-                submitter={{ searchConfig: { submitText: "保存支付配置" }, resetButtonProps: false, submitButtonProps: { size: "large", type: "primary" } }}
+                submitter={false}
                 onFinish={async (values) => { await memberRequest("/api/admin/settings/payment", { method: "PUT", body: JSON.stringify(values) }); message.success("支付配置已安全保存"); await refetch(); return true; }}
             >
                 <ProCard title={<span className="inline-flex items-center gap-2"><CreditCard className="size-4" />渠道状态与环境</span>} subTitle="建议先在沙箱完成下单和回调验证，再切换生产环境" bordered>
