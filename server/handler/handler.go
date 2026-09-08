@@ -568,32 +568,50 @@ func (h Handler) FetchAIChannelModels(c *gin.Context) {
 		Fail(c, 404, errors.New("渠道不存在"))
 		return
 	}
-	request, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, strings.TrimRight(row.BaseURL, "/")+"/models", nil)
-	if err != nil {
-		Fail(c, 400, err)
-		return
+	baseURL := strings.TrimRight(row.BaseURL, "/")
+	candidates := []string{baseURL}
+	if !strings.HasSuffix(strings.ToLower(baseURL), "/v1") {
+		candidates = append(candidates, baseURL+"/v1")
 	}
-	request.Header.Set("Authorization", "Bearer "+row.APIKey)
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		Fail(c, 502, fmt.Errorf("无法连接上游模型接口：%w", err))
-		return
+	var body []byte
+	var status int
+	resolvedBaseURL := baseURL
+	for index, candidate := range candidates {
+		request, requestErr := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, candidate+"/models", nil)
+		if requestErr != nil {
+			Fail(c, 400, requestErr)
+			return
+		}
+		request.Header.Set("Authorization", "Bearer "+row.APIKey)
+		response, requestErr := http.DefaultClient.Do(request)
+		if requestErr != nil {
+			Fail(c, 502, fmt.Errorf("无法连接上游模型接口：%w", requestErr))
+			return
+		}
+		body, err = io.ReadAll(io.LimitReader(response.Body, 1<<20))
+		response.Body.Close()
+		if err != nil {
+			Fail(c, 502, errors.New("读取上游模型接口响应失败"))
+			return
+		}
+		status = response.StatusCode
+		if status >= 200 && status < 300 {
+			resolvedBaseURL = candidate
+			break
+		}
+		if status != http.StatusNotFound || index == len(candidates)-1 {
+			break
+		}
 	}
-	defer response.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
-	if err != nil {
-		Fail(c, 502, errors.New("读取上游模型接口响应失败"))
-		return
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
+	if status < 200 || status >= 300 {
 		detail := strings.TrimSpace(string(body))
 		if len(detail) > 300 {
 			detail = detail[:300]
 		}
 		if detail != "" {
-			Fail(c, 502, fmt.Errorf("上游模型接口返回 %d：%s", response.StatusCode, detail))
+			Fail(c, 502, fmt.Errorf("上游模型接口返回 %d：%s", status, detail))
 		} else {
-			Fail(c, 502, fmt.Errorf("上游模型接口返回 HTTP %d", response.StatusCode))
+			Fail(c, 502, fmt.Errorf("上游模型接口返回 HTTP %d", status))
 		}
 		return
 	}
@@ -623,6 +641,7 @@ func (h Handler) FetchAIChannelModels(c *gin.Context) {
 		return
 	}
 	raw, _ := json.Marshal(models)
+	row.BaseURL = resolvedBaseURL
 	row.Models = string(raw)
 	row.UpdatedBy = c.GetString(middleware.UserIDKey)
 	if err := h.Service.Repo.SaveAIChannel(&row); err != nil {
