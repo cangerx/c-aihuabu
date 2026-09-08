@@ -75,9 +75,7 @@ export function AppConfigModal() {
     const webdavReady = Boolean(webdav.url.trim());
 
     const finishConfig = () => {
-        const ready = config.channels.some((channel) => channel.baseUrl.trim() && channel.models.length);
         setConfigDialogOpen(false);
-        if (!ready) return;
         message.success(shouldPromptContinue ? "配置已保存，请继续刚才的请求" : "配置已保存");
         clearPromptContinue();
     };
@@ -197,7 +195,7 @@ export function AppConfigModal() {
                                             <div className="text-sm font-semibold">模型用途配置</div>
                                             <div className="mt-1 text-xs leading-5 text-stone-500">模型由平台管理员统一配置；你可以选择各类生成任务的默认模型。</div>
                                         </div>
-                                        <div className="rounded-md bg-stone-100 px-2 py-1 text-xs text-stone-600 dark:bg-stone-900 dark:text-stone-400">渠道模型 {config.models.length} 个</div>
+                                        <div className="rounded-md bg-stone-100 px-2 py-1 text-xs text-stone-600 dark:bg-stone-900 dark:text-stone-400">可用模型 {config.models.length} 个</div>
                                     </div>
                                 </div>
                                 <div className="grid gap-4 md:grid-cols-2">

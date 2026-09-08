@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { Key, Keyboard, LogIn, Settings2, WalletCards } from "lucide-react";
+import { BookOpen, Keyboard, LogIn, Settings2, WalletCards } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
@@ -29,8 +29,8 @@ export function UserStatusActions({ showConfig = true, variant = "default", onOp
     return (
         <div className="inline-flex shrink-0 items-center gap-1">
             {member ? <Link to="/account" className="inline-flex h-8 items-center gap-1.5 rounded-full border border-amber-500/30 px-2.5 text-xs font-medium text-amber-700 transition hover:bg-amber-500/10 dark:text-amber-300" title="积分中心"><WalletCards className="size-3.5" /><span>{member.points}</span></Link> : <Link to="/auth" className={naturalIconClass} style={iconStyle} aria-label="登录" title="登录"><LogIn className="size-4" /></Link>}
-            <a href={DOCS_URL} target="_blank" rel="noopener noreferrer" className={naturalIconClass} style={iconStyle} aria-label="中转服务 Key" title="中转服务 Key">
-                <Key className="size-4" />
+            <a href={DOCS_URL} target="_blank" rel="noopener noreferrer" className={naturalIconClass} style={iconStyle} aria-label="开发文档" title="开发文档">
+                <BookOpen className="size-4" />
             </a>
             {showConfig ? (
                 <button type="button" className={naturalIconClass} style={iconStyle} onClick={() => openConfigDialog(false)} aria-label="配置" title="配置">
