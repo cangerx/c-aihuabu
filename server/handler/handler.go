@@ -663,13 +663,29 @@ func (h Handler) InternalAIChannel(c *gin.Context) {
 	}
 	for _, row := range rows {
 		base := strings.TrimRight(row.BaseURL, "/")
-		if target == base || strings.HasPrefix(target, base+"/") {
+		if aiChannelTargetMatches(base, target) {
 			c.JSON(200, gin.H{"baseUrl": base, "apiKey": row.APIKey})
 			return
 		}
 	}
 	c.Status(http.StatusNotFound)
 }
+
+func aiChannelTargetMatches(base, target string) bool {
+	if target == base || strings.HasPrefix(target, base+"/") {
+		return true
+	}
+	baseURL, baseErr := url.Parse(base)
+	targetURL, targetErr := url.Parse(target)
+	if baseErr != nil || targetErr != nil || baseURL.Scheme != targetURL.Scheme || !strings.EqualFold(baseURL.Host, targetURL.Host) {
+		return false
+	}
+	basePath := strings.TrimRight(baseURL.Path, "/")
+	targetPath := strings.TrimRight(targetURL.Path, "/")
+	return (basePath == "/v1" && (targetPath == "/v1beta" || strings.HasPrefix(targetPath, "/v1beta/"))) ||
+		(basePath == "/v1beta" && (targetPath == "/v1" || strings.HasPrefix(targetPath, "/v1/")))
+}
+
 func atoi(value string) int     { n, _ := strconv.Atoi(value); return n }
 func atoi64(value string) int64 { n, _ := strconv.ParseInt(value, 10, 64); return n }
 
