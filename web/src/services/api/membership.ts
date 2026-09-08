@@ -13,7 +13,8 @@ export type MemberUser = {
 export type DashboardStats = { users: number; totalPoints: number; paidOrders: number; revenueCent: number };
 export type PointPackage = { id: string; name: string; points: number; priceCent: number; enabled: boolean; sort: number };
 export type GenerationPrice = { id: string; model: string; mediaType: string; points: number; enabled: boolean };
-export type PaymentSettings = { enabled: boolean; sandbox: boolean; host: string; productionHost: string; orgId: string; mno: string; subMechId: string; signType: string; version: string; notifyUrl: string; privateKeyConfigured: boolean; publicKeyConfigured: boolean };
+export type PaymentSettings = { enabled: boolean; wechatEnabled: boolean; alipayEnabled: boolean; sandbox: boolean; host: string; productionHost: string; orgId: string; mno: string; subMechId: string; signType: string; version: string; notifyUrl: string; privateKeyConfigured: boolean; publicKeyConfigured: boolean };
+export type PaymentOptions = { enabled: boolean; methods: ("WECHAT" | "ALIPAY")[] };
 export type GeneralSettings = { registrationEnabled: boolean; registrationGiftPoints: number; tokenTtlHours: number; defaultImagePoints: number; defaultVideoPoints: number; defaultTextPoints: number; defaultAudioPoints: number; maintenanceMode: boolean };
 export type AIChannel = { id: string; name: string; baseUrl: string; models: string[]; enabled: boolean; apiKeyConfigured: boolean };
 export type PointLedger = { id: string; type: string; amount: number; balanceAfter: number; remark: string; createdAt: string };
@@ -43,4 +44,5 @@ export function registerMember(email: string, password: string, nickname: string
 export function getMember() { return memberRequest<MemberUser>("/api/users/me"); }
 export function getMemberLedger() { return memberRequest<PointLedger[]>("/api/wallet/ledger"); }
 export function getPointPackages() { return memberRequest<PointPackage[]>("/api/packages"); }
+export function getPaymentOptions() { return memberRequest<PaymentOptions>("/api/payment/options"); }
 export function createRechargeOrder(packageId: string, payMethod: "WECHAT" | "ALIPAY") { return memberRequest<{ orderNo: string; qrCode: string }>("/api/orders", { method: "POST", body: JSON.stringify({ packageId, payMethod }) }); }

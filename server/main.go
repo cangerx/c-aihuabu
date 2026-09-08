@@ -46,6 +46,7 @@ func main() {
 	api.POST("/auth/register", h.Register)
 	api.POST("/auth/login", h.Login)
 	api.GET("/models", h.PublicModels)
+	api.GET("/payment/options", h.PaymentOptions)
 	router.GET("/internal/ai-channel", h.InternalAIChannel)
 	authed := api.Group("")
 	authed.Use(middleware.Auth(svc))

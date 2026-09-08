@@ -1,8 +1,8 @@
-import { AudioLines, Coins, Crown, Gauge, ImageIcon, KeyRound, LogOut, MessageSquareText, Package, ReceiptText, Settings2, ShieldAlert, Sparkles, UserRoundPlus, Users, Video, WalletCards } from "lucide-react";
+import { AudioLines, Building2, Coins, CreditCard, Crown, Gauge, Globe2, ImageIcon, KeyRound, LockKeyhole, LogOut, MessageSquareText, Package, ReceiptText, Settings2, ShieldAlert, ShieldCheck, Sparkles, UserRoundPlus, Users, Video, WalletCards } from "lucide-react";
 import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { App, Avatar, Button, Dropdown, Tag } from "antd";
-import { ModalForm, PageContainer, ProCard, ProForm, ProFormDigit, ProFormSelect, ProFormSwitch, ProFormText, ProLayout, ProTable, StatisticCard, type ActionType, type ProColumns } from "@ant-design/pro-components";
+import { ModalForm, PageContainer, ProCard, ProForm, ProFormDigit, ProFormRadio, ProFormSelect, ProFormSwitch, ProFormText, ProFormTextArea, ProLayout, ProTable, StatisticCard, type ActionType, type ProColumns } from "@ant-design/pro-components";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
@@ -147,7 +147,66 @@ function PricesPage() {
 
 function ChannelsPage() { const { message }=App.useApp(); const actionRef=useRef<ActionType>(null); const [editing,setEditing]=useState<(AIChannel & { apiKey?:string })|null>(null); const columns:ProColumns<AIChannel>[]=[{title:"渠道",dataIndex:"name",render:(_,row)=><div><div className="font-medium">{row.name}</div><div className="text-xs text-stone-400">{row.baseUrl}</div></div>},{title:"密钥",dataIndex:"apiKeyConfigured",hideInSearch:true,render:(_,row)=><Tag color={row.apiKeyConfigured?"green":"red"}>{row.apiKeyConfigured?"已配置":"未配置"}</Tag>},{title:"模型数",dataIndex:"models",hideInSearch:true,render:(_,row)=>row.models.length},{title:"状态",dataIndex:"enabled",hideInSearch:true,render:(_,row)=><Tag color={row.enabled?"green":"default"}>{row.enabled?"启用":"停用"}</Tag>},{title:"操作",valueType:"option",render:(_,row)=>[<Button key="fetch" type="link" onClick={async()=>{ const models=await memberRequest<string[]>(`/api/admin/channels/${row.id}/fetch-models`,{method:"POST"}); message.success(`已获取 ${models.length} 个模型`); actionRef.current?.reload(); }}>获取模型</Button>,<Button key="edit" type="link" onClick={()=>setEditing(row)}>编辑</Button>,<Button key="delete" danger type="link" onClick={async()=>{ await memberRequest(`/api/admin/channels/${row.id}`,{method:"DELETE"}); message.success("渠道已删除"); actionRef.current?.reload(); }}>删除</Button>]}]; return <PageContainer title="模型渠道" subTitle="统一托管上游密钥，普通用户无法查看或修改"><ProTable<AIChannel> rowKey="id" actionRef={actionRef} columns={columns} search={false} request={async()=>({data:await memberRequest<AIChannel[]>("/api/admin/channels"),success:true})} toolBarRender={()=>[<Button key="new" type="primary" onClick={()=>setEditing({id:"",name:"",baseUrl:"",models:[],enabled:true,apiKeyConfigured:false})}>新增渠道</Button>]}/><ModalForm title={editing?.id?"编辑模型渠道":"新增模型渠道"} open={Boolean(editing)} initialValues={editing||undefined} modalProps={{destroyOnHidden:true}} onOpenChange={(open)=>!open&&setEditing(null)} onFinish={async(values)=>{ await memberRequest("/api/admin/channels",{method:"POST",body:JSON.stringify({...editing,...values})}); message.success("渠道已保存"); setEditing(null); actionRef.current?.reload(); return true; }}><ProFormText name="name" label="渠道名称" rules={[{required:true}]}/><ProFormText name="baseUrl" label="Base URL" rules={[{required:true,type:"url"}]}/><ProFormText name="apiKey" label={editing?.apiKeyConfigured?"API Key（已配置，留空保持不变）":"API Key"} fieldProps={{type:"password"}} rules={editing?.apiKeyConfigured?[]:[{required:true}]}/><ProFormSwitch name="enabled" label="启用"/></ModalForm></PageContainer> }
 
-function PaymentSettingsPage() { const { message } = App.useApp(); const { data, refetch } = useQuery({ queryKey: ["admin-payment-settings"], queryFn: () => memberRequest<PaymentSettings>("/api/admin/settings/payment") }); return <PageContainer title="支付配置" subTitle="随行付/TianQue 通道设置，密钥仅保存于服务端"><ModalForm<PaymentSettings> title="支付通道设置" initialValues={data} onFinish={async (values) => { await memberRequest("/api/admin/settings/payment", { method: "PUT", body: JSON.stringify(values) }); message.success("支付配置已保存"); refetch(); return true; }} trigger={<Button type="primary">编辑配置</Button>}><ProFormSwitch name="enabled" label="启用支付" /><ProFormSwitch name="sandbox" label="沙箱环境" /><ProFormText name="host" label="沙箱地址" /><ProFormText name="productionHost" label="生产地址" /><ProFormText name="orgId" label="机构号" /><ProFormText name="mno" label="商户号" /><ProFormText name="subMechId" label="子商户号" /><ProFormSelect name="signType" label="签名类型" options={["RSA", "RSA2"].map((value) => ({ label: value, value }))} /><ProFormText name="version" label="接口版本" /><ProFormText name="notifyUrl" label="回调地址" /><ProFormText name="privateKey" label={`商户私钥（${data?.privateKeyConfigured ? "已配置，留空保持不变" : "未配置"}）`} fieldProps={{ type: "password" }} /><ProFormText name="publicKey" label={`平台公钥（${data?.publicKeyConfigured ? "已配置，留空保持不变" : "未配置"}）`} fieldProps={{ type: "password" }} /></ModalForm><div className="mt-4 rounded-xl bg-white p-5">当前状态：{data?.enabled ? <Tag color="green">已启用</Tag> : <Tag>未启用</Tag>}，{data?.sandbox ? "沙箱环境" : "生产环境"}</div></PageContainer> }
+type PaymentSettingsForm = PaymentSettings & { privateKey?: string; publicKey?: string };
+
+function PaymentSettingsPage() {
+    const { message } = App.useApp();
+    const { data, error, isFetching, refetch } = useQuery({ queryKey: ["admin-payment-settings"], queryFn: () => memberRequest<PaymentSettings>("/api/admin/settings/payment") });
+    if (!data) return <PageContainer title="支付配置" subTitle="平台收款渠道与签名凭据">{error ? <ProCard><div className="grid min-h-52 place-items-center text-center"><div><div className="font-medium">支付配置加载失败</div><div className="mt-1 text-sm text-[var(--ant-color-text-secondary)]">{error.message}</div><Button className="mt-4" loading={isFetching} onClick={() => void refetch()}>重新加载</Button></div></div></ProCard> : <ProCard loading />}</PageContainer>;
+
+    const identityReady = Boolean(data.orgId && data.mno && data.subMechId);
+    const keysReady = data.privateKeyConfigured && data.publicKeyConfigured;
+    const summaries = [
+        { label: "渠道状态", value: data.enabled ? "收款已启用" : "收款未启用", note: data.enabled ? "用户可发起积分充值" : "用户无法创建支付订单" },
+        { label: "当前环境", value: data.sandbox ? "沙箱环境" : "生产环境", note: data.sandbox ? "用于联调，不产生真实交易" : "将产生真实资金交易" },
+        { label: "配置完整度", value: identityReady && keysReady ? "配置完整" : "需要补充", note: `商户信息${identityReady ? "已完成" : "未完成"} · 密钥${keysReady ? "已完成" : "未完成"}` },
+    ];
+
+    return (
+        <PageContainer title="支付配置" subTitle="统一管理随行付 / TianQue 收款渠道，所有凭据仅保存在服务端">
+            <div className="mb-5 grid gap-3 md:grid-cols-3">
+                {summaries.map((item) => <div key={item.label} className="rounded-xl border border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] px-5 py-4"><div className="text-xs text-[var(--ant-color-text-secondary)]">{item.label}</div><div className="mt-1 text-lg font-semibold text-[var(--ant-color-text)]">{item.value}</div><div className="mt-1 text-xs text-[var(--ant-color-text-tertiary)]">{item.note}</div></div>)}
+            </div>
+            <ProForm<PaymentSettingsForm>
+                key={JSON.stringify(data)}
+                initialValues={data}
+                submitter={{ searchConfig: { submitText: "保存支付配置" }, resetButtonProps: false, render: (_, buttons) => <div className="flex justify-end border-t border-[var(--ant-color-border-secondary)] pt-5">{buttons}</div> }}
+                onFinish={async (values) => { await memberRequest("/api/admin/settings/payment", { method: "PUT", body: JSON.stringify(values) }); message.success("支付配置已安全保存"); await refetch(); return true; }}
+            >
+                <ProCard title={<span className="inline-flex items-center gap-2"><CreditCard className="size-4" />渠道状态与环境</span>} subTitle="建议先在沙箱完成下单和回调验证，再切换生产环境" bordered>
+                    <div className="grid items-start gap-5 lg:grid-cols-[1fr_2fr]">
+                        <div className="rounded-lg border border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-fill-quaternary)] px-4 py-3"><div className="flex items-center justify-between gap-4"><div><div className="font-medium">启用积分充值</div><div className="mt-1 text-xs text-[var(--ant-color-text-secondary)]">关闭后保留配置，但停止创建新订单</div></div><ProFormSwitch name="enabled" noStyle /></div></div>
+                        <ProFormRadio.Group name="sandbox" label="运行环境" options={[{ label: "沙箱环境", value: true }, { label: "生产环境", value: false }]} fieldProps={{ optionType: "button", buttonStyle: "solid" }} />
+                    </div>
+                    <div className="mt-4 border-t border-[var(--ant-color-border-secondary)] pt-4"><div className="mb-3"><div className="font-medium">启用支付方式</div><div className="mt-1 text-xs text-[var(--ant-color-text-secondary)]">用户充值页只会展示已开启的方式；服务端同步拦截关闭方式的下单请求。</div></div><div className="grid gap-3 md:grid-cols-2"><div className="flex items-center justify-between rounded-lg border border-[var(--ant-color-border-secondary)] px-4 py-3"><div><div className="font-medium">微信支付</div><div className="mt-1 text-xs text-[var(--ant-color-text-secondary)]">扫码使用微信完成支付</div></div><ProFormSwitch name="wechatEnabled" noStyle /></div><div className="flex items-center justify-between rounded-lg border border-[var(--ant-color-border-secondary)] px-4 py-3"><div><div className="font-medium">支付宝</div><div className="mt-1 text-xs text-[var(--ant-color-text-secondary)]">扫码使用支付宝完成支付</div></div><ProFormSwitch name="alipayEnabled" noStyle /></div></div></div>
+                    {!data.sandbox ? <div className="mt-3 rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-900 dark:border-orange-900/60 dark:bg-orange-950/20 dark:text-orange-100"><ShieldAlert className="mr-2 inline size-4" />当前保存的是生产环境，启用后会产生真实交易。</div> : null}
+                </ProCard>
+
+                <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                    <ProCard title={<span className="inline-flex items-center gap-2"><Building2 className="size-4" />商户身份</span>} subTitle="由随行付服务商提供，三项信息需保持一致" bordered>
+                        <ProFormText name="orgId" label="机构号（orgId）" placeholder="请输入机构号" rules={[{ required: true, message: "请输入机构号" }]} />
+                        <ProFormText name="mno" label="商户号（mno）" placeholder="请输入商户号" rules={[{ required: true, message: "请输入商户号" }]} />
+                        <ProFormText name="subMechId" label="子商户号（subMechId）" placeholder="请输入子商户号" rules={[{ required: true, message: "请输入子商户号" }]} />
+                    </ProCard>
+                    <ProCard title={<span className="inline-flex items-center gap-2"><Globe2 className="size-4" />网关与协议</span>} subTitle="分别配置联调、正式网关与异步通知地址" bordered>
+                        <ProFormText name="host" label="沙箱网关" rules={[{ required: true }, { type: "url", message: "请输入完整 URL" }]} />
+                        <ProFormText name="productionHost" label="生产网关" rules={[{ required: true }, { type: "url", message: "请输入完整 URL" }]} />
+                        <ProFormText name="notifyUrl" label="支付回调地址" tooltip="必须是随行付服务器可访问的公网 HTTPS 地址" rules={[{ required: true }, { type: "url", message: "请输入完整 URL" }]} />
+                        <div className="grid gap-x-4 md:grid-cols-2"><ProFormSelect name="signType" label="签名算法" options={["RSA", "RSA2"].map((value) => ({ label: value, value }))} rules={[{ required: true }]} /><ProFormText name="version" label="接口版本" rules={[{ required: true }]} /></div>
+                    </ProCard>
+                </div>
+
+                <ProCard className="mt-4" title={<span className="inline-flex items-center gap-2"><LockKeyhole className="size-4" />签名密钥</span>} subTitle="密钥不会返回浏览器；留空保存表示继续使用现有密钥" bordered extra={<span className="inline-flex gap-2"><Tag color={data.privateKeyConfigured ? "green" : "red"}>商户私钥{data.privateKeyConfigured ? "已配置" : "未配置"}</Tag><Tag color={data.publicKeyConfigured ? "green" : "red"}>平台公钥{data.publicKeyConfigured ? "已配置" : "未配置"}</Tag></span>}>
+                    <div className="mb-4 flex gap-2 rounded-lg border border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-fill-quaternary)] px-4 py-3 text-sm text-[var(--ant-color-text-secondary)]"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-emerald-600" /><span>系统只记录密钥是否已配置，不会在页面、接口响应或日志中显示密钥明文。</span></div>
+                    <div className="grid gap-x-4 xl:grid-cols-2">
+                        <ProFormTextArea name="privateKey" label="商户私钥" placeholder={data.privateKeyConfigured ? "已配置；如不更换请保持为空" : "粘贴 RSA 商户私钥（支持 PEM 或 Base64）"} fieldProps={{ autoSize: { minRows: 5, maxRows: 10 }, spellCheck: false }} />
+                        <ProFormTextArea name="publicKey" label="随行付平台公钥" placeholder={data.publicKeyConfigured ? "已配置；如不更换请保持为空" : "粘贴随行付平台公钥（支持 PEM 或 Base64）"} fieldProps={{ autoSize: { minRows: 5, maxRows: 10 }, spellCheck: false }} />
+                    </div>
+                </ProCard>
+            </ProForm>
+        </PageContainer>
+    );
+}
 
 function GeneralSettingsPage() {
     const { message } = App.useApp();

@@ -19,6 +19,8 @@ type Config struct {
 
 type TianQueConfig struct {
 	Enabled        bool
+	WechatEnabled  bool
+	AlipayEnabled  bool
 	Sandbox        bool
 	Host           string
 	ProductionHost string
@@ -41,7 +43,7 @@ func Load() Config {
 		AdminEmail:    strings.ToLower(strings.TrimSpace(os.Getenv("C_AI_ADMIN_EMAIL"))),
 		AdminPassword: os.Getenv("C_AI_ADMIN_PASSWORD"),
 		Payment: TianQueConfig{
-			Enabled: envBool("C_AI_TIANQUE_ENABLED", false), Sandbox: envBool("C_AI_TIANQUE_SANDBOX", true),
+			Enabled: envBool("C_AI_TIANQUE_ENABLED", false), WechatEnabled: envBool("C_AI_TIANQUE_WECHAT_ENABLED", true), AlipayEnabled: envBool("C_AI_TIANQUE_ALIPAY_ENABLED", true), Sandbox: envBool("C_AI_TIANQUE_SANDBOX", true),
 			Host: env("C_AI_TIANQUE_HOST", "https://openapi-test.tianquetech.com"), ProductionHost: env("C_AI_TIANQUE_HOST_PROD", "https://openapi.tianquetech.com"),
 			OrgID: strings.TrimSpace(os.Getenv("C_AI_TIANQUE_ORG_ID")), MNO: strings.TrimSpace(os.Getenv("C_AI_TIANQUE_MNO")), SubMechID: strings.TrimSpace(os.Getenv("C_AI_TIANQUE_SUB_MECH_ID")),
 			PrivateKey: os.Getenv("C_AI_TIANQUE_PRIVATE_KEY"), PublicKey: os.Getenv("C_AI_TIANQUE_PUBLIC_KEY"), SignType: env("C_AI_TIANQUE_SIGN_TYPE", "RSA"), Version: env("C_AI_TIANQUE_VERSION", "1.2"), NotifyURL: strings.TrimSpace(os.Getenv("C_AI_TIANQUE_NOTIFY_URL")),

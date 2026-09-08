@@ -24,6 +24,8 @@ type Handler struct {
 
 type paymentSettingsRequest struct {
 	Enabled                                                                                          *bool `json:"enabled"`
+	WechatEnabled                                                                                    *bool `json:"wechatEnabled"`
+	AlipayEnabled                                                                                    *bool `json:"alipayEnabled"`
 	Sandbox                                                                                          *bool `json:"sandbox"`
 	Host, ProductionHost, OrgID, MNO, SubMechID, SignType, Version, NotifyURL, PrivateKey, PublicKey string
 }
@@ -147,6 +149,10 @@ func (h Handler) CreateOrder(c *gin.Context) {
 	method := strings.ToUpper(strings.TrimSpace(req.PayMethod))
 	if method != "WECHAT" && method != "ALIPAY" {
 		Fail(c, 400, errors.New("暂只支持微信或支付宝"))
+		return
+	}
+	if (method == "WECHAT" && !h.Payment.Config.WechatEnabled) || (method == "ALIPAY" && !h.Payment.Config.AlipayEnabled) {
+		Fail(c, 400, errors.New("该支付方式暂未开放"))
 		return
 	}
 	pkg, err := h.Service.Repo.PackageByID(req.PackageID)
@@ -321,13 +327,36 @@ func (h Handler) AdminPaymentSettings(c *gin.Context) {
 		return fallback
 	}
 	pc := h.Payment.Config
-	OK(c, gin.H{"enabled": value("payment.enabled", strconv.FormatBool(pc.Enabled)) == "true", "sandbox": value("payment.sandbox", strconv.FormatBool(pc.Sandbox)) == "true", "host": value("payment.host", pc.Host), "productionHost": value("payment.productionHost", pc.ProductionHost), "orgId": value("payment.orgId", pc.OrgID), "mno": value("payment.mno", pc.MNO), "subMechId": value("payment.subMechId", pc.SubMechID), "signType": value("payment.signType", pc.SignType), "version": value("payment.version", pc.Version), "notifyUrl": value("payment.notifyUrl", pc.NotifyURL), "privateKeyConfigured": rows["payment.privateKey"].Value != "" || pc.PrivateKey != "", "publicKeyConfigured": rows["payment.publicKey"].Value != "" || pc.PublicKey != ""})
+	OK(c, gin.H{"enabled": value("payment.enabled", strconv.FormatBool(pc.Enabled)) == "true", "wechatEnabled": value("payment.wechatEnabled", strconv.FormatBool(pc.WechatEnabled)) == "true", "alipayEnabled": value("payment.alipayEnabled", strconv.FormatBool(pc.AlipayEnabled)) == "true", "sandbox": value("payment.sandbox", strconv.FormatBool(pc.Sandbox)) == "true", "host": value("payment.host", pc.Host), "productionHost": value("payment.productionHost", pc.ProductionHost), "orgId": value("payment.orgId", pc.OrgID), "mno": value("payment.mno", pc.MNO), "subMechId": value("payment.subMechId", pc.SubMechID), "signType": value("payment.signType", pc.SignType), "version": value("payment.version", pc.Version), "notifyUrl": value("payment.notifyUrl", pc.NotifyURL), "privateKeyConfigured": rows["payment.privateKey"].Value != "" || pc.PrivateKey != "", "publicKeyConfigured": rows["payment.publicKey"].Value != "" || pc.PublicKey != ""})
+}
+
+func (h Handler) PaymentOptions(c *gin.Context) {
+	h.refreshPaymentConfig()
+	methods := []string{}
+	if h.Payment.Config.Enabled && h.Payment.Config.WechatEnabled {
+		methods = append(methods, "WECHAT")
+	}
+	if h.Payment.Config.Enabled && h.Payment.Config.AlipayEnabled {
+		methods = append(methods, "ALIPAY")
+	}
+	OK(c, gin.H{"enabled": h.Payment.Config.Enabled, "methods": methods})
 }
 
 func (h Handler) SavePaymentSettings(c *gin.Context) {
 	var req paymentSettingsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		Fail(c, 400, err)
+		return
+	}
+	wechatEnabled, alipayEnabled := h.Payment.Config.WechatEnabled, h.Payment.Config.AlipayEnabled
+	if req.WechatEnabled != nil {
+		wechatEnabled = *req.WechatEnabled
+	}
+	if req.AlipayEnabled != nil {
+		alipayEnabled = *req.AlipayEnabled
+	}
+	if req.Enabled != nil && *req.Enabled && !wechatEnabled && !alipayEnabled {
+		Fail(c, 400, errors.New("启用支付时至少开放一种支付方式"))
 		return
 	}
 	rows := []model.SystemSetting{}
@@ -341,6 +370,12 @@ func (h Handler) SavePaymentSettings(c *gin.Context) {
 	}
 	if req.Sandbox != nil {
 		add("payment.sandbox", strconv.FormatBool(*req.Sandbox), false)
+	}
+	if req.WechatEnabled != nil {
+		add("payment.wechatEnabled", strconv.FormatBool(*req.WechatEnabled), false)
+	}
+	if req.AlipayEnabled != nil {
+		add("payment.alipayEnabled", strconv.FormatBool(*req.AlipayEnabled), false)
 	}
 	add("payment.host", req.Host, false)
 	add("payment.productionHost", req.ProductionHost, false)
@@ -369,6 +404,8 @@ func applyPaymentSettings(target *config.TianQueConfig, rows map[string]model.Sy
 		return fallback
 	}
 	target.Enabled = get("payment.enabled", strconv.FormatBool(target.Enabled)) == "true"
+	target.WechatEnabled = get("payment.wechatEnabled", strconv.FormatBool(target.WechatEnabled)) == "true"
+	target.AlipayEnabled = get("payment.alipayEnabled", strconv.FormatBool(target.AlipayEnabled)) == "true"
 	target.Sandbox = get("payment.sandbox", strconv.FormatBool(target.Sandbox)) == "true"
 	target.Host = get("payment.host", target.Host)
 	target.ProductionHost = get("payment.productionHost", target.ProductionHost)
