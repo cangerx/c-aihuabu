@@ -141,6 +141,10 @@ func (h Handler) Packages(c *gin.Context) {
 
 func (h Handler) CreateOrder(c *gin.Context) {
 	h.refreshPaymentConfig()
+	if !h.Payment.Config.Enabled {
+		Fail(c, http.StatusServiceUnavailable, errors.New("支付渠道未启用"))
+		return
+	}
 	var req orderRequest
 	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.PackageID) == "" {
 		Fail(c, 400, errors.New("请选择积分套餐"))
