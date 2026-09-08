@@ -1,7 +1,7 @@
 import { AudioLines, Building2, Coins, CreditCard, Crown, Gauge, Globe2, ImageIcon, KeyRound, LockKeyhole, LogOut, MessageSquareText, Package, ReceiptText, Settings2, ShieldAlert, ShieldCheck, Sparkles, UserRoundPlus, Users, Video, WalletCards } from "lucide-react";
 import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { App, Avatar, Button, Dropdown, Tag } from "antd";
+import { Alert, App, Avatar, Button, Dropdown, Tag } from "antd";
 import { ModalForm, PageContainer, ProCard, ProForm, ProFormDigit, ProFormRadio, ProFormSelect, ProFormSwitch, ProFormText, ProFormTextArea, ProLayout, ProTable, StatisticCard, type ActionType, type ProColumns, type ProFormInstance } from "@ant-design/pro-components";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 
@@ -153,6 +153,7 @@ function PaymentSettingsPage() {
     const { message } = App.useApp();
     const formRef = useRef<ProFormInstance<PaymentSettingsForm>>(null);
     const [saving, setSaving] = useState(false);
+    const [saveFeedback, setSaveFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
     const { data, error, isFetching, refetch } = useQuery({ queryKey: ["admin-payment-settings"], queryFn: () => memberRequest<PaymentSettings>("/api/admin/settings/payment") });
     if (!data) return <PageContainer title="支付配置" subTitle="平台收款渠道与签名凭据">{error ? <ProCard><div className="grid min-h-52 place-items-center text-center"><div><div className="font-medium">支付配置加载失败</div><div className="mt-1 text-sm text-[var(--ant-color-text-secondary)]">{error.message}</div><Button className="mt-4" loading={isFetching} onClick={() => void refetch()}>重新加载</Button></div></div></ProCard> : <ProCard loading />}</PageContainer>;
 
@@ -167,13 +168,17 @@ function PaymentSettingsPage() {
     const savePayment = async () => {
         if (!formRef.current || saving) return;
         setSaving(true);
+        setSaveFeedback(null);
         try {
             const values = await formRef.current.validateFields();
             await memberRequest("/api/admin/settings/payment", { method: "PUT", body: JSON.stringify(values) });
             message.success("支付配置保存成功");
+            setSaveFeedback({ type: "success", message: "支付配置已保存，服务端配置已立即生效。" });
             await refetch();
         } catch (saveError) {
-            if (saveError instanceof Error) message.error(saveError.message);
+            const errorMessage = saveError instanceof Error ? saveError.message : "请检查必填项后重试";
+            message.error(errorMessage);
+            setSaveFeedback({ type: "error", message: `保存失败：${errorMessage}` });
         } finally {
             setSaving(false);
         }
@@ -181,6 +186,7 @@ function PaymentSettingsPage() {
 
     return (
         <PageContainer title="支付配置" subTitle="统一管理随行付 / TianQue 收款渠道，所有凭据仅保存在服务端" extra={<Button type="primary" size="large" loading={saving} onClick={() => void savePayment()}>保存支付配置</Button>}>
+            {saveFeedback ? <Alert className="mb-4" showIcon closable type={saveFeedback.type} message={saveFeedback.message} onClose={() => setSaveFeedback(null)} /> : null}
             <div className="mb-5 grid gap-3 md:grid-cols-3">
                 {summaries.map((item) => <div key={item.label} className="rounded-xl border border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] px-5 py-4"><div className="text-xs text-[var(--ant-color-text-secondary)]">{item.label}</div><div className="mt-1 text-lg font-semibold text-[var(--ant-color-text)]">{item.value}</div><div className="mt-1 text-xs text-[var(--ant-color-text-tertiary)]">{item.note}</div></div>)}
             </div>
