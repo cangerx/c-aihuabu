@@ -705,8 +705,8 @@ async function requestGeminiImagesOnce(config: AiConfig, prompt: string, referen
     const aspectRatio = normalizeGeminiImageRatio(config.size);
     debugLog("image", "Gemini 生图", { model: modelOptionName(config.model), imageSize, aspectRatio, references: references.length });
     try {
-        const response = await axios.post<GeminiPayload>(
-            geminiApiUrl(config, "generateContent"),
+        const response = await requestGeminiWithProxyFallback<GeminiPayload>(
+            config,
             {
                 ...toGeminiBody(config, [{ role: "user", content: prompt }], {
                     generationConfig: {
@@ -716,12 +716,13 @@ async function requestGeminiImagesOnce(config: AiConfig, prompt: string, referen
                 }),
                 contents: [{ role: "user", parts }],
             },
-            { headers: geminiHeaders(config), signal: options?.signal },
+            options,
         );
         return parseGeminiImagePayload(response.data);
     } catch (error) {
-        if (!axios.isAxiosError(error) || (error.response?.status !== 404 && error.response?.status !== 405)) throw error;
-        debugWarn("image", "Gemini 原生接口不可用，回退 chat/completions", { model: modelOptionName(config.model), status: error.response.status });
+        const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+        if (!axios.isAxiosError(error) || ![404, 405, 500, 502, 503, 504].includes(status || 0)) throw error;
+        debugWarn("image", "Gemini 原生接口不可用，回退兼容接口", { model: modelOptionName(config.model), status });
         const content = [{ type: "text", text: withSystemPrompt(config, prompt) }, ...await Promise.all(references.map(async (image) => ({ type: "image_url", image_url: { url: await imageToDataUrl(image) } })))] as Array<{ type: string; text?: string; image_url?: { url: string } }>;
         const response = await postWithProxyFallback<ChatCompletionPayload>(config, "/chat/completions", {
             model: modelOptionName(config.model),
@@ -733,6 +734,18 @@ async function requestGeminiImagesOnce(config: AiConfig, prompt: string, referen
         if (!urls.length) throw new Error("Gemini 兼容接口没有返回图片");
         return urls.map((dataUrl) => ({ id: nanoid(), dataUrl }));
     }
+}
+
+async function requestGeminiWithProxyFallback<T>(config: AiConfig, body: unknown, options?: RequestOptions) {
+    const targetUrl = geminiApiUrl(config, "generateContent");
+    const directUrl = geminiDirectApiUrl(config, "generateContent");
+    const request = (url: string) => axios.post<T>(url, body, { headers: geminiHeaders(config), signal: options?.signal });
+    return withDirectFallback(request(targetUrl), () => request(directUrl), { method: "POST", path: "/gemini:generateContent", retryStatuses: [500, 501, 502, 503, 504] });
+}
+
+function geminiDirectApiUrl(config: Pick<AiConfig, "baseUrl" | "model">, action: "generateContent" | "streamGenerateContent") {
+    const baseUrl = geminiBaseUrl(config);
+    return `${baseUrl}/models/${encodeURIComponent(geminiModelName(config.model))}:${action}`;
 }
 
 function extractMarkdownImageUrls(content: string) {
@@ -1173,7 +1186,7 @@ type DataResponse<T> = { data: T };
 async function postWithProxyFallback<T>(config: AiConfig, path: string, body: unknown, contentType?: string, options?: RequestOptions & { timeoutMs?: number }): Promise<DataResponse<T>> {
     const proxyUrl = aiApiUrl(config, path);
     const directUrl = buildApiUrl(config.baseUrl, path);
-    debugLog("image", "POST 图片接口", { path, proxyUrl, directUrl, contentType, payloadBytes: estimatePayloadBytes(body) });
+    debugLog("image", "POST 图片接口", { path, contentType, payloadBytes: estimatePayloadBytes(body) });
     const request = (url: string): Promise<DataResponse<T>> => axios.post<T>(url, body, { headers: aiHeaders(config, contentType), signal: options?.signal, timeout: options?.timeoutMs });
     return withDirectFallback(request(proxyUrl), () => request(directUrl), { method: "POST", path });
 }
@@ -1181,7 +1194,7 @@ async function postWithProxyFallback<T>(config: AiConfig, path: string, body: un
 async function getWithProxyFallback<T>(config: AiConfig, path: string, options?: RequestOptions) {
     const proxyUrl = aiApiUrl(config, path);
     const directUrl = buildApiUrl(config.baseUrl, path);
-    debugLog("image", "GET 图片接口", { path, proxyUrl, directUrl });
+    debugLog("image", "GET 图片接口", { path });
     const request = (url: string) => axios.get<T>(url, { headers: aiHeaders(config), signal: options?.signal });
     return withDirectFallback(request(proxyUrl), () => request(directUrl), { method: "GET", path });
 }
@@ -1189,7 +1202,7 @@ async function getWithProxyFallback<T>(config: AiConfig, path: string, options?:
 async function getBlobWithProxyFallback(config: AiConfig, path: string, options?: RequestOptions) {
     const proxyUrl = aiApiUrl(config, path);
     const directUrl = buildApiUrl(config.baseUrl, path);
-    debugLog("image", "GET 图片内容", { path, proxyUrl, directUrl });
+    debugLog("image", "GET 图片内容", { path });
     const request = (url: string): Promise<DataResponse<Blob>> => axios.get<Blob>(url, { headers: aiHeaders(config), signal: options?.signal, responseType: "blob" });
     return withDirectFallback(request(proxyUrl), () => request(directUrl), { method: "GET", path });
 }

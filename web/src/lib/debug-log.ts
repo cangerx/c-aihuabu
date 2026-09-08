@@ -130,10 +130,21 @@ export function summarizeAxiosError(error: unknown) {
         code: err.code,
         status: err.response?.status,
         statusText: err.response?.statusText,
-        url: err.config?.url,
+        url: sanitizeRequestUrl(err.config?.url),
         method: err.config?.method,
         response: summarizeResponseData(err.response?.data),
     };
+}
+
+function sanitizeRequestUrl(value?: string) {
+    if (!value) return undefined;
+    try {
+        const url = new URL(value, typeof window === "undefined" ? "http://localhost" : window.location.origin);
+        if (url.pathname === "/api/proxy") return "/api/proxy";
+        return url.pathname;
+    } catch {
+        return value.startsWith("/api/proxy") ? "/api/proxy" : value.split("?")[0];
+    }
 }
 
 function summarizeResponseData(data: unknown) {

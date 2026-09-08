@@ -402,7 +402,7 @@ async function createGrokImagineVideoTask(config: AiConfig, model: string, promp
 async function resolveGrokImagineImageUrl(image: ReferenceImage, options?: RequestOptions) {
     const directUrl = String(image.url || image.dataUrl || "").trim();
     if (isPublicReferenceUrl(directUrl)) {
-        debugLog("video", "Grok 参考图使用公网 URL", { host: safeHost(directUrl) });
+        debugLog("video", "Grok 参考图使用公网 URL");
         return directUrl;
     }
     try {
@@ -704,7 +704,7 @@ function directApiUrl(config: AiConfig, path: string) {
 async function postWithProxyFallback<T>(config: AiConfig, path: string, body: unknown, contentType?: string, options?: RequestOptions): Promise<DataResponse<T>> {
     const proxyUrl = aiApiUrl(config, path);
     const directUrl = directApiUrl(config, path);
-    debugLog("video", "POST 视频接口", { path, proxyUrl, directUrl, contentType: contentType || "multipart/form-data", payloadBytes: estimatePayloadBytes(body) });
+    debugLog("video", "POST 视频接口", { path, contentType: contentType || "multipart/form-data", payloadBytes: estimatePayloadBytes(body) });
     const request = (url: string): Promise<DataResponse<T>> => axios.post<T>(url, body, { headers: aiHeaders(config, contentType), signal: options?.signal });
     return withDirectFallback(request(proxyUrl), () => request(directUrl), { method: "POST", path });
 }
@@ -712,7 +712,7 @@ async function postWithProxyFallback<T>(config: AiConfig, path: string, body: un
 async function getWithProxyFallback<T>(config: AiConfig, path: string, options?: RequestOptions): Promise<DataResponse<T>> {
     const proxyUrl = aiApiUrl(config, path);
     const directUrl = directApiUrl(config, path);
-    debugLog("video", "GET 视频接口", { path, proxyUrl, directUrl });
+    debugLog("video", "GET 视频接口", { path });
     const request = (url: string): Promise<DataResponse<T>> => axios.get<T>(url, { headers: aiHeaders(config), signal: options?.signal });
     return withDirectFallback(request(proxyUrl), () => request(directUrl), { method: "GET", path });
 }
@@ -720,7 +720,7 @@ async function getWithProxyFallback<T>(config: AiConfig, path: string, options?:
 async function getBlobWithProxyFallback(config: AiConfig, path: string, options?: RequestOptions): Promise<DataResponse<Blob>> {
     const proxyUrl = aiApiUrl(config, path);
     const directUrl = directApiUrl(config, path);
-    debugLog("video", "GET 视频内容", { path, proxyUrl, directUrl });
+    debugLog("video", "GET 视频内容", { path });
     const request = (url: string): Promise<DataResponse<Blob>> => axios.get<Blob>(url, { headers: aiHeaders(config), responseType: "blob", signal: options?.signal });
     return withDirectFallback(request(proxyUrl), () => request(directUrl), { method: "GET-BLOB", path });
 }
