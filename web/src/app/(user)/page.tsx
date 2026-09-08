@@ -5,7 +5,7 @@ import {
     Cpu,
     ExternalLink,
     FileText,
-    Github,
+    GitBranch,
     Image as ImageIcon,
     ImagePlus,
     Images,
@@ -22,7 +22,9 @@ import { Button } from "antd";
 import { motion, AnimatePresence } from "motion/react";
 import type { Variants } from "motion/react";
 
-import { DOCS_URL, GITHUB_URL } from "@/constant/env";
+import { DOCS_URL } from "@/constant/env";
+
+const GITHUB_URL = "https://github.com/cangerx/c-aihuabu";
 
 function Link({ href, ...props }: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) {
     return <a href={href} {...props} />;
@@ -511,7 +513,7 @@ export default function IndexPage() {
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="h-12 rounded-full border-stone-700 bg-stone-800/80 px-7 text-sm font-medium text-stone-300 hover:bg-stone-700 hover:text-white"
-                                icon={<Github className="size-4" />}
+                                icon={<GitBranch className="size-4" />}
                             >
                                 GitHub 仓库
                             </Button>

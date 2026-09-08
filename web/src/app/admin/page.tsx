@@ -170,7 +170,7 @@ function PaymentSettingsPage() {
             <ProForm<PaymentSettingsForm>
                 key={JSON.stringify(data)}
                 initialValues={data}
-                submitter={{ searchConfig: { submitText: "保存支付配置" }, resetButtonProps: false, render: (_, buttons) => <div className="flex justify-end border-t border-[var(--ant-color-border-secondary)] pt-5">{buttons}</div> }}
+                submitter={{ searchConfig: { submitText: "保存支付配置" }, resetButtonProps: false, submitButtonProps: { size: "large", type: "primary" } }}
                 onFinish={async (values) => { await memberRequest("/api/admin/settings/payment", { method: "PUT", body: JSON.stringify(values) }); message.success("支付配置已安全保存"); await refetch(); return true; }}
             >
                 <ProCard title={<span className="inline-flex items-center gap-2"><CreditCard className="size-4" />渠道状态与环境</span>} subTitle="建议先在沙箱完成下单和回调验证，再切换生产环境" bordered>
@@ -227,7 +227,7 @@ function GeneralSettingsPage() {
             <ProForm<GeneralSettings>
                 key={JSON.stringify(data)}
                 initialValues={data}
-                submitter={{ searchConfig: { submitText: "保存全部设置" }, resetButtonProps: false, render: (_, buttons) => <div className="flex justify-end border-t border-[var(--ant-color-border-secondary)] pt-5">{buttons}</div> }}
+                submitter={{ searchConfig: { submitText: "保存全部设置" }, resetButtonProps: false, submitButtonProps: { size: "large", type: "primary" } }}
                 onFinish={async (values) => { await memberRequest("/api/admin/settings/general", { method: "PUT", body: JSON.stringify(values) }); message.success("平台设置已保存"); await refetch(); return true; }}
             >
                 <div className="grid gap-4 xl:grid-cols-2">
