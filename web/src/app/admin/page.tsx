@@ -183,7 +183,44 @@ function PricesPage() {
         <ModalForm<GenerationPrice> title={editing?.id ? "编辑计价" : "新增计价"} open={Boolean(editing)} initialValues={editing || undefined} modalProps={{ destroyOnHidden: true }} onOpenChange={(open) => !open && setEditing(null)} onFinish={async (values) => { await memberRequest("/api/admin/prices", { method: "POST", body: JSON.stringify({ ...editing, ...values }) }); message.success("计价已保存"); setEditing(null); actionRef.current?.reload(); return true; }}><ProFormSelect name="model" label="模型 ID" showSearch options={modelOptions} fieldProps={{ allowClear: true }} rules={[{ required: true, message: modelOptions.length ? "请选择已配置渠道中的模型" : "请先在创作平台配置渠道并拉取模型" }]} /><ProFormSelect name="mediaType" label="生成类型" options={[{ label: "图片", value: "image" }, { label: "视频", value: "video" }, { label: "文本", value: "text" }, { label: "音频", value: "audio" }]} rules={[{ required: true }]} /><ProFormDigit name="points" label="单次积分" min={1} fieldProps={{ precision: 0 }} rules={[{ required: true }]} /><ProFormSwitch name="enabled" label="启用" /></ModalForm></PageContainer>;
 }
 
-function ChannelsPage() { const { message }=App.useApp(); const actionRef=useRef<ActionType>(null); const [editing,setEditing]=useState<(AIChannel & { apiKey?:string })|null>(null); const columns:ProColumns<AIChannel>[]=[{title:"渠道",dataIndex:"name",render:(_,row)=><div><div className="font-medium">{row.name}</div><div className="text-xs text-stone-400">{row.baseUrl}</div></div>},{title:"密钥",dataIndex:"apiKeyConfigured",hideInSearch:true,render:(_,row)=><Tag color={row.apiKeyConfigured?"green":"red"}>{row.apiKeyConfigured?"已配置":"未配置"}</Tag>},{title:"模型数",dataIndex:"models",hideInSearch:true,render:(_,row)=>row.models.length},{title:"状态",dataIndex:"enabled",hideInSearch:true,render:(_,row)=><Tag color={row.enabled?"green":"default"}>{row.enabled?"启用":"停用"}</Tag>},{title:"操作",valueType:"option",render:(_,row)=>[<Button key="fetch" type="link" onClick={async()=>{ const models=await memberRequest<string[]>(`/api/admin/channels/${row.id}/fetch-models`,{method:"POST"}); message.success(`已获取 ${models.length} 个模型`); actionRef.current?.reload(); }}>获取模型</Button>,<Button key="edit" type="link" onClick={()=>setEditing(row)}>编辑</Button>,<Button key="delete" danger type="link" onClick={async()=>{ await memberRequest(`/api/admin/channels/${row.id}`,{method:"DELETE"}); message.success("渠道已删除"); actionRef.current?.reload(); }}>删除</Button>]}]; return <PageContainer title="模型渠道" subTitle="统一托管上游密钥，普通用户无法查看或修改"><ProTable<AIChannel> rowKey="id" actionRef={actionRef} columns={columns} search={false} request={async()=>({data:await memberRequest<AIChannel[]>("/api/admin/channels"),success:true})} toolBarRender={()=>[<Button key="new" type="primary" onClick={()=>setEditing({id:"",name:"",baseUrl:"",models:[],enabled:true,apiKeyConfigured:false})}>新增渠道</Button>]}/><ModalForm title={editing?.id?"编辑模型渠道":"新增模型渠道"} open={Boolean(editing)} initialValues={editing||undefined} modalProps={{destroyOnHidden:true}} onOpenChange={(open)=>!open&&setEditing(null)} onFinish={async(values)=>{ await memberRequest("/api/admin/channels",{method:"POST",body:JSON.stringify({...editing,...values})}); message.success("渠道已保存"); setEditing(null); actionRef.current?.reload(); return true; }}><ProFormText name="name" label="渠道名称" rules={[{required:true}]}/><ProFormText name="baseUrl" label="Base URL" rules={[{required:true,type:"url"}]}/><ProFormText name="apiKey" label={editing?.apiKeyConfigured?"API Key（已配置，留空保持不变）":"API Key"} fieldProps={{type:"password"}} rules={editing?.apiKeyConfigured?[]:[{required:true}]}/><ProFormSwitch name="enabled" label="启用"/></ModalForm></PageContainer> }
+function ChannelsPage() {
+    const { message } = App.useApp();
+    const actionRef = useRef<ActionType>(null);
+    const [editing, setEditing] = useState<(AIChannel & { apiKey?: string }) | null>(null);
+    const fetchModels = async (channel: AIChannel) => {
+        try {
+            const models = await memberRequest<string[]>(`/api/admin/channels/${channel.id}/fetch-models`, { method: "POST" });
+            message.success(`${channel.name} 已获取 ${models.length} 个模型`);
+            actionRef.current?.reload();
+            return models;
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "模型拉取失败");
+            throw error;
+        }
+    };
+    const columns: ProColumns<AIChannel>[] = [
+        { title: "渠道", dataIndex: "name", render: (_, row) => <div><div className="font-medium">{row.name}</div><div className="mt-1 max-w-96 truncate font-mono text-xs text-[var(--ant-color-text-tertiary)]">{row.baseUrl}</div></div> },
+        { title: "密钥", dataIndex: "apiKeyConfigured", hideInSearch: true, render: (_, row) => <Tag color={row.apiKeyConfigured ? "green" : "red"}>{row.apiKeyConfigured ? "已配置" : "未配置"}</Tag> },
+        { title: "模型", dataIndex: "models", hideInSearch: true, render: (_, row) => <div><div className="font-medium">{row.models.length} 个</div><div className="max-w-52 truncate text-xs text-[var(--ant-color-text-tertiary)]">{row.models.slice(0, 3).join(" · ") || "尚未拉取"}</div></div> },
+        { title: "状态", dataIndex: "enabled", hideInSearch: true, render: (_, row) => <Tag color={row.enabled ? "green" : "default"}>{row.enabled ? "启用" : "停用"}</Tag> },
+        { title: "操作", valueType: "option", render: (_, row) => [<Button key="fetch" type="link" disabled={!row.apiKeyConfigured} onClick={() => void fetchModels(row)}>{row.models.length ? "重新拉取" : "拉取模型"}</Button>, <Button key="edit" type="link" onClick={() => setEditing(row)}>编辑</Button>, <Button key="delete" danger type="link" onClick={async () => { await memberRequest(`/api/admin/channels/${row.id}`, { method: "DELETE" }); message.success("渠道已删除"); actionRef.current?.reload(); }}>删除</Button>] },
+    ];
+    return <PageContainer title="模型渠道" subTitle="保存渠道后自动拉取模型；密钥只保存在服务端" extra={<Button type="primary" icon={<KeyRound className="size-4" />} onClick={() => setEditing({ id: "", name: "", baseUrl: "", models: [], enabled: true, apiKeyConfigured: false })}>新增渠道</Button>}>
+        <div className="mb-4 grid gap-3 md:grid-cols-3"><div className="rounded-lg border border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] px-4 py-3"><div className="text-xs text-[var(--ant-color-text-secondary)]">1. 填写连接信息</div><div className="mt-1 font-medium">名称、Base URL 与 API Key</div></div><div className="rounded-lg border border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] px-4 py-3"><div className="text-xs text-[var(--ant-color-text-secondary)]">2. 保存并拉取模型</div><div className="mt-1 font-medium">自动请求 OpenAI `/models`</div></div><div className="rounded-lg border border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] px-4 py-3"><div className="text-xs text-[var(--ant-color-text-secondary)]">3. 配置模型计价</div><div className="mt-1 font-medium">仅已计价模型可用于扣费</div></div></div>
+        <ProTable<AIChannel> rowKey="id" actionRef={actionRef} columns={columns} search={false} request={async () => ({ data: await memberRequest<AIChannel[]>("/api/admin/channels"), success: true })} />
+        <ModalForm<(AIChannel & { apiKey?: string })> title={editing?.id ? "编辑模型渠道" : "新增模型渠道"} open={Boolean(editing)} initialValues={editing || undefined} modalProps={{ destroyOnHidden: true }} onOpenChange={(open) => !open && setEditing(null)} submitter={{ searchConfig: { submitText: "保存并拉取模型" } }} onFinish={async (values) => {
+            const channel = await memberRequest<AIChannel>("/api/admin/channels", { method: "POST", body: JSON.stringify({ ...editing, ...values }) });
+            try { await fetchModels(channel); } catch { message.warning("渠道已保存，但模型未拉取成功；请修正连接信息后点击“重新拉取”"); }
+            setEditing(null); actionRef.current?.reload(); return true;
+        }}>
+            <div className="mb-4 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2.5 text-sm text-sky-900 dark:border-sky-900/60 dark:bg-sky-950/20 dark:text-sky-100">使用 OpenAI 兼容地址，例如 <code>https://api.example.com/v1</code>。保存后系统会以服务端密钥请求 <code>/models</code>。</div>
+            <ProFormText name="name" label="渠道名称" placeholder="例如：主力生产渠道" rules={[{ required: true, message: "请输入渠道名称" }]} />
+            <ProFormText name="baseUrl" label="Base URL" placeholder="https://api.example.com/v1" rules={[{ required: true, message: "请输入 Base URL" }, { type: "url", message: "请输入完整 URL" }]} />
+            <ProFormText name="apiKey" label={editing?.apiKeyConfigured ? "API Key（已配置，留空保持不变）" : "API Key"} fieldProps={{ type: "password", autoComplete: "new-password" }} rules={editing?.apiKeyConfigured ? [] : [{ required: true, message: "请输入 API Key" }]} />
+            <ProFormSwitch name="enabled" label="立即启用" tooltip="启用后拉取到的模型会同步到用户端可选模型列表" />
+        </ModalForm>
+    </PageContainer>;
+}
 
 type PaymentSettingsForm = PaymentSettings & { privateKey?: string; publicKey?: string };
 

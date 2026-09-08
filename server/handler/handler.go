@@ -3,6 +3,8 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -574,24 +576,51 @@ func (h Handler) FetchAIChannelModels(c *gin.Context) {
 	request.Header.Set("Authorization", "Bearer "+row.APIKey)
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		Fail(c, 502, err)
+		Fail(c, 502, fmt.Errorf("无法连接上游模型接口：%w", err))
 		return
 	}
 	defer response.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	if err != nil {
+		Fail(c, 502, errors.New("读取上游模型接口响应失败"))
+		return
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		detail := strings.TrimSpace(string(body))
+		if len(detail) > 300 {
+			detail = detail[:300]
+		}
+		if detail != "" {
+			Fail(c, 502, fmt.Errorf("上游模型接口返回 %d：%s", response.StatusCode, detail))
+		} else {
+			Fail(c, 502, fmt.Errorf("上游模型接口返回 HTTP %d", response.StatusCode))
+		}
+		return
+	}
 	var payload struct {
 		Data []struct {
 			ID string `json:"id"`
 		} `json:"data"`
+		Models []string `json:"models"`
 	}
-	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil || response.StatusCode >= 400 {
-		Fail(c, 502, errors.New("上游模型接口请求失败"))
+	if err := json.Unmarshal(body, &payload); err != nil {
+		Fail(c, 502, errors.New("上游模型接口响应不是有效 JSON"))
 		return
 	}
-	models := make([]string, 0, len(payload.Data))
+	models := make([]string, 0, len(payload.Data)+len(payload.Models))
 	for _, item := range payload.Data {
 		if strings.TrimSpace(item.ID) != "" {
 			models = append(models, strings.TrimSpace(item.ID))
 		}
+	}
+	for _, item := range payload.Models {
+		if strings.TrimSpace(item) != "" {
+			models = append(models, strings.TrimSpace(item))
+		}
+	}
+	if len(models) == 0 {
+		Fail(c, 502, errors.New("上游接口未返回模型列表，请确认接口兼容 OpenAI /v1/models 格式"))
+		return
 	}
 	raw, _ := json.Marshal(models)
 	row.Models = string(raw)
