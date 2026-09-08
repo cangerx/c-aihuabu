@@ -1,10 +1,11 @@
 import { normalizeVideoResolutionValue, normalizeVideoSizeValue } from "@/components/video-settings-panel";
 import { isGptImage2StyleConfig, normalizeGptImage2Ratio, normalizeGptImage2Resolution } from "@/lib/gpt-image-2";
+import { isGlmImageConfig, normalizeGlmImageSize } from "@/lib/glm-image";
 import { isGrokImagineImageConfig, isGrokImagineVideoModel, normalizeGrokImagineImageCount, normalizeGrokImagineImageRatio, normalizeGrokImagineImageResolution, normalizeGrokImagineVideoRatio, normalizeGrokImagineVideoResolution } from "@/lib/grok-imagine";
 import { boolConfig, isSeedanceVideoModel, normalizeSeedanceRatio } from "@/lib/seedance-video";
 import { isStepImageEdit2Config, normalizeStepImageEdit2Size } from "@/lib/step-image";
 import { isVideos4VideoModel, normalizeVideos4Duration, normalizeVideos4Ratio, normalizeVideos4Resolution } from "@/lib/videos4-video";
-import { pollVideoGenerationTask, videoPollIntervalMs, type VideoGenerationTask, type VideoGenerationTaskState } from "@/services/api/video";
+import { is772VideoConfig, pollVideoGenerationTask, videoPollIntervalMs, type VideoGenerationTask, type VideoGenerationTaskState } from "@/services/api/video";
 import { resolveMediaUrl, type UploadedFile } from "@/services/file-storage";
 import { persistImageUrl, resolveImageUrl, type UploadedImage } from "@/services/image-storage";
 import { defaultConfig, modelOptionName, type AiConfig } from "@/stores/use-config-store";
@@ -32,6 +33,7 @@ export function buildImageGenerationMetadata(type: CanvasImageGenerationType, co
         model: config.model,
         size: config.size,
         quality: config.quality,
+        imageSteps: config.imageSteps,
         count,
         references: references.map(referenceUrl).filter((url): url is string => Boolean(url)),
     };
@@ -175,6 +177,7 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
         model: node?.metadata?.model || defaultModel || (mode === "audio" ? defaultConfig.audioModel : config.model || defaultConfig.model),
         quality: node?.metadata?.quality || config.quality || defaultConfig.quality,
         size: node?.metadata?.size || config.size || defaultConfig.size,
+        imageSteps: node?.metadata?.imageSteps || config.imageSteps || defaultConfig.imageSteps,
         videoSeconds: node?.metadata?.seconds || config.videoSeconds || defaultConfig.videoSeconds,
         vquality: node?.metadata?.vquality || config.vquality || defaultConfig.vquality,
         videoGenerateAudio: node?.metadata?.generateAudio || config.videoGenerateAudio || defaultConfig.videoGenerateAudio,
@@ -193,6 +196,9 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
     }
     if (mode === "image" && isStepImageEdit2Config(nextConfig)) {
         return { ...nextConfig, size: normalizeStepImageEdit2Size(nextConfig.size) };
+    }
+    if (mode === "image" && isGlmImageConfig(nextConfig)) {
+        return { ...nextConfig, size: normalizeGlmImageSize(nextConfig.size) };
     }
     if (mode !== "video") return nextConfig;
     const grokImagineVideo = isGrokImagineVideoModel(nextConfig.model);
@@ -220,12 +226,13 @@ function isSeedanceVideoConfig(config: AiConfig) {
 }
 
 export function supportsRichVideoReferences(config: AiConfig) {
-    return isSeedanceVideoConfig(config) || isVideos4VideoModel(config.model || config.videoModel);
+    return isSeedanceVideoConfig(config) || isVideos4VideoModel(config.model || config.videoModel) || is772VideoConfig(config);
 }
 
 export function resetInterruptedGeneration(nodes: CanvasNodeData[]): CanvasNodeData[] {
     return nodes.map((node): CanvasNodeData => {
         if (node.metadata?.status !== "loading") return node;
+        if (hasResumableVideoTask(node)) return node;
         if (node.type === CanvasNodeType.Image && node.metadata?.content && !node.metadata.content.startsWith("blob:")) {
             return { ...node, metadata: { ...node.metadata, status: "success", errorDetails: undefined } };
         }
@@ -238,6 +245,10 @@ export function resetInterruptedGeneration(nodes: CanvasNodeData[]): CanvasNodeD
             },
         };
     });
+}
+
+export function hasResumableVideoTask(node: CanvasNodeData) {
+    return node.type === CanvasNodeType.Video && Boolean(node.metadata?.videoTaskId) && !node.metadata?.content;
 }
 
 export function isGenerationCanceled(error: unknown) {

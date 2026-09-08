@@ -7,8 +7,11 @@ import { defaultConfig, modelOptionName, useConfigStore, useEffectiveConfig, typ
 import { canvasThemes } from "@/lib/canvas-theme";
 import { isGrokImagineImageConfig, normalizeGrokImagineImageCount, normalizeGrokImagineImageRatio, normalizeGrokImagineImageResolution } from "@/lib/grok-imagine";
 import { isGptImage2StyleConfig, normalizeGptImage2Ratio, normalizeGptImage2Resolution } from "@/lib/gpt-image-2";
+import { isGlmImageConfig, normalizeGlmImageSize } from "@/lib/glm-image";
 import { isStepImageEdit2Config, normalizeStepImageEdit2Size } from "@/lib/step-image";
+import { is772UnifiedMinimaxH3VideoModel } from "@/lib/772-video";
 import { caiVideoModelCapabilities, isSeedanceVideoModel } from "@/lib/seedance-video";
+import { is772VideoConfig } from "@/services/api/video";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { requestTextCompletion, type AiTextMessage } from "@/services/api/image";
 import { imageToDataUrl } from "@/services/image-storage";
@@ -59,16 +62,18 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     const videoModelName = modelOptionName(config.model || config.videoModel);
     const videoCapabilities = caiVideoModelCapabilities(videoModelName);
     const isSeedanceVideo = mode === "video" && isSeedanceVideoModel(videoModelName);
-    const supportsRichVideoRefs = videoCapabilities.allAroundReference || isSeedanceVideo;
+    const supports772AllAroundReferences = is772VideoConfig(config) && !is772UnifiedMinimaxH3VideoModel(videoModelName);
+    const supportsAllAroundReferences = videoCapabilities.allAroundReference || supports772AllAroundReferences;
+    const supportsRichVideoRefs = supportsAllAroundReferences || isSeedanceVideo;
     const totalRefs = imageRefs.length + (supportsRichVideoRefs ? videoRefs.length + audioRefs.length : 0);
     const activeRefs = mentionReferences.filter((r) => r.active);
     const hasSingleImageRef = imageRefs.length === 1;
 
     const videoTabs = [
         { id: "text-to-video", label: "文生视频", enabled: videoCapabilities.textToVideo, tooltip: "当前模型必须连接图片后生成视频" },
-        ...(videoCapabilities.allAroundReference ? [{ id: "all-around", label: "全能参考", enabled: totalRefs >= 1, tooltip: "当前模型支持图片/视频/音频多参考，需要先连接素材节点" }] : []),
+        ...(supportsAllAroundReferences ? [{ id: "all-around", label: "全能参考", enabled: totalRefs >= 1, tooltip: "当前模型支持图片/视频/音频多参考，需要先连接素材节点" }] : []),
         { id: "image-to-video", label: "图生视频", enabled: hasSingleImageRef, tooltip: "需要连接 1 张图片节点" },
-        ...(videoCapabilities.firstLastFrame ? [{ id: "first-last", label: "首尾帧", enabled: imageRefs.length >= 2, tooltip: "Seedance 首尾帧需要连接 2 个图片节点" }] : []),
+        ...(videoCapabilities.firstLastFrame ? [{ id: "first-last", label: "首尾帧", enabled: imageRefs.length >= 2, tooltip: "首尾帧需要连接 2 个图片节点" }] : []),
         ...(videoCapabilities.imageReference ? [{ id: "image-ref", label: "图片参考", enabled: imageRefs.length >= 1, tooltip: "需要连接图片节点 (1~15个)" }] : []),
     ];
 
@@ -85,13 +90,13 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
         }
         if (activeVideoTab === "text-to-video") {
             if (!videoCapabilities.textToVideo && hasSingleImageRef) updateVideoMode("image-to-video");
-            else if (videoCapabilities.allAroundReference && videoRefs.length > 0) updateVideoMode("all-around");
+            else if (supportsAllAroundReferences && videoRefs.length > 0) updateVideoMode("all-around");
             else if (videoCapabilities.firstLastFrame && imageRefs.length >= 2) updateVideoMode("first-last");
             else if (hasSingleImageRef) updateVideoMode("image-to-video");
         } else if (!videoTabs.find((tab) => tab.id === activeVideoTab)?.enabled) {
             updateVideoMode(videoCapabilities.textToVideo ? "text-to-video" : "image-to-video");
         }
-    }, [activeVideoTab, imageRefs.length, mode, videoCapabilities.allAroundReference, videoCapabilities.firstLastFrame, videoCapabilities.textToVideo, videoRefs.length]);
+    }, [activeVideoTab, imageRefs.length, mode, supportsAllAroundReferences, videoCapabilities.firstLastFrame, videoCapabilities.textToVideo, videoRefs.length]);
 
     useEffect(() => {
         if (mode !== "video") return;
@@ -470,6 +475,7 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
         model: node.metadata?.model || defaultModel || (mode === "audio" ? defaultConfig.audioModel : globalConfig.model || defaultConfig.model),
         quality: node.metadata?.quality || globalConfig.quality || defaultConfig.quality,
         size: node.metadata?.size || globalConfig.size || defaultConfig.size,
+        imageSteps: node.metadata?.imageSteps || globalConfig.imageSteps || defaultConfig.imageSteps,
         videoSeconds: node.metadata?.seconds || globalConfig.videoSeconds || defaultConfig.videoSeconds,
         vquality: node.metadata?.vquality || globalConfig.vquality || defaultConfig.vquality,
         videoGenerateAudio: node.metadata?.generateAudio || globalConfig.videoGenerateAudio || defaultConfig.videoGenerateAudio,
@@ -500,6 +506,9 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
             ...nextConfig,
             size: normalizeStepImageEdit2Size(nextConfig.size),
         };
+    }
+    if (mode === "image" && isGlmImageConfig(nextConfig)) {
+        return { ...nextConfig, size: normalizeGlmImageSize(nextConfig.size) };
     }
     return nextConfig;
 }

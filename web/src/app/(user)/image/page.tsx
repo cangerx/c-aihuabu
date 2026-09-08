@@ -12,7 +12,7 @@ import { AssetPickerModal, type InsertAssetPayload } from "@/app/(user)/canvas/c
 import { CanvasResourceMentionTextarea } from "@/app/(user)/canvas/components/canvas-resource-mention-textarea";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { imageReferenceLabel } from "@/lib/image-reference-prompt";
-import { modelOptionLabel, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { defaultConfig, modelOptionLabel, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { nanoid } from "nanoid";
 import { formatBytes, formatDuration, getDataUrlByteSize } from "@/lib/image-utils";
@@ -24,6 +24,7 @@ import type { CanvasResourceReference } from "@/app/(user)/canvas/utils/canvas-r
 import { imageSizeLabel } from "@/components/image-settings-panel";
 import { isGrokImagineImageConfig, normalizeGrokImagineImageRatio, normalizeGrokImagineImageResolution } from "@/lib/grok-imagine";
 import { isGptImage2StyleConfig, normalizeGptImage2Ratio, normalizeGptImage2Resolution } from "@/lib/gpt-image-2";
+import { isGlmImageConfig, normalizeGlmImageSize } from "@/lib/glm-image";
 import { isStepImageEdit2Config, normalizeStepImageEdit2Size } from "@/lib/step-image";
 
 type GeneratedImage = {
@@ -65,7 +66,7 @@ type GenerationLog = {
     error?: string;
 };
 
-type GenerationLogConfig = Pick<AiConfig, "model" | "imageModel" | "quality" | "size" | "count">;
+type GenerationLogConfig = Pick<AiConfig, "model" | "imageModel" | "quality" | "size" | "imageSteps" | "count">;
 
 type UpdateAiConfig = <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
 
@@ -406,6 +407,7 @@ export default function ImagePage() {
         if (fullLog.config.imageModel || fullLog.model) updateConfig("imageModel", fullLog.config.imageModel || fullLog.model);
         if (fullLog.config.quality) updateConfig("quality", fullLog.config.quality);
         if (fullLog.config.size) updateConfig("size", fullLog.config.size);
+        if (fullLog.config.imageSteps) updateConfig("imageSteps", fullLog.config.imageSteps);
         if (fullLog.config.count) updateConfig("count", fullLog.config.count);
         setResults(logToResults(fullLog));
     };
@@ -577,7 +579,7 @@ export default function ImagePage() {
                             <div className="flex items-center justify-between rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm dark:border-stone-800 dark:bg-stone-900 sm:hidden">
                                 <span className="truncate text-stone-500 dark:text-stone-400">
                                     {modelOptionLabel(effectiveConfig, model)} · {imageSizeLabel(displayConfig.size)}
-                                    {!isStepImageEdit2Config(displayConfig) ? ` · ${displayConfig.quality}` : ""}
+                                    {!isStepImageEdit2Config(displayConfig) && !isGlmImageConfig(displayConfig) ? ` · ${displayConfig.quality}` : ""}
                                 </span>
                                 <Button size="small" type="text" icon={<SlidersHorizontal className="size-4" />} onClick={() => setSettingsOpen(true)}>
                                     调整
@@ -870,6 +872,9 @@ function buildImageConfig(config: AiConfig, model: string): AiConfig {
             size: normalizeStepImageEdit2Size(nextConfig.size),
         };
     }
+    if (isGlmImageConfig(nextConfig)) {
+        nextConfig = { ...nextConfig, size: normalizeGlmImageSize(nextConfig.size) };
+    }
     return nextConfig;
 }
 
@@ -1091,6 +1096,7 @@ function normalizeLogConfig(log: Partial<GenerationLog>): GenerationLogConfig {
         imageModel: log.config?.imageModel || log.model || "",
         quality: log.config?.quality || log.quality || "",
         size: log.config?.size || log.size || "",
+        imageSteps: log.config?.imageSteps || defaultConfig.imageSteps,
         count: log.config?.count || String(log.imageCount || log.successCount || 1),
     };
 }
@@ -1141,6 +1147,7 @@ function buildLog({
         imageModel: config.imageModel,
         quality: config.quality,
         size: config.size,
+        imageSteps: config.imageSteps,
         count: config.count,
     };
     return {

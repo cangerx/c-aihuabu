@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { ChevronRight, DownloadCloud, Film, FileText, Image as ImageIcon, MessageSquareText, Music2, RefreshCw, SplitSquareHorizontal, Star, Video, Wand2 } from "lucide-react";
+import { ChevronRight, DownloadCloud, Film, FileText, Group, Image as ImageIcon, MessageSquareText, Music2, RefreshCw, SplitSquareHorizontal, Star, Video, Wand2 } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes } from "@/lib/image-utils";
@@ -28,6 +28,7 @@ type CanvasNodeProps = {
     mentionReferences?: CanvasResourceReference[];
     renderPanel?: (node: CanvasNodeData) => ReactNode;
     renderNodeContent?: (node: CanvasNodeData) => ReactNode;
+    groupChildCount?: number;
     batchCount?: number;
     batchExpanded?: boolean;
     batchClosing?: boolean;
@@ -52,6 +53,7 @@ type CanvasNodeProps = {
     onExpandScript?: (node: CanvasNodeData) => void;
     onUploadReference?: (node: CanvasNodeData) => void;
     onViewImage?: (node: CanvasNodeData) => void;
+    onVideoTimeChange?: (nodeId: string, currentTime: number) => void;
     onContextMenu: (event: React.MouseEvent, nodeId: string) => void;
 };
 
@@ -66,6 +68,7 @@ type NodeContentRendererProps = {
     batchOpening: boolean;
     batchRecovering: boolean;
     renderNodeContent?: (node: CanvasNodeData) => ReactNode;
+    groupChildCount: number;
     onContentChange: (nodeId: string, content: string) => void;
     onMetadataChange?: (nodeId: string, patch: Partial<CanvasNodeMetadata>) => void;
     onStopEditing: () => void;
@@ -78,6 +81,7 @@ type NodeContentRendererProps = {
     onUploadReference?: (node: CanvasNodeData) => void;
     onToggleBatch?: () => void;
     onSetBatchPrimary?: () => void;
+    onVideoTimeChange?: (nodeId: string, currentTime: number) => void;
 };
 
 export const CanvasNode = React.memo(function CanvasNode({
@@ -95,6 +99,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     mentionReferences = [],
     renderPanel,
     renderNodeContent,
+    groupChildCount = 0,
     batchCount = 0,
     batchExpanded = false,
     batchClosing = false,
@@ -119,6 +124,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     onExpandScript,
     onUploadReference,
     onViewImage,
+    onVideoTimeChange,
     onContextMenu,
 }: CanvasNodeProps) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
@@ -127,6 +133,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     const hasImageContent = data.type === CanvasNodeType.Image && Boolean(data.metadata?.content);
     const hasVideoContent = data.type === CanvasNodeType.Video && Boolean(data.metadata?.content);
     const hasAudioContent = data.type === CanvasNodeType.Audio && Boolean(data.metadata?.content);
+    const isGroup = data.type === CanvasNodeType.Group;
     const isBatchRoot = data.type === CanvasNodeType.Image && Boolean(data.metadata?.isBatchRoot) && batchCount > 1;
     const isBatchChild = data.type === CanvasNodeType.Image && Boolean(data.metadata?.batchRootId);
     const isActive = isConnectionTarget || isSelected || isFocusRelated;
@@ -262,7 +269,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     return (
         <div
             data-node-id={data.id}
-            className={`node-element absolute flex select-none flex-col transition-shadow duration-200 ${isSelected ? "z-50" : "z-10"}`}
+            className={`node-element absolute flex select-none flex-col transition-shadow duration-200 ${isSelected ? (isGroup ? "z-40" : "z-50") : isGroup ? "z-0" : "z-10"}`}
             style={{
                 transform: `translate(${data.position.x}px, ${data.position.y}px)`,
                 width: data.width,
@@ -283,8 +290,9 @@ export const CanvasNode = React.memo(function CanvasNode({
             <div
                 className="relative h-full w-full overflow-visible rounded-3xl border-2"
                 style={{
-                    background: hasImageContent || hasVideoContent ? "transparent" : theme.node.fill,
-                    borderColor: hasImageContent ? imageBorderColor : isActive ? selectionBlue : isRelated ? theme.node.muted : theme.node.stroke,
+                    background: isGroup || hasImageContent || hasVideoContent ? "transparent" : theme.node.fill,
+                    borderColor: isGroup ? (isActive ? selectionBlue : theme.node.muted) : hasImageContent ? imageBorderColor : isActive ? selectionBlue : isRelated ? theme.node.muted : theme.node.stroke,
+                    borderStyle: isGroup ? "dashed" : "solid",
                     boxShadow: isActive ? `0 0 0 1px ${selectionBlue}55` : isRelated && !isBatchChild ? `0 0 0 1px ${theme.node.muted}55, 0 18px 48px rgba(0,0,0,.14)` : undefined,
                 }}
                 onMouseDown={(event) => onMouseDown(event, data.id)}
@@ -305,10 +313,10 @@ export const CanvasNode = React.memo(function CanvasNode({
                 }}
             >
                 <div
-                    className={`relative flex h-full w-full items-center justify-center rounded-[inherit] ${isBatchRoot ? "overflow-visible" : "overflow-hidden"}`}
+                    className={`relative flex h-full w-full items-center justify-center rounded-[inherit] ${isBatchRoot || isGroup ? "overflow-visible" : "overflow-hidden"}`}
                     style={
                         {
-                            background: hasImageContent || hasVideoContent ? "transparent" : theme.node.fill,
+                            background: isGroup || hasImageContent || hasVideoContent ? "transparent" : theme.node.fill,
                             "--batch-from-x": `${batchMotion?.x || 0}px`,
                             "--batch-from-y": `${batchMotion?.y || 0}px`,
                             "--batch-from-rotate": `${6 + (batchMotion?.index || 0) * 4}deg`,
@@ -328,6 +336,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                         batchOpening={batchOpening}
                         batchRecovering={batchRecovering}
                         renderNodeContent={renderNodeContent}
+                        groupChildCount={groupChildCount}
                         mentionReferences={mentionReferences}
                         onContentChange={onContentChange}
                         onMetadataChange={onMetadataChange}
@@ -340,13 +349,14 @@ export const CanvasNode = React.memo(function CanvasNode({
                         onUploadReference={onUploadReference}
                         onToggleBatch={() => onToggleBatch?.(data.id)}
                         onSetBatchPrimary={() => onSetBatchPrimary?.(data)}
+                        onVideoTimeChange={onVideoTimeChange}
                     />
                 </div>
 
                 {showImageInfo && hasImageContent ? <ImageInfoBar node={data} /> : null}
                 {resourceLabel ? <ResourceLabelBadge reference={resourceLabel} /> : null}
 
-                {!hasImageContent && !hasVideoContent && !hasAudioContent ? <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12" style={{ background: `linear-gradient(to top, ${theme.canvas.background}66, transparent)` }} /> : null}
+                {!isGroup && !hasImageContent && !hasVideoContent && !hasAudioContent ? <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12" style={{ background: `linear-gradient(to top, ${theme.canvas.background}66, transparent)` }} /> : null}
 
                 <ResizeHandle corner="top-left" onMouseDown={handleResizeMouseDown} />
                 <ResizeHandle corner="top-right" onMouseDown={handleResizeMouseDown} />
@@ -354,10 +364,10 @@ export const CanvasNode = React.memo(function CanvasNode({
                 <ResizeHandle corner="bottom-right" onMouseDown={handleResizeMouseDown} />
             </div>
 
-            <ConnectionHandleDot side="left" visible={hovered || isSelected || isConnecting} onMouseDown={(event) => onConnectStart(event, data.id, "target")} />
+            {!isGroup ? <ConnectionHandleDot side="left" visible={hovered || isSelected || isConnecting} onMouseDown={(event) => onConnectStart(event, data.id, "target")} /> : null}
             <ConnectionHandleDot side="right" visible={data.type !== CanvasNodeType.Config && (hovered || isSelected || isConnecting)} onMouseDown={(event) => onConnectStart(event, data.id, "source")} />
 
-            {showPanel && renderPanel ? (
+            {showPanel && !isGroup && renderPanel ? (
                 <div
                     className="absolute left-1/2 top-full z-[70] pt-4"
                     style={{
@@ -374,6 +384,7 @@ export const CanvasNode = React.memo(function CanvasNode({
 });
 
 function NodeContent(props: NodeContentRendererProps) {
+    if (props.node.type === CanvasNodeType.Group) return <GroupNodeContent node={props.node} theme={props.theme} groupChildCount={props.groupChildCount} />;
     if (props.node.type === CanvasNodeType.Config && props.renderNodeContent) return props.renderNodeContent(props.node);
     if (props.isBatchRoot) return <ImageNodeContent {...props} />;
     if (props.node.metadata?.status === "loading" && props.node.type === CanvasNodeType.Video) return <VideoTaskContent node={props.node} theme={props.theme} />;
@@ -391,6 +402,7 @@ const nodeContentRenderers = {
     [CanvasNodeType.Config]: EmptyImageContent,
     [CanvasNodeType.Video]: VideoNodeContent,
     [CanvasNodeType.Audio]: AudioNodeContent,
+    [CanvasNodeType.Group]: GroupNodeContent,
 } satisfies Record<CanvasNodeType, (props: NodeContentRendererProps) => ReactNode>;
 
 function builtinNodeContentRenderer(type: CanvasNodeTypeId) {
@@ -488,6 +500,18 @@ function VideoTaskContent({ node, theme }: Pick<NodeContentRendererProps, "node"
                 {node.metadata?.videoTaskId ? <VideoTaskRow label="任务" value={node.metadata.videoTaskId} theme={theme} /> : null}
                 {references ? <VideoTaskRow label="参考" value={`${references} 个素材`} theme={theme} /> : null}
                 {specs.length ? <VideoTaskRow label="参数" value={specs.join(" · ")} theme={theme} /> : null}
+            </div>
+        </div>
+    );
+}
+
+function GroupNodeContent({ node, theme, groupChildCount }: Pick<NodeContentRendererProps, "node" | "theme" | "groupChildCount">) {
+    return (
+        <div className="pointer-events-none absolute inset-0">
+            <div className="absolute left-3 top-3 flex max-w-[calc(100%-24px)] items-center gap-2 rounded-md border px-2 py-1 text-xs" style={{ background: theme.toolbar.panel, borderColor: theme.node.stroke, color: theme.node.text }}>
+                <Group className="size-3.5 shrink-0" />
+                <span className="truncate font-medium">{node.title || "分组"}</span>
+                <span className="shrink-0 opacity-55">{groupChildCount} 个节点</span>
             </div>
         </div>
     );
@@ -779,7 +803,7 @@ function EmptyImageContent({ theme, isBatchRoot, batchCount, batchExpanded, batc
     return content;
 }
 
-function VideoNodeContent({ node, theme }: NodeContentRendererProps) {
+function VideoNodeContent({ node, theme, onVideoTimeChange }: NodeContentRendererProps) {
     if (!node.metadata?.content)
         return (
             <div className="flex h-full w-full flex-col items-center justify-center gap-3" style={{ color: theme.node.placeholder }}>
@@ -789,7 +813,17 @@ function VideoNodeContent({ node, theme }: NodeContentRendererProps) {
         );
     return (
         <div className="relative h-full w-full">
-            <video src={node.metadata.content} controls draggable={false} className="h-full w-full rounded-[18px] bg-black object-contain" data-canvas-no-zoom onMouseDown={(event) => event.stopPropagation()} />
+            <video
+                src={node.metadata.content}
+                controls
+                draggable={false}
+                className="h-full w-full rounded-[18px] bg-black object-contain"
+                data-canvas-no-zoom
+                data-canvas-video={node.id}
+                onMouseDown={(event) => event.stopPropagation()}
+                onTimeUpdate={(event) => onVideoTimeChange?.(node.id, event.currentTarget.currentTime)}
+                onSeeked={(event) => onVideoTimeChange?.(node.id, event.currentTarget.currentTime)}
+            />
             <div className="absolute inset-x-10 top-2 z-30 h-7 cursor-move rounded-full border text-center text-[10px] font-medium leading-7 opacity-70 backdrop-blur transition hover:opacity-100" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }} data-canvas-drag-handle>
                 拖动视频
             </div>

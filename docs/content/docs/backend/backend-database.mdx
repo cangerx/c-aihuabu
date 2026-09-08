@@ -1,0 +1,42 @@
+---
+title: 后端数据库
+description: 会员、积分、订单和生成计费的数据结构
+---
+
+# 后端数据库
+
+## users
+
+| 字段 | 说明 |
+| --- | --- |
+| `id` | 用户 ID |
+| `email` | 唯一登录邮箱 |
+| `nickname` | 昵称 |
+| `password_hash` | bcrypt 密码哈希 |
+| `role` | `user` 或 `admin` |
+| `status` | `active` 或 `disabled` |
+| `points` | 当前积分余额，服务端事务维护 |
+
+## point_ledgers
+
+不可变积分流水。`amount` 正数为入账、负数为扣减，`balance_after` 记录变更后余额。`idempotency_key` 用于防止重复调账、充值、扣费或退款。
+
+## point_packages
+
+积分商品，保存名称、积分数量、人民币分金额、启用状态和排序。
+
+## recharge_orders
+
+充值订单。创建时固化套餐名称、积分和金额；`payment_trade` 保存支付平台交易号，支付成功时间写入 `paid_at`。
+
+## generation_prices
+
+按模型维护媒体类型、单次积分价格和启用状态。第二阶段生成计费不得使用客户端上报价格。
+
+## system_settings
+
+按 `key` 保存后台配置。支付私钥、公钥等敏感项标记为 `secret`，接口只返回是否已配置，不向浏览器回显明文；环境变量作为默认值，后台保存后覆盖支付运行时配置。
+
+## ai_channels
+
+管理员统一维护模型上游渠道、Base URL、API Key、启用状态和模型清单。公开模型接口不会返回 API Key；同域代理根据目标 Base URL 从业务服务解析渠道并注入密钥，普通用户浏览器不再保存或提交上游密钥。

@@ -5,6 +5,40 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 # 待测试
 
+- 管理后台配置页：新增支付配置与其他设置页面，支付密钥仅服务端保存并以配置状态展示；模型计价页增加类型筛选、模型搜索和启停管理。设置接口支持数据库持久化，支付下单/回调会读取最新配置。
+- 平台模型渠道：后台新增模型渠道与上游 API Key 配置、服务端模型拉取；普通用户端移除渠道、Key 和直连配置，启动时读取平台模型清单，所有 AI 请求经同域代理按渠道注入服务端密钥。模型计价模型选项与平台渠道模型同步。
+- 后台主题切换：管理后台顶部增加白色/深色模式切换按钮，并复用全局主题设置；切换后 ProLayout、Ant Design 组件和页面背景应同步更新，刷新后保持选择。
+- 后台其他设置 UI：由弹窗编辑改为常驻配置页面，顶部展示注册、登录有效期和系统状态摘要，表单按账号注册、默认生成积分、运行维护分区；维护模式使用独立警示区，支持一次保存全部设置。
+- 后台登录失效处理：业务服务重启或 Token 过期后，任意会员接口返回 401 时应自动清除旧会话并跳回登录页，不再让设置页面永久显示加载状态。
+
+## 会员与积分系统第一阶段
+
+- 配置至少 32 位 `C_AI_JWT_SECRET` 后启动 Docker，业务服务应创建 SQLite 数据库并完成表结构初始化。
+- `POST /api/auth/register` 可注册邮箱账号，重复邮箱和少于 8 位的密码应被拒绝；`POST /api/auth/login` 返回 JWT，`GET /api/users/me` 可恢复当前用户。
+- 配置管理员邮箱和密码首次启动后，应创建管理员；管理员调用 `POST /api/admin/users/:id/points` 可原子增加或扣减积分，并在 `GET /api/wallet/ledger` 中产生带操作人和备注的流水。余额不足、重复幂等键和普通用户访问管理接口均应被拒绝。
+- 会员前端：打开 `/auth` 可登录或注册；登录后顶部显示积分余额并进入 `/account`，账户页应读取服务端余额、积分流水和已上架套餐。未登录访问 `/account` 应跳转登录，套餐按钮在支付接入前保持不可用，不显示虚假充值成功。
+- 管理后台：管理员打开 `/admin` 可查看统计；`/admin/users` 支持搜索用户和积分调账；`/admin/packages` 可维护套餐；`/admin/prices` 可维护模型计价；`/admin/ledger` 可查询全站积分流水。普通用户访问 `/admin` 应被拦截。
+- 随行付支付适配：配置 `C_AI_TIANQUE_*` 服务端变量并启用后，会员选择套餐与微信/支付宝方式应创建二维码订单；重复回调不能重复增加积分，回调验签失败必须拒绝。当前源项目未发现实际商户密钥，未配置时下单应明确返回渠道未启用。
+
+- 模型用途配置：模型名包含 `minimax-h3`（包括 `minimax-h3-f`、`minimax-h3-f-768p`、`minimax-h3-768p` 等）时应归入“视频模型”，出现在视频模型用途列表，不应归入文本模型。
+
+## 772.ee 视频接口
+
+- Toonflow 供应商文件：导入根目录 `toonflow-772-video-vendor.ts` 后，分别填写旧分组和新分组 API Key；选择 `videos-*`、`sd-2.0-*`、`seedance-2-5*`、`minimax-h3-f*` 等旧模型时应发送旧协议，选择 `seedance2.*`、`seedance-2.*-lec-*`、`minimax-h3-768p-*` 等新模型时应发送新协议。模型协议和密钥选择均依据模型 ID，不依据 Base URL；未配置对应密钥时应明确报错，日志中不得出现密钥。
+- Toonflow 文本/图片模型：供应商版本应显示为 `2.1`，模型列表应包含 `deepseek-v4-flash`、`deepseek-v4-pro`、`gpt-5.6-sol`、`gpt-5.6-terra` 和 `gpt-image-2`；DeepSeek 文本请求应使用 DeepSeek 适配器并按思考开关提交 `thinking`，GPT 文本请求应使用 OpenAI 兼容适配器。`gpt-image-2` 文生图应 POST `/v1/images/generations`，带 `size`、`quality=auto`、`output_format=jpeg`、`moderation=auto`；连接参考图后应 POST `/v1/images/edits` multipart，优先使用 `image[]`，并能解析 URL、`b64_json` 和异步任务内容。
+- 旧模型类：用旧分组 Key 拉取到的普通 `videos-*`、`sd-2.0-*`、`seedance-2-5*`、`alibaba/wan-3.0*` 等模型发起视频生成；请求应使用 JSON 的 `duration`、`ratio`、`resolution`、`referenceImages`、`referenceVideos`、`referenceAudios` 字段。旧分组的 `minimax-h3-f*` 使用 `seconds`、`resolution`、`ratio` 和 `metadata.content` 多模态字段。协议选择应依据模型 ID，即使渠道 Base URL 使用 `ai.772.ee` 或 `us.772.ee` 也不能改变结果；首尾帧应在提交前明确提示不支持（H3 按首尾帧角色提交）。本地参考素材应先经临时上传得到公网地址，原本就是公网 HTTP/HTTPS 地址的素材不应重复上传。
+- 新模型类：用新分组 Key 拉取到的 `seedance2.0/2.5*`、`seedance-2.0-*`、`seedance-2.5-lec-*` 和 `minimax-h3-768p-*` 等模型发起视频生成；请求应只发送 `seconds`、`aspect_ratio`、`resolution` 和 `images`/`videos`/`audios` 标准字段，本地素材应转为 data URI。确认请求不会同时发送 `seconds` 与 `duration`，也不会携带 `generate_audio`、`watermark`、`seed` 等未确认字段。
+- MiniMax H3：新分组 `minimax-h3-768p-*` 最多支持 9 张普通参考图和 3 段参考音频，每段音频时长需为 1-15 秒；普通图片参考应提交 `reference_images`，音频参考应提交 `audio_reference` 且必须同时有普通参考图。旧分组 `minimax-h3-f*` 按文档使用 `metadata.content` 多模态项。首尾帧模式应只提交两张图对应的 `start_frame`、`end_frame`（旧 H3 使用对应角色项）。参考视频、首尾帧与音频、普通图片与首尾帧等不支持的组合应在前端明确报错。
+- 任务查询：772 任务应每 5 秒查询一次；`SUCCESS`/`completed` 与 `FAILURE`/`failed` 状态均应正确处理，完成时优先读取内容接口并回退结果 URL，短暂出现成功但尚无结果地址时应继续轮询；失败时应显示 `fail_reason`。刷新画布或视频创作台后，保存的 772 任务应能继续查询。
+
+## 上游 infinite-canvas 首批合并
+
+- 节点分组：新建画布应正常加载，不再出现节点复制 ID 模板字符串导致的 Vite 解析错误；选中至少两个节点后，工具栏“分组”按钮和 `Ctrl/Cmd+G` 可创建分组，`Ctrl/Cmd+Shift+G`、右键菜单和悬浮工具栏可取消分组；未满足条件时工具栏按钮应禁用。拖动、复制、粘贴、删除分组时成员应一并处理，复制后的成员、批量图片关联与内部连线不应指向原分组；单独取消成员分组或删除成员后，剩余分组外框应重新包住成员。
+- 分组引用：从分组节点连到生成节点或配置节点后，引用素材应展开为组内的图片、视频、音频和文本，而不是把分组框当作素材；分组节点不能作为连线终点。
+- 视频恢复与截帧：视频异步任务创建成功后刷新画布，应使用保存的任务 ID 自动继续查询且不弹出成功/失败提示；右键已有视频可截取首帧、尾帧或当前播放帧，生成的图片节点应连接回来源视频。跨域视频因浏览器 CORS 限制无法截帧时应明确提示失败。
+- WebDAV 删除墓碑：设备 A 删除画布并同步后，设备 B 再同步不应把旧项目重新合并回来；同 ID 项目确实有更晚更新时间时才应覆盖删除记录。画布本地持久化和 WebDAV 清单中都应保存删除时间。
+- Canvas Agent 安全：本机 `~/.infinite-canvas` 配置目录应为私有权限，配置文件应仅当前用户可读；普通 Agent HTTP 请求应通过 `x-canvas-agent-token` 传 token，只有浏览器 `EventSource` 因 API 限制保留 query token；Agent stderr 日志中的 Authorization、Bearer、API Key 和 token 值应被脱敏。
+
 ## 本轮重点测试
 
 - GitHub 入口图标：打开首页或包含 GitHub 入口的导航区域，图标应正常显示，点击后仍在新标签页打开项目仓库；Web 类型检查与生产构建不再因无效的 Lucide `Github` 导出失败。
@@ -51,7 +85,10 @@ description: 当前版本已实现但仍需人工验证的变更项
 - 对应提交范围：`d6b430f` 起到当前最新提交，重点覆盖脚本生成器、参考图片托管、视频提交链路与本地 Agent 工具确认队列。
 - 画布脚本生成器：新建“脚本生成器”节点，测试三种模式“主题分镜 / 参考图文案 / 图文转视频”；点击节点内“上传参考图”后，应自动创建图片节点并连线到脚本生成器；只上传图片不输入文字时，也应能生成文案分析摘要和分镜卡片；点击“拆分镜头”后，应生成“镜头文本 -> 图片节点 -> 视频节点”的工作流。
 - 视频参考图片提交：从画布图片节点连接到视频节点后提交时，Cai / NewToken / duomiapi / Seedance / Lingdong 等需要服务端回源的异步接口应只接受公网 HTTPS URL；本地 `blob:` 或 dataURL 应在前端直接提示先上传到对象存储。
-- Grok 1.5 预览图生视频：选择 `grok-imagine-video-1.5-preview` 并连接 1 张图片后提交，Cai 专用接口、NewToken 和 duomiapi payload 应使用 `input_reference` 提交参考图，不应再因缺少 `input_reference` 返回 `requires one input_reference image`。
+- Grok 1.5 预览图生视频：选择 `grok-imagine-video-1.5-preview` 并连接 1 张图片后提交，应按模型名走 `POST /v1/videos` 并使用 `input_reference` 提交参考图，不应再请求不存在的 `/v1/videos/generations` 或因缺少 `input_reference` 失败；普通 Grok Imagine 视频模型继续走原生 generations 接口。
+- GLM-Image 固定尺寸：选择 `GLM-Image` 后，图片设置显示七个 2K 档位；按 FreeImg/Gitee Serverless 的实际调用方式，生成请求使用 `width`、`height` 和 `num_inference_steps`，例如 `9:16` 发送 `1152x2048`，不再传 OpenAI `size` 字段或回落为方图。
+- GLM-Image 生成步数：图片设置增加 `1-50` 步滑杆与数值输入，默认及推荐值为 `9`；步数随全局配置、画布节点和生成记录保存，并作为整数 `steps` 提交生成/编辑请求。
+- Z-Image-Turbo 调用适配：与 GLM-Image 共用七档 2K 尺寸面板，并按 FreeImg 实际协议使用 `width`、`height`、`num_inference_steps` 请求，不再发送 OpenAI `size` 字段。
 - 参考素材公网读取：用户手填的公网 HTTPS 参考素材应能通过 `HEAD` 或 `GET Range` 自检；Docker 版本站临时上传文件同样应支持 `HEAD`/`GET`/`Range`。
 - 参考素材强制公网校验：Cai、NewToken、Duomi、Lingdong 和 Seedance 视频参考素材提交前必须是可公网读取的 HTTPS URL，并通过 `HEAD` 或 `GET Range` 自检；本地素材不再尝试上传到本服务。
 - 生图/视频工作台并发提交：生图工作台和视频创作台在已有任务生成中时，提交按钮不再锁死，可继续提交新的生成任务；历史记录应保留每次提交，视频任务会继续后台轮询多个任务；视频创作台需重点确认连续点击提交不会被旧 `setRunning` 状态阻断。

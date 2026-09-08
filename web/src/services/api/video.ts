@@ -5,6 +5,7 @@ import { debugError, debugLog, debugWarn, estimatePayloadBytes, summarizeAxiosEr
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { isGrokImagineVideo15Model, isGrokImagineVideoModel, normalizeGrokImagineVideoDuration, normalizeGrokImagineVideoRatio, normalizeGrokImagineVideoResolution } from "@/lib/grok-imagine";
+import { get772VideoProtocol, get772VideoReferenceLimits, is772UnifiedMinimaxH3VideoModel, is772VideoModel } from "@/lib/772-video";
 import { buildSeedancePromptText, caiVideoModelCapabilities } from "@/lib/seedance-video";
 import { isVideos4VideoModel, normalizeVideos4Duration, normalizeVideos4Ratio, normalizeVideos4Resolution, VIDEOS4_POLL_INTERVAL_MS, videos4ReferenceLimits } from "@/lib/videos4-video";
 import { buildAiApiUrl, modelOptionName, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
@@ -24,7 +25,7 @@ type RequestOptions = { signal?: AbortSignal; videoMode?: string };
 const VIDEO_GENERATION_TIMEOUT_MS = 30 * 60 * 1000;
 
 export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string };
-export type VideoGenerationTask = { id: string; provider: "openai" | "seedance" | "videos4"; model: string };
+export type VideoGenerationTask = { id: string; provider: "openai" | "seedance" | "videos4" | "772"; model: string };
 export type VideoGenerationTaskState = { status: "pending"; progress?: number; message?: string } | { status: "completed"; result: VideoGenerationResult } | { status: "failed"; error: string };
 
 function aiApiUrl(config: AiConfig, path: string) {
@@ -47,7 +48,13 @@ function withSystemPrompt(config: AiConfig, prompt: string) {
 export function videoPollIntervalMs(provider: VideoGenerationTask["provider"]) {
     if (provider === "seedance") return 5000;
     if (provider === "videos4") return VIDEOS4_POLL_INTERVAL_MS;
+    if (provider === "772") return 5000;
     return 2500;
+}
+
+export function is772VideoConfig(config: AiConfig) {
+    const requestConfig = resolveModelRequestConfig(config, config.model || config.videoModel);
+    return is772VideoModel(requestConfig.model);
 }
 
 export async function requestVideoGeneration(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationResult> {
@@ -81,6 +88,10 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
         promptChars: prompt.length,
     });
     try {
+        const protocol772 = get772VideoProtocol(requestConfig.model);
+        if (protocol772) {
+            return await create772VideoTask(requestConfig, selectedModel, protocol772, prompt, references, videoReferences, audioReferences, options);
+        }
         if (isVideos4VideoModel(requestConfig.model)) {
             return await createVideos4VideoTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
         }
@@ -100,6 +111,7 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
 export async function pollVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
     const requestConfig = resolveModelRequestConfig(config, task.model);
     assertVideoConfig(requestConfig, requestConfig.model);
+    if (task.provider === "772" || (is772VideoModel(requestConfig.model) && !isGrokImagineVideoModel(requestConfig.model))) return poll772VideoTask(requestConfig, task, options);
     if (isGrokImagineVideoModel(task.model)) return pollGrokImagineVideoTask(requestConfig, task, options);
     return pollOpenAIVideoTask(requestConfig, task, options);
 }
@@ -167,6 +179,104 @@ async function createVideos4VideoTask(config: AiConfig, model: string, prompt: s
     }
 }
 
+async function create772VideoTask(config: AiConfig, model: string, protocol: "legacy" | "unified", prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
+    if (protocol === "legacy") return create772LegacyVideoTask(config, model, prompt, references, videoReferences, audioReferences, options);
+    return create772UnifiedVideoTask(config, model, prompt, references, videoReferences, audioReferences, options);
+}
+
+async function create772LegacyVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
+    if (options?.videoMode === "first-last") throw new Error("772 旧视频接口不支持首尾帧生成");
+    if (references.length > 9) throw new Error("772 旧视频接口参考图片最多 9 张");
+    if (videoReferences.length > 3) throw new Error("772 旧视频接口参考视频最多 3 个");
+    if (audioReferences.length > 3) throw new Error("772 旧视频接口参考音频最多 3 个");
+
+    const [imageUrls, videoUrls, audioUrls] = await Promise.all([
+        Promise.all(references.map((image) => resolve772LegacyImageUrl(image, options))),
+        Promise.all(videoReferences.map((video) => resolve772LegacyMediaUrl(video, "参考视频", options))),
+        Promise.all(audioReferences.map((audio) => resolve772LegacyMediaUrl(audio, "参考音频", options))),
+    ]);
+    const modelName = modelOptionName(model);
+    const payload: Record<string, any> = {
+        model: modelName,
+        prompt: withSystemPrompt(config, buildSeedancePromptText(prompt, references, videoReferences, audioReferences)),
+        duration: normalizeVideos4Duration(config.videoSeconds),
+        ratio: normalizeVideos4Ratio(config.size),
+        resolution: normalizeVideos4Resolution(config.vquality, modelName),
+    };
+    if (imageUrls.length) payload.referenceImages = imageUrls;
+    if (videoUrls.length) payload.referenceVideos = videoUrls;
+    if (audioUrls.length) payload.referenceAudios = audioUrls;
+    return submit772VideoTask(config, model, payload, options);
+}
+
+async function create772UnifiedVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
+    const modelName = modelOptionName(model);
+    if (is772UnifiedMinimaxH3VideoModel(modelName)) return create772MinimaxH3VideoTask(config, model, prompt, references, videoReferences, audioReferences, options);
+    if (options?.videoMode === "first-last") throw new Error("当前 772 Seedance 模型未声明首尾帧支持，请改用 MiniMax H3 模型");
+    const limits = get772VideoReferenceLimits(modelName);
+    if (limits && references.length > limits.images) throw new Error(`772 新视频接口参考图片最多 ${limits.images} 张`);
+    if (limits && videoReferences.length > limits.videos) throw new Error(`772 新视频接口参考视频最多 ${limits.videos} 个`);
+    if (limits && audioReferences.length > limits.audios) throw new Error(`772 新视频接口参考音频最多 ${limits.audios} 个`);
+
+    const [imageUrls, videoUrls, audioUrls] = await Promise.all([
+        Promise.all(references.map(resolve772JsonImageUrl)),
+        Promise.all(videoReferences.map((video) => resolve772JsonMediaUrl(video, "参考视频"))),
+        Promise.all(audioReferences.map((audio) => resolve772JsonMediaUrl(audio, "参考音频"))),
+    ]);
+    const payload = create772UnifiedPayload(config, modelName, buildSeedancePromptText(prompt, references, videoReferences, audioReferences));
+    if (imageUrls.length) payload.images = imageUrls;
+    if (videoUrls.length) payload.videos = videoUrls;
+    if (audioUrls.length) payload.audios = audioUrls;
+    return submit772VideoTask(config, model, payload, options);
+}
+
+async function create772MinimaxH3VideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
+    if (videoReferences.length) throw new Error("MiniMax H3 不支持参考视频");
+    const payload = create772UnifiedPayload(config, modelOptionName(model), buildSeedancePromptText(prompt, references, [], audioReferences));
+
+    if (options?.videoMode === "first-last") {
+        if (audioReferences.length) throw new Error("MiniMax H3 首尾帧模式不能同时使用参考音频");
+        if (references.length !== 2) throw new Error("MiniMax H3 首尾帧模式需要恰好 2 张图片，依次为首帧和尾帧");
+        const [startFrame, endFrame] = await Promise.all(references.map(resolve772JsonImageUrl));
+        payload.start_frame = startFrame;
+        payload.end_frame = endFrame;
+    } else {
+        if (references.length > 9) throw new Error("MiniMax H3 普通参考图片最多 9 张");
+        if (audioReferences.length > 3) throw new Error("MiniMax H3 参考音频最多 3 段");
+        if (audioReferences.some((audio) => audio.durationMs && (audio.durationMs < 1000 || audio.durationMs > 15000))) throw new Error("MiniMax H3 每段参考音频时长需要在 1-15 秒之间");
+        if (audioReferences.length && !references.length) throw new Error("MiniMax H3 参考音频需要至少搭配 1 张普通参考图片");
+        const [imageUrls, audioUrls] = await Promise.all([
+            Promise.all(references.map(resolve772JsonImageUrl)),
+            Promise.all(audioReferences.map((audio) => resolve772JsonMediaUrl(audio, "参考音频"))),
+        ]);
+        if (imageUrls.length) payload.reference_images = imageUrls;
+        if (audioUrls.length) payload.audio_reference = audioUrls;
+    }
+    return submit772VideoTask(config, model, payload, options);
+}
+
+function create772UnifiedPayload(config: AiConfig, model: string, prompt: string): Record<string, any> {
+    const payload: Record<string, any> = { model, prompt: withSystemPrompt(config, prompt) };
+    const seconds = normalize772Seconds(config.videoSeconds);
+    const aspectRatio = normalize772AspectRatio(config.size);
+    const resolution = normalize772Resolution(config.vquality);
+    if (seconds !== undefined) payload.seconds = seconds;
+    if (aspectRatio) payload.aspect_ratio = aspectRatio;
+    if (resolution) payload.resolution = resolution;
+    return payload;
+}
+
+async function submit772VideoTask(config: AiConfig, model: string, payload: Record<string, any>, options?: RequestOptions): Promise<VideoGenerationTask> {
+    try {
+        const created = unwrapVideoResponse((await postWithProxyFallback<ApiVideoResponse>(config, "/videos", payload, "application/json", options)).data);
+        const taskId = readVideoTaskId(created);
+        if (!taskId) throw new Error("772 视频接口没有返回任务 ID");
+        return { id: taskId, provider: "772", model };
+    } catch (error) {
+        throw new Error(readAxiosError(error, "772 视频任务创建失败"));
+    }
+}
+
 /** /v1/videos JSON 协议只接受公网 http/https 参考素材，本地素材需先上传。 */
 async function resolveVideos4ImageUrl(image: ReferenceImage, options?: RequestOptions) {
     const directUrl = String(image.url || "").trim();
@@ -184,6 +294,61 @@ async function resolveVideos4MediaUrl(media: ReferenceVideo | ReferenceAudio, la
     return uploadReferenceFile(file, options);
 }
 
+async function resolve772LegacyImageUrl(image: ReferenceImage, options?: RequestOptions) {
+    const directUrl = [image.url, image.dataUrl].map((value) => String(value || "").trim()).find(isPublicHttpReferenceUrl);
+    if (directUrl) return directUrl;
+    const file = await dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) });
+    return uploadReferenceFile(file, options);
+}
+
+async function resolve772LegacyMediaUrl(media: ReferenceVideo | ReferenceAudio, label: string, options?: RequestOptions) {
+    const directUrl = String(media.url || "").trim();
+    if (isPublicHttpReferenceUrl(directUrl)) return directUrl;
+    const blob = await get772LocalMediaBlob(media);
+    if (!blob) throw new Error(`${label}需要公网 HTTP/HTTPS 地址，请先上传后再提交`);
+    return uploadReferenceFile(new File([blob], media.name || label, { type: media.type || blob.type }), options);
+}
+
+async function resolve772JsonImageUrl(image: ReferenceImage) {
+    const directUrl = [image.url, image.dataUrl].map((value) => String(value || "").trim()).find(is772JsonReference);
+    if (directUrl) return directUrl;
+    const dataUrl = await imageToDataUrl(image);
+    if (!dataUrl) throw new Error("读取参考图片失败");
+    return dataUrl;
+}
+
+async function resolve772JsonMediaUrl(media: ReferenceVideo | ReferenceAudio, label: string) {
+    const directUrl = String(media.url || "").trim();
+    if (is772JsonReference(directUrl)) return directUrl;
+    const blob = await get772LocalMediaBlob(media);
+    if (!blob) throw new Error(`读取${label}失败`);
+    return blobToDataUrl(blob, label);
+}
+
+async function get772LocalMediaBlob(media: ReferenceVideo | ReferenceAudio) {
+    if (media.storageKey) {
+        const blob = await getMediaBlob(media.storageKey);
+        if (blob) return blob;
+    }
+    const url = String(media.url || "").trim();
+    if (!url.startsWith("blob:") && !url.startsWith("data:")) return undefined;
+    try {
+        const response = await fetch(url);
+        return response.ok ? response.blob() : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+function blobToDataUrl(blob: Blob, label: string) {
+    return new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error(`读取${label}失败`));
+        reader.readAsDataURL(blob);
+    });
+}
+
 async function createGrokImagineVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
     if (videoReferences.length || audioReferences.length) {
         throw new Error("Grok Imagine 视频暂不支持参考视频或参考音频");
@@ -196,6 +361,7 @@ async function createGrokImagineVideoTask(config: AiConfig, model: string, promp
     const aspectRatio = normalizeGrokImagineVideoRatio(config.size);
     const resolution = normalizeGrokImagineVideoResolution(config.vquality, modelName);
     const duration = normalizeGrokImagineVideoDuration(config.videoSeconds);
+    const isPreview15 = modelName.toLowerCase().includes("grok-imagine-video-1.5-preview");
     const payload: Record<string, any> = {
         model: modelName,
         prompt: withSystemPrompt(config, requestPrompt),
@@ -207,7 +373,8 @@ async function createGrokImagineVideoTask(config: AiConfig, model: string, promp
     if (isGrokImagineVideo15Model(modelName)) {
         if (videoMode === "image-ref") throw new Error("grok-imagine-video-1.5 不支持参考图生视频");
         assertGrokImagineVideo15Reference(modelName, imageUrls);
-        payload.image = { url: imageUrls[0] };
+        if (isPreview15) payload.input_reference = imageUrls[0];
+        else payload.image = { url: imageUrls[0] };
     } else if (videoMode === "image-to-video") {
         if (!imageUrls[0]) throw new Error("图生视频需要先连接 1 张图片");
         if (imageUrls.length > 1) throw new Error("图生视频仅支持 1 张图片输入");
@@ -222,7 +389,8 @@ async function createGrokImagineVideoTask(config: AiConfig, model: string, promp
     }
 
     try {
-        const created = unwrapVideoResponse((await postWithProxyFallback<ApiVideoResponse>(config, "/videos/generations", payload, "application/json", options)).data);
+        const path = isPreview15 ? "/videos" : "/videos/generations";
+        const created = unwrapVideoResponse((await postWithProxyFallback<ApiVideoResponse>(config, path, payload, "application/json", options)).data);
         const requestId = readVideoTaskId(created);
         if (!requestId) throw new Error("Grok Imagine 接口没有返回 request_id");
         return { id: requestId, provider: "openai", model };
@@ -254,6 +422,30 @@ async function resolveGrokImagineImageUrl(image: ReferenceImage, options?: Reque
         const compressed = await compressImageDataUrl(dataUrl, 1280, 0.82);
         debugWarn("video", "Grok 参考图回退压缩 dataURL", { beforeBytes: bytes, afterBytes: getDataUrlByteSize(compressed) });
         return compressed;
+    }
+}
+
+async function poll772VideoTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
+    try {
+        const video = unwrapVideoResponse((await getWithProxyFallback<ApiVideoResponse>(config, `/videos/${task.id}`, options)).data);
+        const status = normalizeTaskStatus(video.status || video.state || video.task_status);
+        if (status === "failed") return { status: "failed", error: readTaskFailureMessage(video, "772 视频生成失败") };
+        const directUrl = readVideoUrl(video);
+        if (status === "completed") {
+            try {
+                const content = await getBlobWithProxyFallback(config, `/videos/${task.id}/content`, options);
+                await assertVideoBlob(content.data);
+                return { status: "completed", result: { blob: content.data } };
+            } catch {
+                if (directUrl) return { status: "completed", result: await videoResultFromUrl(resolveProviderUrl(config, directUrl), options) };
+                // 772 允许成功状态先于结果地址出现，继续轮询而不是把短暂延迟记为失败。
+                return { status: "pending", progress: readProgress(video), message: readStatusMessage(video) };
+            }
+        }
+        if (directUrl) return { status: "completed", result: await videoResultFromUrl(resolveProviderUrl(config, directUrl), options) };
+        return { status: "pending", progress: readProgress(video), message: readStatusMessage(video) };
+    } catch (error) {
+        throw new Error(readAxiosError(error, "772 视频任务查询失败"));
     }
 }
 
@@ -318,6 +510,24 @@ function assertVideoConfig(config: AiConfig, model: string) {
     if (!model) throw new Error("请先配置视频模型");
     if (!config.baseUrl.trim()) throw new Error("请先配置 Base URL");
     if (!config.apiKey.trim()) throw new Error("请先配置 Key");
+}
+
+function normalize772Seconds(value: string) {
+    const seconds = Math.floor(Number(value));
+    return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined;
+}
+
+function normalize772AspectRatio(value: string) {
+    const ratio = String(value || "").trim();
+    if (!ratio || ratio === "auto" || ratio === "adaptive") return "";
+    if (/^\d+\s*:\s*\d+$/.test(ratio)) return ratio.replace(/\s+/g, "");
+    return /^\d+\s*[x×]\s*\d+$/i.test(ratio) ? normalizeVideos4Ratio(ratio.replace("×", "x")) : "";
+}
+
+function normalize772Resolution(value: string) {
+    const resolution = String(value || "").trim();
+    if (!resolution || ["auto", "low", "medium", "high"].includes(resolution.toLowerCase())) return "";
+    return /^\d+$/.test(resolution) ? `${resolution}p` : resolution;
 }
 
 function normalizeVideoSeconds(value: string) {
@@ -396,6 +606,10 @@ function readVideoUrl(payload: VideoResponse): string {
     return String(candidates.find((url) => typeof url === "string" && url.trim()) || "").trim();
 }
 
+function readTaskFailureMessage(payload: VideoResponse, fallback: string) {
+    return payload.error?.message || stringValue(payload.fail_reason) || stringValue(payload.data?.fail_reason) || stringValue(payload.message) || stringValue(payload.data?.message) || fallback;
+}
+
 function readProgress(payload: VideoResponse): number | undefined {
     const value = payload.progress ?? payload.data?.progress ?? payload.percentage ?? payload.data?.percentage;
     if (typeof value === "number" && value >= 0 && value <= 100) return value;
@@ -405,11 +619,11 @@ function readProgress(payload: VideoResponse): number | undefined {
 function readStatusMessage(payload: VideoResponse): string | undefined {
     const statusMap: Record<string, string> = {
         queued: "排队中", queue: "排队中", waiting: "排队中",
-        processing: "生成中", running: "生成中", generating: "生成中",
-        pending: "等待中",
+        not_start: "等待中", pending: "等待中",
+        in_progress: "生成中", processing: "生成中", running: "生成中", generating: "生成中",
     };
     const raw = String(payload.status || payload.state || payload.task_status || "").toLowerCase();
-    return statusMap[raw] || undefined;
+    return stringValue(payload.progress_text) || stringValue(payload.data?.progress_text) || statusMap[raw] || undefined;
 }
 
 function resolveProviderUrl(config: AiConfig, url: string) {
@@ -440,7 +654,7 @@ function responseErrorMessage(value: unknown) {
     const error = record.error && typeof record.error === "object" && !Array.isArray(record.error) ? (record.error as Record<string, unknown>) : undefined;
     const response = record.response && typeof record.response === "object" && !Array.isArray(record.response) ? (record.response as Record<string, unknown>) : undefined;
     const responseError = response?.error && typeof response.error === "object" && !Array.isArray(response.error) ? (response.error as Record<string, unknown>) : undefined;
-    return stringValue(record.message) || stringValue(record.msg) || stringValue(error?.message) || stringValue(error?.msg) || stringValue(responseError?.message);
+    return stringValue(record.message) || stringValue(record.msg) || stringValue(record.fail_reason) || stringValue(error?.message) || stringValue(error?.msg) || stringValue(responseError?.message);
 }
 
 function stringValue(value: unknown) {
@@ -605,6 +819,20 @@ function isPublicReferenceUrl(value: string) {
     } catch {
         return false;
     }
+}
+
+function isPublicHttpReferenceUrl(value: string) {
+    if (!/^https?:\/\//i.test(value || "")) return false;
+    try {
+        const host = new URL(value).hostname.toLowerCase();
+        return host !== "localhost" && host !== "127.0.0.1" && !host.endsWith(".local");
+    } catch {
+        return false;
+    }
+}
+
+function is772JsonReference(value: string) {
+    return /^https?:\/\//i.test(value) || /^data:/i.test(value);
 }
 
 function assertGrokImagineVideo15Reference(model: string, imageUrls: string[]) {

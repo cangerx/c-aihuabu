@@ -7,6 +7,7 @@ import { ImageSettingsPanel, imageQualityLabel, imageSizeLabel } from "@/compone
 import { canvasThemes } from "@/lib/canvas-theme";
 import { isGrokImagineImageConfig, normalizeGrokImagineImageResolution } from "@/lib/grok-imagine";
 import { isGptImage2StyleConfig, normalizeGptImage2Resolution } from "@/lib/gpt-image-2";
+import { isGlmImageConfig } from "@/lib/glm-image";
 import { isPortraitImageSize, isStepImageEdit2Config } from "@/lib/step-image";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { AiConfig } from "@/stores/use-config-store";
@@ -32,6 +33,7 @@ export function CanvasImageSettingsPopover({ config, onConfigChange, onOpenChang
     const displayQuality = isGrokImagineImageConfig(config) ? normalizeGrokImagineImageResolution(quality) : isGptImage2StyleConfig(config) ? normalizeGptImage2Resolution(quality) : quality;
     const activeSize = config.size || "auto";
     const isStepImageEdit2 = isStepImageEdit2Config(config);
+    const isFixedSizeImage = isStepImageEdit2 || isGlmImageConfig(config);
     const isPortrait = isPortraitImageSize(activeSize);
 
     const updateOpen = (nextOpen: boolean) => {
@@ -73,7 +75,7 @@ export function CanvasImageSettingsPopover({ config, onConfigChange, onOpenChang
                     className={buttonClassName || "flex h-7 items-center gap-1 rounded-full border border-gray-200/60 bg-gray-50/50 px-2.5 text-[11px] font-normal text-gray-700 transition-colors hover:bg-gray-100 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-300 dark:hover:bg-zinc-800"}
                 >
                     {isPortrait ? <Smartphone className="size-3 text-gray-400" /> : <Monitor className="size-3 text-gray-400" />}
-                    <span className="truncate">{imageSizeLabel(activeSize)}{isStepImageEdit2 ? "" : ` · ${imageQualityLabel(displayQuality)}`}</span>
+                    <span className="truncate">{imageSizeLabel(activeSize)}{isFixedSizeImage ? "" : ` · ${imageQualityLabel(displayQuality)}`}</span>
                 </button>
                 {!buttonClassName ? (
                     <button

@@ -34,11 +34,22 @@ COPY proxy/go.mod ./
 COPY proxy/*.go ./
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /c-aihuabu-proxy .
 
+# 构建会员、积分和后台管理业务服务。SQLite 驱动需要 CGO。
+FROM golang:1.22-alpine AS server-build
+
+RUN apk add --no-cache build-base
+WORKDIR /app/server
+COPY server/go.mod ./
+RUN go mod download
+COPY server ./
+RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o /c-aihuabu-server .
+
 # 运行镜像：nginx 提供静态文件，Go 代理提供可选同域 AI 转发。
 FROM nginx:1.29-alpine
 
 COPY --from=web-build /app/web/dist /usr/share/nginx/html
 COPY --from=proxy-build /c-aihuabu-proxy /usr/local/bin/c-aihuabu-proxy
+COPY --from=server-build /c-aihuabu-server /usr/local/bin/c-aihuabu-server
 # 让运行镜像自带版本号，便于部署后用 docker exec 核对实际跑的是哪个版本。
 COPY VERSION /app/VERSION
 RUN cat > /etc/nginx/conf.d/default.conf <<'NGINX'
@@ -88,6 +99,15 @@ server {
         proxy_pass http://127.0.0.1:8787;
     }
 
+    location ~ ^/api/(auth|users|wallet|packages|orders|admin|payment|models)(/|$) {
+        proxy_pass http://127.0.0.1:8788;
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
     location = /index.html {
         add_header Cache-Control "no-store";
     }
@@ -118,4 +138,4 @@ server {
 NGINX
 
 EXPOSE 3000
-CMD ["/bin/sh", "-c", "/usr/local/bin/c-aihuabu-proxy & exec nginx -g 'daemon off;'"]
+CMD ["/bin/sh", "-c", "/usr/local/bin/c-aihuabu-proxy & /usr/local/bin/c-aihuabu-server & exec nginx -g 'daemon off;'"]

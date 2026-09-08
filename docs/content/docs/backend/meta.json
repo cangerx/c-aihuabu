@@ -5,6 +5,8 @@
   "pages": [
     "local-development",
     "canvas-data-structure",
-    "core-capability-inventory"
+    "core-capability-inventory",
+    "membership-billing-plan",
+    "backend-database"
   ]
 }

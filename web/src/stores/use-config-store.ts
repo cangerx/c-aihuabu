@@ -36,6 +36,7 @@ export type AiConfig = {
     audioModels: string[];
     quality: string;
     size: string;
+    imageSteps: string;
     count: string;
     canvasImageCount: string;
 };
@@ -89,6 +90,7 @@ export const defaultConfig: AiConfig = {
     audioModels: ["default::gpt-4o-mini-tts"],
     quality: "auto",
     size: "1:1",
+    imageSteps: "9",
     count: "1",
     canvasImageCount: "1",
 };
@@ -119,7 +121,7 @@ type ConfigStore = {
 
 function isVideoModelName(model: string) {
     const value = modelOptionName(model).toLowerCase();
-    return /^sd-\d/i.test(value) || value.includes("seedance") || value.includes("video") || value.includes("sora") || value.includes("veo") || value.includes("firefly") || value.includes("kling") || value.includes("runway") || value.includes("luma") || value.includes("pika") || value.includes("wan") || value.includes("hailuo");
+    return /^sd-\d/i.test(value) || value.includes("seedance") || value.includes("video") || value.includes("sora") || value.includes("veo") || value.includes("firefly") || value.includes("kling") || value.includes("runway") || value.includes("luma") || value.includes("pika") || value.includes("wan") || value.includes("hailuo") || value.includes("minimax-h3");
 }
 
 function isImageModelName(model: string) {
@@ -159,7 +161,7 @@ function modelListKey(capability: ModelCapability) {
 
 function isAiConfigReady(config: AiConfig, model: string) {
     const channel = resolveModelChannel(config, model);
-    return Boolean(model.trim() && channel.baseUrl.trim() && channel.apiKey.trim());
+    return Boolean(model.trim() && channel.baseUrl.trim());
 }
 
 export const useConfigStore = create<ConfigStore>()(
@@ -168,7 +170,7 @@ export const useConfigStore = create<ConfigStore>()(
             config: defaultConfig,
             webdav: defaultWebdavSyncConfig,
             isConfigOpen: false,
-            configDialogTab: "channels",
+            configDialogTab: "models",
             shouldPromptContinue: false,
             updateConfig: (key, value) =>
                 set((state) => ({
@@ -346,7 +348,7 @@ function normalizeChannels(config: AiConfig) {
             }),
         );
     }
-    return channels.map((channel) => ({ ...channel, models: uniqueRawModels(channel.models) }));
+    return channels.map((channel) => ({ ...channel, apiKey: "", models: uniqueRawModels(channel.models) }));
 }
 
 function uniqueRawModels(models: string[]) {

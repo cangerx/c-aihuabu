@@ -3,6 +3,7 @@ import axios from "axios";
 import { grokImagineImageEditMaxCount, grokImagineImageMaxCount, isGrokImagineImageModel, normalizeGrokImagineImageRatio, normalizeGrokImagineImageResolution } from "@/lib/grok-imagine";
 import { isGeminiImagePreviewModel, isGptImage2Model, normalizeGptImage2Ratio, normalizeGptImage2Resolution, resolveGptImage2Size } from "@/lib/gpt-image-2";
 import { isStepImageEdit2Model, normalizeStepImageEdit2Size } from "@/lib/step-image";
+import { glmImageApiDimensions, isGlmImageModel, isZImageTurboModel, normalizeGlmImageSteps } from "@/lib/glm-image";
 import { debugError, debugLog, debugWarn, estimatePayloadBytes, summarizeAxiosError } from "@/lib/debug-log";
 import { buildAiApiUrl, buildApiUrl, buildProxiedUrl, modelOptionName, resolveModelRequestConfig, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
 import { nanoid } from "nanoid";
@@ -853,6 +854,8 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
     const isGrokImagine = isGrokImagineImageModel(requestConfig.model);
     const isStepImageEdit2 = isStepImageEdit2Model(requestConfig.model);
+    const isGlmImage = isGlmImageModel(requestConfig.model);
+    const isZImageTurbo = isZImageTurboModel(requestConfig.model);
     const isGptImage2 = isGptImage2Model(requestConfig.model);
     const isGeminiPreview = isGeminiImagePreviewModel(requestConfig.model);
     const n = Math.max(1, Math.min(isGrokImagine ? grokImagineImageMaxCount : 15, Math.floor(Math.abs(Number(config.count)) || 1)));
@@ -883,7 +886,8 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
                 prompt: withSystemPrompt(requestConfig, prompt),
                 n,
                 ...(quality ? { quality } : {}),
-                ...(requestSize ? { size: requestSize } : {}),
+                ...(isGlmImage || isZImageTurbo ? glmImageApiDimensions(config.size) : requestSize ? { size: requestSize } : {}),
+                ...(isGlmImage || isZImageTurbo ? { num_inference_steps: normalizeGlmImageSteps(config.imageSteps) } : {}),
                 // 多数中转对 url 格式不稳定；统一要 b64，前端快速转 blob 展示
                 response_format: "b64_json",
                 output_format: IMAGE_OUTPUT_FORMAT,
@@ -901,6 +905,8 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
     const isGrokImagine = isGrokImagineImageModel(requestConfig.model);
     const isStepImageEdit2 = isStepImageEdit2Model(requestConfig.model);
+    const isGlmImage = isGlmImageModel(requestConfig.model);
+    const isZImageTurbo = isZImageTurboModel(requestConfig.model);
     const isGptImage2 = isGptImage2Model(requestConfig.model);
     const isGeminiPreview = isGeminiImagePreviewModel(requestConfig.model);
     const n = Math.max(1, Math.min(isGrokImagine ? grokImagineImageMaxCount : 15, Math.floor(Math.abs(Number(config.count)) || 1)));
@@ -935,9 +941,12 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     if (quality) {
         formData.set("quality", quality);
     }
-    if (requestSize) {
-        formData.set("size", requestSize);
-    }
+    if (isGlmImage || isZImageTurbo) {
+        const dimensions = glmImageApiDimensions(config.size);
+        formData.set("width", String(dimensions.width));
+        formData.set("height", String(dimensions.height));
+        formData.set("num_inference_steps", String(normalizeGlmImageSteps(config.imageSteps)));
+    } else if (requestSize) formData.set("size", requestSize);
     const files = await Promise.all(references.map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
     files.forEach((file) => formData.append("image", file));
     if (mask) formData.set("mask", dataUrlToFile(mask));

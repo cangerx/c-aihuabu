@@ -13,18 +13,22 @@ export type CanvasWorkspaceConfig = { workspacePath: string; activeThreadId?: st
 export type CanvasAgentConfig = { url: string; token: string; origins?: string[]; canvases?: Record<string, CanvasWorkspaceConfig> };
 
 export function loadConfig(create = false): CanvasAgentConfig {
+    let config: CanvasAgentConfig;
     try {
-        return JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8")) as CanvasAgentConfig;
+        config = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8")) as CanvasAgentConfig;
     } catch {
-        const config = { url: `http://127.0.0.1:${Number(process.env.PORT) || DEFAULT_PORT}`, token: crypto.randomBytes(18).toString("hex") };
+        config = { url: `http://127.0.0.1:${Number(process.env.PORT) || DEFAULT_PORT}`, token: crypto.randomBytes(18).toString("hex") };
         if (create) saveConfig(config);
         return config;
     }
+    ensurePrivatePath(CONFIG_DIR, CONFIG_FILE);
+    return config;
 }
 
 export function saveConfig(config: CanvasAgentConfig) {
-    fs.mkdirSync(CONFIG_DIR, { recursive: true });
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+    fs.mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), { mode: 0o600 });
+    ensurePrivatePath(CONFIG_DIR, CONFIG_FILE);
 }
 
 export function ensureCanvasWorkspace(config: CanvasAgentConfig, canvasId: string) {
@@ -32,12 +36,13 @@ export function ensureCanvasWorkspace(config: CanvasAgentConfig, canvasId: strin
     config.canvases ||= {};
     const current = config.canvases[id];
     if (current?.workspacePath) {
-        fs.mkdirSync(resolveWorkspacePath(current.workspacePath), { recursive: true });
-        return { canvasId: id, ...current, workspacePath: resolveWorkspacePath(current.workspacePath) };
+        const workspacePath = resolveWorkspacePath(current.workspacePath);
+        ensurePrivateWorkspace(workspacePath);
+        return { canvasId: id, ...current, workspacePath };
     }
     const workspacePath = path.join(CONFIG_DIR, "codex-workspaces", id);
     config.canvases[id] = { workspacePath };
-    fs.mkdirSync(workspacePath, { recursive: true });
+    ensurePrivateWorkspace(workspacePath);
     saveConfig(config);
     return { canvasId: id, workspacePath };
 }
@@ -48,7 +53,7 @@ export function updateCanvasWorkspace(config: CanvasAgentConfig, canvasId: strin
     const next = { ...current, ...patch, workspacePath };
     config.canvases ||= {};
     config.canvases[current.canvasId] = { workspacePath: next.workspacePath, activeThreadId: next.activeThreadId, pinnedThreadIds: next.pinnedThreadIds };
-    fs.mkdirSync(workspacePath, { recursive: true });
+    ensurePrivateWorkspace(workspacePath);
     saveConfig(config);
     return { canvasId: current.canvasId, ...config.canvases[current.canvasId] };
 }
@@ -61,6 +66,23 @@ function resolveWorkspacePath(value: string) {
 
 function safeSegment(value: string) {
     return value.replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 120) || "default";
+}
+
+function ensurePrivateWorkspace(workspacePath: string) {
+    const managedRoot = path.resolve(CONFIG_DIR, "codex-workspaces");
+    const managed = workspacePath === managedRoot || workspacePath.startsWith(`${managedRoot}${path.sep}`);
+    if (!managed) {
+        fs.mkdirSync(workspacePath, { recursive: true });
+        return;
+    }
+    fs.mkdirSync(workspacePath, { recursive: true, mode: 0o700 });
+    fs.chmodSync(managedRoot, 0o700);
+    fs.chmodSync(workspacePath, 0o700);
+}
+
+function ensurePrivatePath(directory: string, file?: string) {
+    fs.chmodSync(directory, 0o700);
+    if (file && fs.existsSync(file)) fs.chmodSync(file, 0o600);
 }
 
 function readPackageVersion() {

@@ -12,7 +12,8 @@ type AppConfigFile = {
 
 export function exportAppConfig() {
     const { config, webdav } = useConfigStore.getState();
-    const data: AppConfigFile = { app: "infinite-canvas", version: 1, exportedAt: new Date().toISOString(), config, webdav };
+    const safeConfig = { ...config, apiKey: "", channels: config.channels.map((channel) => ({ ...channel, apiKey: "" })) };
+    const data: AppConfigFile = { app: "infinite-canvas", version: 1, exportedAt: new Date().toISOString(), config: safeConfig, webdav };
     saveAs(new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" }), "infinite-canvas-config.json");
 }
 
@@ -24,5 +25,6 @@ export async function importAppConfig(file: File) {
         throw new Error("配置文件格式不正确");
     }
     if (data.app !== "infinite-canvas" || data.version !== 1 || !data.config || !data.webdav) throw new Error("配置文件格式不正确");
-    useConfigStore.setState({ config: normalizeAiConfig(data.config), webdav: { ...defaultWebdavSyncConfig, ...data.webdav, proxyMode: "direct" } });
+    const config = normalizeAiConfig(data.config);
+    useConfigStore.setState({ config: { ...config, apiKey: "", channels: config.channels.map((channel) => ({ ...channel, apiKey: "" })), aiProxyEnabled: true }, webdav: { ...defaultWebdavSyncConfig, ...data.webdav, proxyMode: "direct" } });
 }

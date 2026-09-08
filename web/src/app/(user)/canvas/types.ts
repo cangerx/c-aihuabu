@@ -15,6 +15,7 @@ export enum CanvasNodeType {
     Config = "config",
     Video = "video",
     Audio = "audio",
+    Group = "group",
 }
 
 // 节点类型放开为字符串：内置类型用 CanvasNodeType，插件类型为 "<pluginId>:<name>"。
@@ -53,6 +54,7 @@ export type CanvasNodeMetadata = {
     model?: string;
     size?: string;
     quality?: string;
+    imageSteps?: string;
     count?: number;
     seconds?: string;
     vquality?: string;
@@ -79,10 +81,11 @@ export type CanvasNodeMetadata = {
     bytes?: number;
     durationMs?: number;
     videoTaskId?: string;
-    videoTaskProvider?: "openai" | "seedance" | "videos4";
+    videoTaskProvider?: "openai" | "seedance" | "videos4" | "772";
     videoTaskModel?: string;
     videoProgress?: number;
     videoStatusMessage?: string;
+    groupId?: string;
 };
 
 export type CanvasNodeData = {

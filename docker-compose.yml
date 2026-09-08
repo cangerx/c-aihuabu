@@ -14,6 +14,24 @@ services:
       C_AI_UPLOAD_DIR: ${C_AI_UPLOAD_DIR:-/data/uploads/references}
       C_AI_UPLOAD_TTL_DAYS: ${C_AI_UPLOAD_TTL_DAYS:-15}
       C_AI_UPLOAD_MAX_DIR_BYTES: ${C_AI_UPLOAD_MAX_DIR_BYTES:-}
+      C_AI_DATABASE_PATH: ${C_AI_DATABASE_PATH:-/data/business/c-aihuabu.db}
+      C_AI_JWT_SECRET: ${C_AI_JWT_SECRET:-}
+      C_AI_TOKEN_TTL_HOURS: ${C_AI_TOKEN_TTL_HOURS:-168}
+      C_AI_ADMIN_EMAIL: ${C_AI_ADMIN_EMAIL:-}
+      C_AI_ADMIN_PASSWORD: ${C_AI_ADMIN_PASSWORD:-}
+      C_AI_TIANQUE_ENABLED: ${C_AI_TIANQUE_ENABLED:-false}
+      C_AI_TIANQUE_SANDBOX: ${C_AI_TIANQUE_SANDBOX:-true}
+      C_AI_TIANQUE_HOST: ${C_AI_TIANQUE_HOST:-https://openapi-test.tianquetech.com}
+      C_AI_TIANQUE_HOST_PROD: ${C_AI_TIANQUE_HOST_PROD:-https://openapi.tianquetech.com}
+      C_AI_TIANQUE_ORG_ID: ${C_AI_TIANQUE_ORG_ID:-}
+      C_AI_TIANQUE_MNO: ${C_AI_TIANQUE_MNO:-}
+      C_AI_TIANQUE_SUB_MECH_ID: ${C_AI_TIANQUE_SUB_MECH_ID:-}
+      C_AI_TIANQUE_SIGN_TYPE: ${C_AI_TIANQUE_SIGN_TYPE:-RSA}
+      C_AI_TIANQUE_VERSION: ${C_AI_TIANQUE_VERSION:-1.2}
+      C_AI_TIANQUE_PRIVATE_KEY: ${C_AI_TIANQUE_PRIVATE_KEY:-}
+      C_AI_TIANQUE_PUBLIC_KEY: ${C_AI_TIANQUE_PUBLIC_KEY:-}
+      C_AI_TIANQUE_NOTIFY_URL: ${C_AI_TIANQUE_NOTIFY_URL:-https://ai.vvj.me/api/payment/notify/tianque}
     volumes:
       - ${C_AI_UPLOAD_HOST_DIR:-./data/uploads}:/data/uploads
+      - ${C_AI_BUSINESS_HOST_DIR:-./data/business}:/data/business
     restart: unless-stopped

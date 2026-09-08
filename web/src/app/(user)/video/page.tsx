@@ -11,6 +11,7 @@ import { CanvasResourceMentionTextarea } from "@/app/(user)/canvas/components/ca
 import { ModelPicker } from "@/components/model-picker";
 import { PromptSelectDialog } from "@/components/prompts/prompt-select-dialog";
 import { VideoSettingsPanel, normalizeVideoResolutionValue, normalizeVideoSizeValue, videoSizeLabel } from "@/components/video-settings-panel";
+import { get772VideoProtocol, get772VideoReferenceLimits, is772UnifiedMinimaxH3VideoModel } from "@/lib/772-video";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceReferenceLabel, seedanceVideoReferenceError, seedanceVideoReferenceHint, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
@@ -114,7 +115,7 @@ export default function VideoPage() {
 
     const model = effectiveConfig.videoModel || effectiveConfig.model;
     const displayConfig = buildVideoConfig(effectiveConfig, model);
-    const referenceLimits = isVideos4VideoModel(model) ? videos4ReferenceLimits(model) : SEEDANCE_REFERENCE_LIMITS;
+    const referenceLimits = isVideos4VideoModel(model) ? videos4ReferenceLimits(model) : get772VideoReferenceLimits(model) || SEEDANCE_REFERENCE_LIMITS;
     const canGenerate = Boolean(prompt.trim());
     const running = runningCount > 0;
     const promptReferences = buildVideoPromptReferences(references, videoReferences, audioReferences);
@@ -175,7 +176,11 @@ export default function VideoPage() {
                     return { id: nanoid(), name: file.name, type: audio.mimeType, url: audio.url, storageKey: audio.storageKey, durationMs: audio.durationMs };
                 }),
             );
-            const nextAudioReferences = isVideos4VideoModel(model) ? uploadedAudioReferences : filterAudioReferencesByDuration(audioReferences, uploadedAudioReferences, message.warning);
+            const nextAudioReferences = is772UnifiedMinimaxH3VideoModel(model)
+                ? filterMinimaxH3AudioReferencesByDuration(uploadedAudioReferences, message.warning)
+                : isVideos4VideoModel(model) || get772VideoProtocol(model) === "unified"
+                  ? uploadedAudioReferences
+                  : filterAudioReferencesByDuration(audioReferences, uploadedAudioReferences, message.warning);
             setReferences((value) => [...value, ...nextReferences].slice(0, referenceLimits.images));
             setVideoReferences((value) => [...value, ...nextVideoReferences].slice(0, referenceLimits.videos));
             setAudioReferences((value) => [...value, ...nextAudioReferences].slice(0, referenceLimits.audios));
@@ -243,7 +248,7 @@ export default function VideoPage() {
             openConfigDialog(true);
             return null;
         }
-        const videoReferenceError = isVideos4VideoModel(model) ? "" : seedanceVideoReferenceError(videoReferences);
+        const videoReferenceError = isVideos4VideoModel(model) || get772VideoProtocol(model) === "unified" ? "" : seedanceVideoReferenceError(videoReferences);
         if (videoReferenceError) {
             message.error(`${videoReferenceError}。${seedanceVideoReferenceHint}`);
             return null;
@@ -1030,6 +1035,12 @@ function filterAudioReferencesByDuration(existing: ReferenceAudio[], next: Refer
         accepted.push(item);
     }
     if (skipped) warn("已忽略不符合时长要求的参考音频：单个 2-15 秒，总时长不超过 15 秒");
+    return accepted;
+}
+
+function filterMinimaxH3AudioReferencesByDuration(next: ReferenceAudio[], warn: (content: string) => void) {
+    const accepted = next.filter((item) => !item.durationMs || (item.durationMs >= 1000 && item.durationMs <= 15000));
+    if (accepted.length !== next.length) warn("已忽略不符合时长要求的 MiniMax H3 参考音频：每段需要 1-15 秒");
     return accepted;
 }
 

@@ -1,16 +1,15 @@
 import { App, Button, Form, Input, Modal, Progress, Segmented, Select, Tabs } from "antd";
-import { CircleAlert, Cloud, Download, Pencil, Plus, RefreshCw, Trash2, Upload, Wifi } from "lucide-react";
+import { Cloud, Download, RefreshCw, Upload, Wifi } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { DebugLogPreference } from "@/components/layout/debug-log-panel";
-import { ChannelEditorDrawer } from "@/components/layout/channel-editor-drawer";
 import { ConfigPromptSources } from "@/components/layout/config-prompt-sources";
 import { ModelPicker } from "@/components/model-picker";
 import { exportAppConfig, importAppConfig } from "@/services/config-file";
 import { syncAppDataToWebdav, type AppSyncDomainKey, type AppSyncProgressEvent } from "@/services/app-sync";
 import { testWebdavConnection, WEBDAV_MANIFEST_FILE_NAME } from "@/services/webdav-sync";
 import { audioFormatOptions, audioVoiceOptions, normalizeAudioSpeedValue } from "@/lib/audio-generation";
-import { createModelChannel, filterModelsByCapability, modelOptionLabel, modelOptionsFromChannels, normalizeModelOptionValue, useConfigStore, type AiConfig, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
+import { filterModelsByCapability, modelOptionLabel, normalizeModelOptionValue, useConfigStore, type ModelCapability } from "@/stores/use-config-store";
 
 type ModelGroup = {
     capability: ModelCapability;
@@ -58,8 +57,6 @@ function createWebdavDomainProgress(): Record<AppSyncDomainKey, WebdavDomainProg
 export function AppConfigModal() {
     const { message } = App.useApp();
     const configInputRef = useRef<HTMLInputElement>(null);
-    const [editingChannel, setEditingChannel] = useState<ModelChannel | null>(null);
-    const [isCreatingChannel, setIsCreatingChannel] = useState(false);
     const [testingWebdav, setTestingWebdav] = useState(false);
     const [syncingWebdav, setSyncingWebdav] = useState(false);
     const [webdavSyncStatus, setWebdavSyncStatus] = useState("");
@@ -77,48 +74,12 @@ export function AppConfigModal() {
     const modelOptionsFor = (capability: ModelCapability) => filterModelsByCapability(config.models, capability).map((model) => ({ label: modelOptionLabel(config, model), value: model }));
     const webdavReady = Boolean(webdav.url.trim());
 
-    const saveConfig = (nextConfig: AiConfig) => {
-        (Object.keys(nextConfig) as Array<keyof AiConfig>).forEach((key) => updateConfig(key, nextConfig[key]));
-    };
-
     const finishConfig = () => {
-        const ready = config.channels.some((channel) => channel.baseUrl.trim() && channel.apiKey.trim() && channel.models.length);
+        const ready = config.channels.some((channel) => channel.baseUrl.trim() && channel.models.length);
         setConfigDialogOpen(false);
         if (!ready) return;
         message.success(shouldPromptContinue ? "配置已保存，请继续刚才的请求" : "配置已保存");
         clearPromptContinue();
-    };
-
-    const updateChannels = (channels: ModelChannel[]) => {
-        const nextConfig = withChannels(config, channels);
-        saveConfig(nextConfig);
-    };
-
-    const updateChannel = (id: string, patch: Partial<ModelChannel>) => {
-        updateChannels(config.channels.map((channel) => (channel.id === id ? { ...channel, ...patch, models: patch.models ? uniqueModels(patch.models) : channel.models } : channel)));
-    };
-
-    const addChannel = () => {
-        setIsCreatingChannel(true);
-        setEditingChannel(createModelChannel({ name: `渠道 ${config.channels.length + 1}` }));
-    };
-
-    const saveChannel = (channel: ModelChannel) => {
-        if (isCreatingChannel) {
-            updateChannels([...config.channels, channel]);
-        } else {
-            updateChannel(channel.id, channel);
-        }
-        setIsCreatingChannel(false);
-        setEditingChannel(null);
-    };
-
-    const deleteChannel = (id: string) => {
-        if (config.channels.length <= 1) {
-            message.warning("至少保留一个渠道");
-            return;
-        }
-        updateChannels(config.channels.filter((channel) => channel.id !== id));
     };
 
     const updateCapabilityModels = (group: ModelGroup, models: string[]) => {
@@ -210,7 +171,7 @@ export function AppConfigModal() {
             }
         >
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 pb-3 dark:border-stone-800">
-                <div className="text-xs text-stone-500">JSON 文件包含 API Key 和 WebDAV 凭据，请妥善保管。</div>
+                <div className="text-xs text-stone-500">模型渠道由平台统一管理；配置文件只包含个人偏好和同步设置。</div>
                 <div className="flex gap-2">
                     <Button icon={<Upload className="size-4" />} onClick={() => configInputRef.current?.click()}>
                         导入配置
@@ -226,52 +187,6 @@ export function AppConfigModal() {
                 onChange={(key) => setConfigDialogTab(key as typeof configDialogTab)}
                 items={[
                     {
-                        key: "channels",
-                        label: "渠道",
-                        children: (
-                            <Form layout="vertical" requiredMark={false}>
-                                <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-stone-200 p-3 dark:border-stone-800">
-                                    <div className="min-w-0 flex-1">
-                                        <div className="flex w-fit max-w-full flex-wrap items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-100">
-                                            <CircleAlert className="size-3.5 shrink-0" />
-                                            <span className="font-semibold">重要：</span>
-                                            <span>新增或拉取模型后，需要到“模型”Tab 选择可选项才会显示。</span>
-                                            <Button type="link" size="small" className="h-auto p-0 text-xs font-semibold text-amber-900 dark:text-amber-100" onClick={() => setConfigDialogTab("models")}>
-                                                去模型设置
-                                            </Button>
-                                        </div>
-                                    </div>
-                                    <Button type="primary" icon={<Plus className="size-4" />} onClick={addChannel}>
-                                        新增渠道
-                                    </Button>
-                                </div>
-                                <div className="space-y-3">
-                                    {config.channels.map((channel) => (
-                                        <section key={channel.id} className="rounded-lg border border-stone-200 p-3 dark:border-stone-800">
-                                            <div className="flex items-center justify-between gap-3">
-                                                <div className="min-w-0">
-                                                    <div className="truncate text-sm font-semibold">{channel.name || "未命名渠道"}</div>
-                                                    <div className="mt-1 truncate text-xs text-stone-500">
-                                                        {channel.baseUrl || "未设置 Base URL"} · 已保存 {channel.models.length} 个模型
-                                                    </div>
-                                                </div>
-                                                <div className="flex shrink-0 gap-2">
-                                                    <Button size="small" icon={<Pencil className="size-3.5" />} onClick={() => {
-                                                        setIsCreatingChannel(false);
-                                                        setEditingChannel(channel);
-                                                    }}>
-                                                        编辑
-                                                    </Button>
-                                                    <Button size="small" danger icon={<Trash2 className="size-3.5" />} onClick={() => deleteChannel(channel.id)} />
-                                                </div>
-                                            </div>
-                                        </section>
-                                    ))}
-                                </div>
-                            </Form>
-                        ),
-                    },
-                    {
                         key: "models",
                         label: "模型",
                         children: (
@@ -280,7 +195,7 @@ export function AppConfigModal() {
                                     <div className="flex flex-wrap items-start justify-between gap-3">
                                         <div>
                                             <div className="text-sm font-semibold">模型用途配置</div>
-                                            <div className="mt-1 text-xs leading-5 text-stone-500">先在“渠道”里维护模型列表，再在这里按图片、视频、文本、音频分配可选项和默认值。</div>
+                                            <div className="mt-1 text-xs leading-5 text-stone-500">模型由平台管理员统一配置；你可以选择各类生成任务的默认模型。</div>
                                         </div>
                                         <div className="rounded-md bg-stone-100 px-2 py-1 text-xs text-stone-600 dark:bg-stone-900 dark:text-stone-400">渠道模型 {config.models.length} 个</div>
                                     </div>
@@ -297,11 +212,11 @@ export function AppConfigModal() {
                                             </Form.Item>
                                             <Form.Item label={group.optionsLabel} className="mb-0">
                                                 <Select
-                                                    mode="tags"
+                                                    mode="multiple"
                                                     showSearch
                                                     allowClear
                                                     maxTagCount="responsive"
-                                                    placeholder={config.models.length ? `请选择或输入${group.optionsLabel}` : "先到渠道里填写或恢复已适配模型"}
+                                                    placeholder={config.models.length ? `请选择${group.optionsLabel}` : "平台管理员尚未配置可用模型"}
                                                     value={filterModelsByCapability(config[group.modelsKey], group.capability)}
                                                     options={modelOptionsFor(group.capability)}
                                                     onChange={(models) => updateCapabilityModels(group, models)}
@@ -324,17 +239,6 @@ export function AppConfigModal() {
                         children: (
                             <Form layout="vertical" requiredMark={false}>
                                 <div className="grid gap-4 md:grid-cols-4">
-                                    <Form.Item label="请求方式" extra="默认使用同域代理，经由本服务 /api/proxy 转发到上游，避免渠道 CORS 限制；纯静态托管或渠道已开放 CORS 时可切回浏览器直连。" className="mb-4 md:col-span-4">
-                                        <Segmented
-                                            block
-                                            value={config.aiProxyEnabled ? "proxy" : "direct"}
-                                            options={[
-                                                { label: "浏览器直连", value: "direct" },
-                                                { label: "同域代理", value: "proxy" },
-                                            ]}
-                                            onChange={(value) => updateConfig("aiProxyEnabled", value === "proxy")}
-                                        />
-                                    </Form.Item>
                                     <Form.Item label="开发调试" className="mb-4 md:col-span-4">
                                         <DebugLogPreference />
                                     </Form.Item>
@@ -424,46 +328,8 @@ export function AppConfigModal() {
                     },
                 ]}
             />
-            <ChannelEditorDrawer open={Boolean(editingChannel)} channel={editingChannel} creating={isCreatingChannel} onSave={saveChannel} onClose={() => {
-                setIsCreatingChannel(false);
-                setEditingChannel(null);
-            }} />
         </Modal>
     );
-}
-
-function withChannels(config: AiConfig, channels: ModelChannel[]): AiConfig {
-    const models = modelOptionsFromChannels(channels);
-    const imageModels = keepOrSuggest(config.imageModels, filterModelsByCapability(models, "image"), models, "image");
-    const videoModels = keepOrSuggest(config.videoModels, filterModelsByCapability(models, "video"), models, "video");
-    const textModels = keepOrSuggest(config.textModels, filterModelsByCapability(models, "text"), models, "text");
-    const audioModels = keepOrSuggest(config.audioModels, filterModelsByCapability(models, "audio"), models, "audio");
-    return {
-        ...config,
-        channels,
-        models,
-        baseUrl: channels[0]?.baseUrl || config.baseUrl,
-        apiKey: channels[0]?.apiKey || config.apiKey,
-        imageModels,
-        videoModels,
-        textModels,
-        audioModels,
-        imageModel: normalizeDefaultModel(config.imageModel, imageModels),
-        videoModel: normalizeDefaultModel(config.videoModel, videoModels),
-        textModel: normalizeDefaultModel(config.textModel, textModels),
-        audioModel: normalizeDefaultModel(config.audioModel, audioModels),
-    };
-}
-
-function keepOrSuggest(current: string[], suggested: string[], allModels: string[], capability: ModelCapability) {
-    const available = new Set(allModels);
-    const kept = uniqueModels(current).filter((model) => available.has(model) && filterModelsByCapability([model], capability).length);
-    return kept.length ? kept : suggested;
-}
-
-function normalizeDefaultModel(value: string, options: string[]) {
-    if (options.includes(value)) return value;
-    return options[0] || value;
 }
 
 function normalizeImageCount(value: string) {

@@ -1,4 +1,5 @@
 import { isVideos4VideoModel } from "@/lib/videos4-video";
+import { get772VideoProtocol, is772UnifiedMinimaxH3VideoModel } from "@/lib/772-video";
 import { modelOptionName, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
@@ -85,15 +86,17 @@ export function caiVideoModelCapabilities(model: string) {
     const value = modelOptionName(model);
     const isSeedance = isSeedanceVideoModel(value);
     const isGrok15 = isGrokImagineVideo15Model(value);
+    const isMinimaxH3 = is772UnifiedMinimaxH3VideoModel(value);
     const isNewTokenAllAround = isNewTokenAllAroundVideoModel(value);
     const isVeo31 = value.toLowerCase() === "veo-3-1";
     const isVideos4 = isVideos4VideoModel(value);
+    const protocol772 = get772VideoProtocol(value);
     return {
         textToVideo: !isGrok15,
         imageToVideo: true,
         imageReference: !isGrok15,
-        // /v1/videos JSON 协议明确不支持首尾帧，传了会被上游拒绝。
-        firstLastFrame: (isSeedance || isVeo31) && !isVideos4,
+        // videos4 JSON 协议不支持首尾帧；772 的 MiniMax H3 使用独立 start_frame/end_frame 字段。
+        firstLastFrame: isMinimaxH3 || ((isSeedance || isVeo31) && !isVideos4 && !protocol772),
         allAroundReference: isSeedance || isNewTokenAllAround || isVeo31 || isVideos4,
         requiresImage: isGrok15,
     };

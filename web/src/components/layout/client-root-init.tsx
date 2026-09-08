@@ -1,48 +1,22 @@
 import type { ReactNode } from "react";
-import { useEffect, useRef } from "react";
-import { App } from "antd";
+import { useEffect } from "react";
 
-import { createModelChannel, useConfigStore } from "@/stores/use-config-store";
+import { memberRequest, type AIChannel } from "@/services/api/membership";
+import { filterModelsByCapability, modelOptionsFromChannels, useConfigStore, type ModelChannel } from "@/stores/use-config-store";
 
 export function ClientRootInit({ children }: { children: ReactNode }) {
-    const { message } = App.useApp();
-    const handledConfigParams = useRef(false);
     const updateConfig = useConfigStore((state) => state.updateConfig);
-    const config = useConfigStore((state) => state.config);
-    const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
 
     useEffect(() => {
-        if (handledConfigParams.current) return;
-        const searchParams = new URLSearchParams(window.location.search);
-        const baseUrl = searchParams.get("baseUrl") || searchParams.get("baseurl");
-        const apiKey = searchParams.get("apiKey") || searchParams.get("apikey");
-        if (!baseUrl && !apiKey) return;
-        handledConfigParams.current = true;
-        searchParams.delete("baseUrl");
-        searchParams.delete("baseurl");
-        searchParams.delete("apiKey");
-        searchParams.delete("apikey");
-        window.history.replaceState(null, "", `${window.location.pathname}${searchParams.size ? `?${searchParams}` : ""}${window.location.hash}`);
-        const firstChannel = config.channels[0];
-        updateConfig(
-            "channels",
-            firstChannel
-                ? config.channels.map((channel, index) =>
-                      index === 0
-                          ? {
-                                ...channel,
-                                ...(baseUrl ? { baseUrl } : {}),
-                                ...(apiKey ? { apiKey } : {}),
-                            }
-                          : channel,
-                  )
-                : [createModelChannel({ id: "default", name: "默认渠道", baseUrl: baseUrl || undefined, apiKey: apiKey || "" })],
-        );
-        if (baseUrl) updateConfig("baseUrl", baseUrl);
-        if (apiKey) updateConfig("apiKey", apiKey);
-        openConfigDialog(false);
-        message.success("已导入本地直连配置");
-    }, [config.channels, message, openConfigDialog, updateConfig]);
+        void memberRequest<AIChannel[]>("/api/models").then((rows) => {
+            const channels: ModelChannel[] = rows.map((row) => ({ id: row.id, name: row.name, baseUrl: row.baseUrl, apiKey: "", models: row.models }));
+            const models = modelOptionsFromChannels(channels);
+            updateConfig("channels", channels); updateConfig("models", models);
+            updateConfig("imageModels", filterModelsByCapability(models, "image")); updateConfig("videoModels", filterModelsByCapability(models, "video"));
+            updateConfig("textModels", filterModelsByCapability(models, "text")); updateConfig("audioModels", filterModelsByCapability(models, "audio"));
+            updateConfig("aiProxyEnabled", true); updateConfig("apiKey", "");
+        }).catch(() => undefined);
+    }, [updateConfig]);
 
     return <>{children}</>;
 }

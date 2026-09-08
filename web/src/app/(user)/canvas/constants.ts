@@ -10,6 +10,7 @@ export const NODE_DEFAULT_SIZE = {
     [CanvasNodeType.Config]: { width: 340, height: 240, title: "生成配置" },
     [CanvasNodeType.Video]: { width: 420, height: 236, title: "Video" },
     [CanvasNodeType.Audio]: { width: 340, height: 120, title: "Audio" },
+    [CanvasNodeType.Group]: { width: 460, height: 300, title: "分组" },
 } satisfies Record<CanvasNodeType, { width: number; height: number; title: string }>;
 
 /**

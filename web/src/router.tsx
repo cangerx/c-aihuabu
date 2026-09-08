@@ -12,6 +12,9 @@ const AssetsPage = lazy(() => import("@/app/(user)/assets/page"));
 const PromptsPage = lazy(() => import("@/app/(user)/prompts/page"));
 const CanvasPage = lazy(() => import("@/app/(user)/canvas/page"));
 const CanvasClientPage = lazy(() => import("@/app/(user)/canvas/[id]/canvas-client-page"));
+const AuthPage = lazy(() => import("@/app/auth/page"));
+const AdminPage = lazy(() => import("@/app/admin/page"));
+const AccountPage = lazy(() => import("@/app/account/page"));
 
 function route(element: ReactNode) {
     return <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-stone-500">加载中...</div>}>{element}</Suspense>;
@@ -35,5 +38,8 @@ export const router = createBrowserRouter([
             { path: "/canvas/:id", element: route(<CanvasClientPage />) },
         ],
     },
+    { path: "/auth", element: route(<AuthPage />), errorElement: <RouteErrorBoundary /> },
+    { path: "/account", element: route(<AccountPage />), errorElement: <RouteErrorBoundary /> },
+    { path: "/admin/*", element: route(<AdminPage />), errorElement: <RouteErrorBoundary /> },
     { path: "*", element: <NotFound />, errorElement: <RouteErrorBoundary /> },
 ]);

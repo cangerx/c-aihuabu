@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log"
@@ -93,6 +94,12 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	copyRequestHeaders(req.Header, r.Header)
+	apiKey, err := resolveAPIKey(r.Context(), target.String())
+	if err != nil {
+		http.Error(w, "model channel is not configured", http.StatusBadGateway)
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Host = target.Host
 
 	resp, err := upstreamHTTPClient.Do(req)
@@ -108,6 +115,31 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	if err := copyResponseBody(w, resp.Body); err != nil {
 		log.Printf("copy response failed: %v", err)
 	}
+}
+
+func resolveAPIKey(ctx context.Context, target string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:8788/internal/ai-channel?url="+url.QueryEscape(target), nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", errors.New("channel not found")
+	}
+	var result struct {
+		APIKey string `json:"apiKey"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(result.APIKey) == "" {
+		return "", errors.New("empty api key")
+	}
+	return result.APIKey, nil
 }
 
 func copyResponseBody(w http.ResponseWriter, body io.Reader) error {

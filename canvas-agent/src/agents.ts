@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import { AGENT_PROMPT, VERSION } from "./config.js";
 import type { AgentAttachment, AgentEmit } from "./types.js";
+import { createAgentLogWriter } from "./utils/agent-runtime.js";
 
 type Json = Record<string, unknown>;
 type AgentEvent = Json & { type: string; usage?: unknown };
@@ -121,16 +122,20 @@ class CodexAppClient {
     private pending = new Map<number, PendingRequest>();
     private activeTurns = new Map<string, PendingRequest>();
     private completedTurns = new Map<string, Error | null>();
+    private logWriter: ReturnType<typeof createAgentLogWriter>;
 
-    private constructor(private child: ChildProcess, private emit: AgentEmit) {}
+    private constructor(private child: ChildProcess, private emit: AgentEmit) {
+        this.logWriter = createAgentLogWriter((text) => this.emit("agent_log", { text }));
+    }
 
     static async start(emit: AgentEmit) {
         const child = spawn(process.execPath, [codexBin(), "app-server", "--stdio"], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
         const client = new CodexAppClient(child, emit);
         child.stdout?.on("data", (chunk) => client.read(chunk.toString()));
-        child.stderr?.on("data", (chunk) => emit("agent_log", { text: chunk.toString() }));
+        child.stderr?.on("data", (chunk) => client.logWriter.write(chunk.toString()));
         child.on("error", (error) => emit("agent_error", { message: error.message }));
         child.on("exit", (code) => {
+            client.logWriter.flush();
             client.failAll(`Codex app-server exited: ${code ?? 0}`);
             codexApp = null;
             codexThreadId = "";
@@ -460,6 +465,7 @@ function codexBin() {
 
 function pipeJsonLines(child: ReturnType<typeof spawn>, emit: AgentEmit, agent: string) {
     let out = "";
+    const logWriter = createAgentLogWriter((text) => emit("agent_log", { text }));
     child.stdout?.on("data", (chunk) => {
         out += chunk.toString();
         const lines = out.split(/\r?\n/);
@@ -472,9 +478,12 @@ function pipeJsonLines(child: ReturnType<typeof spawn>, emit: AgentEmit, agent: 
             }
         });
     });
-    child.stderr?.on("data", (chunk) => emit("agent_log", { text: chunk.toString() }));
+    child.stderr?.on("data", (chunk) => logWriter.write(chunk.toString()));
     child.on("error", (error) => emit("agent_error", { message: error.message }));
-    child.on("close", (code) => emit("agent_done", { agent, code }));
+    child.on("close", (code) => {
+        logWriter.flush();
+        emit("agent_done", { agent, code });
+    });
 }
 
 function spawnAgent(name: string, args: string[], stdio: StdioOptions, emit: AgentEmit) {

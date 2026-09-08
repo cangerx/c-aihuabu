@@ -44,16 +44,28 @@ export function getGenerationResourceNodes(nodeId: string, nodes: CanvasNodeData
 }
 
 function getContextResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
-    return connections
+    return expandGroupResourceNodes(
+        connections
         .filter((connection) => connection.toNodeId === nodeId)
         .map((connection) => nodes.find((node) => node.id === connection.fromNodeId))
-        .filter((node): node is CanvasNodeData => Boolean(node && isResourceNode(node)));
+        .filter((node): node is CanvasNodeData => Boolean(node && isCanvasReferenceNode(node, nodes))),
+        nodes,
+    );
 }
 
 function getConnectedConfigResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
     const configConnection = connections.find((connection) => connection.fromNodeId === nodeId && nodes.find((node) => node.id === connection.toNodeId)?.type === CanvasNodeType.Config);
     if (!configConnection) return [];
     return getContextResourceNodes(configConnection.toNodeId, nodes, connections).filter((node) => node.id !== nodeId);
+}
+
+function isCanvasReferenceNode(node: CanvasNodeData, nodes: CanvasNodeData[]) {
+    return isResourceNode(node) || (node.type === CanvasNodeType.Group && nodes.some((item) => item.metadata?.groupId === node.id && isResourceNode(item)));
+}
+
+function expandGroupResourceNodes(nodes: CanvasNodeData[], allNodes: CanvasNodeData[]) {
+    const resources = nodes.flatMap((node) => (node.type === CanvasNodeType.Group ? allNodes.filter((item) => item.metadata?.groupId === node.id && isResourceNode(item)) : [node]));
+    return [...new Map(resources.map((node) => [node.id, node])).values()];
 }
 
 function labelResourceNodes(nodes: CanvasNodeData[], active: boolean) {

@@ -7,6 +7,7 @@ import { defaultConfig, useConfigStore, useEffectiveConfig, type AiConfig } from
 import { canvasThemes } from "@/lib/canvas-theme";
 import { isGrokImagineImageConfig, normalizeGrokImagineImageCount, normalizeGrokImagineImageRatio, normalizeGrokImagineImageResolution } from "@/lib/grok-imagine";
 import { isGptImage2StyleConfig, normalizeGptImage2Ratio, normalizeGptImage2Resolution } from "@/lib/gpt-image-2";
+import { isGlmImageConfig, normalizeGlmImageSize } from "@/lib/glm-image";
 import { isStepImageEdit2Config, normalizeStepImageEdit2Size } from "@/lib/step-image";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
@@ -152,6 +153,7 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
         model: node.metadata?.model || defaultModel || (mode === "audio" ? defaultConfig.audioModel : globalConfig.model || defaultConfig.model),
         quality: node.metadata?.quality || globalConfig.quality || defaultConfig.quality,
         size: node.metadata?.size || globalConfig.size || defaultConfig.size,
+        imageSteps: node.metadata?.imageSteps || globalConfig.imageSteps || defaultConfig.imageSteps,
         videoSeconds: node.metadata?.seconds || globalConfig.videoSeconds || defaultConfig.videoSeconds,
         vquality: node.metadata?.vquality || globalConfig.vquality || defaultConfig.vquality,
         videoGenerateAudio: node.metadata?.generateAudio || globalConfig.videoGenerateAudio || defaultConfig.videoGenerateAudio,
@@ -182,6 +184,9 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
             ...nextConfig,
             size: normalizeStepImageEdit2Size(nextConfig.size),
         };
+    }
+    if (mode === "image" && isGlmImageConfig(nextConfig)) {
+        return { ...nextConfig, size: normalizeGlmImageSize(nextConfig.size) };
     }
     return nextConfig;
 }

@@ -1,10 +1,11 @@
 import { useEffect } from "react";
 import type { ReactNode } from "react";
-import { FileText, Image as ImageIcon, List, Music2, Plus, Settings2, Trash2, Video } from "lucide-react";
+import { BetweenHorizontalStart, FileText, GalleryHorizontal, GalleryHorizontalEnd, Group, Image as ImageIcon, List, Music2, Plus, Settings2, Trash2, Ungroup, Video } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasNodeType, type ContextMenuState } from "../types";
+import type { VideoFramePosition } from "../utils/canvas-video-frame";
 
 export function CanvasNodeContextMenu({
     menu,
@@ -13,6 +14,12 @@ export function CanvasNodeContextMenu({
     onDelete,
     onCreateNode,
     onCreateScriptNode,
+    canCaptureVideoFrame = false,
+    canGroup = false,
+    canUngroup = false,
+    onCaptureVideoFrame,
+    onGroup,
+    onUngroup,
 }: {
     menu: ContextMenuState;
     onClose: () => void;
@@ -20,6 +27,12 @@ export function CanvasNodeContextMenu({
     onDelete: () => void;
     onCreateNode: (type: CanvasNodeType) => void;
     onCreateScriptNode: () => void;
+    canCaptureVideoFrame?: boolean;
+    canGroup?: boolean;
+    canUngroup?: boolean;
+    onCaptureVideoFrame?: (position: VideoFramePosition) => void;
+    onGroup?: () => void;
+    onUngroup?: () => void;
 }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
 
@@ -50,6 +63,16 @@ export function CanvasNodeContextMenu({
                 </>
             ) : (
                 <>
+                    {menu.type === "node" && canCaptureVideoFrame ? (
+                        <>
+                            <MenuButton icon={<BetweenHorizontalStart className="size-4" />} label="截取首帧" onClick={() => onCaptureVideoFrame?.("first")} />
+                            <MenuButton icon={<GalleryHorizontalEnd className="size-4" />} label="截取尾帧" onClick={() => onCaptureVideoFrame?.("last")} />
+                            <MenuButton icon={<GalleryHorizontal className="size-4" />} label="截取当前帧" onClick={() => onCaptureVideoFrame?.("current")} />
+                            <div className="my-1 border-t" style={{ borderColor: theme.toolbar.border }} />
+                        </>
+                    ) : null}
+                    {menu.type === "node" && canGroup ? <MenuButton icon={<Group className="size-4" />} label="创建分组" onClick={onGroup} /> : null}
+                    {menu.type === "node" && canUngroup ? <MenuButton icon={<Ungroup className="size-4" />} label="取消分组" onClick={onUngroup} /> : null}
                     {menu.type === "node" ? <MenuButton icon={<Plus className="size-4" />} label="Duplicate" onClick={onDuplicate} /> : null}
                     <MenuButton icon={<Trash2 className="size-4" />} label="Delete" onClick={onDelete} danger />
                 </>

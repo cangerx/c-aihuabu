@@ -2,6 +2,7 @@ import { type ReactNode, useState } from "react";
 import { ConfigProvider, Switch } from "antd";
 
 import { type CanvasTheme } from "@/lib/canvas-theme";
+import { glmImageSizeLabel, glmImageSizeOptions, isGlmImageConfig, normalizeGlmImageSize, normalizeGlmImageSteps } from "@/lib/glm-image";
 import { grokImagineImageMaxCount, grokImagineImageRatioOptions, grokImagineImageResolutionOptions, grokImagineImageRatioLabel, isGrokImagineImageConfig, normalizeGrokImagineImageRatio, normalizeGrokImagineImageResolution } from "@/lib/grok-imagine";
 import { gptImage2RatioOptions, gptImage2ResolutionOptions, isGptImage2StyleConfig, normalizeGptImage2Ratio, normalizeGptImage2Resolution } from "@/lib/gpt-image-2";
 import { isStepImageEdit2Config, normalizeStepImageEdit2Size, stepImageEdit2SizeOptions, stepImageEdit2SizeLabel } from "@/lib/step-image";
@@ -33,7 +34,7 @@ const aspectOptions = [
 
 type ImageSettingsPanelProps = {
     config: AiConfig;
-    onConfigChange: (key: "quality" | "size" | "count", value: string) => void;
+    onConfigChange: (key: "quality" | "size" | "imageSteps" | "count", value: string) => void;
     theme: CanvasTheme;
     showTitle?: boolean;
     className?: string;
@@ -43,6 +44,7 @@ type ImageSettingsPanelProps = {
 
 export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5", maxCount = 15, quickCount = 10 }: ImageSettingsPanelProps) {
     const [snapDimensionToStep, setSnapDimensionToStep] = useState(true);
+    const isGlmImage = isGlmImageConfig(config);
     const isStepImageEdit2 = isStepImageEdit2Config(config);
     const isGrokImagineImage = isGrokImagineImageConfig(config);
     const isGptImage2Style = isGptImage2StyleConfig(config);
@@ -76,7 +78,33 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
                 }}
             >
                 {showTitle ? <div className="text-lg font-semibold">图像设置</div> : null}
-                {isStepImageEdit2 ? (
+                {isGlmImage ? (
+                    <div className="space-y-4">
+                        <div className="space-y-2.5">
+                            <SettingTitle color={theme.node.muted}>尺寸</SettingTitle>
+                            <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))" }}>
+                                {glmImageSizeOptions.map((item) => (
+                                    <button key={item.value} type="button" className="flex h-[88px] cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border bg-transparent text-sm transition hover:opacity-80" style={{ borderColor: normalizeGlmImageSize(activeSize) === item.value ? theme.node.activeStroke : theme.node.stroke, background: "transparent", color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()} onClick={() => onConfigChange("size", item.value)}>
+                                        <SizePreview width={item.width} height={item.height} color={theme.node.text} />
+                                        <span>{item.label}</span>
+                                        <span className="text-center text-[10px] leading-tight opacity-55">{item.value.replace("x", " × ")}{"hint" in item ? ` · ${item.hint}` : ""}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                        <div className="space-y-2.5">
+                            <div className="flex items-center justify-between">
+                                <SettingTitle color={theme.node.muted}>生成步数</SettingTitle>
+                                <span className="text-[11px]" style={{ color: theme.node.muted }}>推荐 9</span>
+                            </div>
+                            <div className="grid grid-cols-[1fr_64px] items-center gap-3">
+                                <input type="range" min={1} max={50} value={normalizeGlmImageSteps(config.imageSteps)} onChange={(event) => onConfigChange("imageSteps", event.target.value)} onMouseDown={(event) => event.stopPropagation()} />
+                                <input type="number" min={1} max={50} className="h-9 rounded-lg border bg-transparent px-2 text-center text-sm outline-none" style={{ borderColor: theme.node.stroke, color: theme.node.text }} value={normalizeGlmImageSteps(config.imageSteps)} onChange={(event) => onConfigChange("imageSteps", String(normalizeGlmImageSteps(event.target.value)))} onMouseDown={(event) => event.stopPropagation()} />
+                            </div>
+                            <div className="text-[11px] leading-4" style={{ color: theme.node.muted }}>步数越高细节越丰富，但生成时间越长。</div>
+                        </div>
+                    </div>
+                ) : isStepImageEdit2 ? (
                     <>
                         <div className="space-y-2.5">
                             <SettingTitle color={theme.node.muted}>尺寸</SettingTitle>
@@ -248,6 +276,7 @@ export function imageQualityLabel(value: string) {
 
 export function imageSizeLabel(size: string) {
     const raw = String(size || "").trim().toLowerCase();
+    if (glmImageSizeOptions.some((item) => item.value === raw)) return glmImageSizeLabel(raw);
     if (stepImageEdit2SizeOptions.some((item) => item.value === raw)) return stepImageEdit2SizeLabel(raw);
     if (grokImagineImageRatioOptions.some((item) => item.value === raw)) return grokImagineImageRatioLabel(raw);
     if (gptImage2RatioOptions.some((item) => item.value === raw)) return raw;

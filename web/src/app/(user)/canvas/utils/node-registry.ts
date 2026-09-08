@@ -67,4 +67,5 @@ registerNodeDefinitions([
     { type: CanvasNodeType.Config, title: "生成配置", defaultSize: { width: 340, height: 240 }, defaultMetadata: { content: "", status: "idle", generationMode: "image" } },
     { type: CanvasNodeType.Video, title: "Video", defaultSize: { width: 420, height: 236 }, defaultMetadata: { content: "", status: "idle" } },
     { type: CanvasNodeType.Audio, title: "Audio", defaultSize: { width: 340, height: 120 }, defaultMetadata: { content: "", status: "idle" } },
+    { type: CanvasNodeType.Group, title: "分组", defaultSize: { width: 460, height: 300 }, defaultMetadata: { status: "idle" }, showInCreateMenu: false },
 ]);

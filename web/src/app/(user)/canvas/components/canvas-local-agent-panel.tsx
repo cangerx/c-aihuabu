@@ -183,7 +183,7 @@ export function CanvasLocalAgentPanel({ snapshot, canUndoOps, collapsed, embedde
         addMessage({ role: "user", text: text || "发送了图片", attachments: files });
         addEventLog("用户发送", { text, attachments: files.map(({ name, type, size }) => ({ name, type, size })) });
         try {
-            const res = await fetch(`${endpoint}/agent/codex/turn?token=${encodeURIComponent(token)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: requestPrompt, canvasId: snapshotRef.current.projectId, threadId: useCanvasAgentStore.getState().activeThreadId || undefined, attachments: files.map(({ name, type, dataUrl }) => ({ name, type, dataUrl })) }) });
+            const res = await fetch(`${endpoint}/agent/codex/turn`, { method: "POST", headers: agentHeaders(token, { "content-type": "application/json" }), body: JSON.stringify({ prompt: requestPrompt, canvasId: snapshotRef.current.projectId, threadId: useCanvasAgentStore.getState().activeThreadId || undefined, attachments: files.map(({ name, type, dataUrl }) => ({ name, type, dataUrl })) }) });
             if (!res.ok) throw new Error("C-ai Agent 拒绝了请求");
             const data = (await res.json()) as { threadId?: string };
             if (data.threadId) setAgentState({ activeThreadId: data.threadId });
@@ -831,12 +831,12 @@ function AgentHistoryView({ theme, threads, activeThreadId, workspacePath, loadi
 
 async function postState(endpoint: string, token: string, clientId: string, snapshot: CanvasAgentSnapshot) {
     try {
-        await fetch(`${endpoint}/canvas/state?token=${encodeURIComponent(token)}&clientId=${encodeURIComponent(clientId)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(snapshot) });
+        await fetch(`${endpoint}/canvas/state?clientId=${encodeURIComponent(clientId)}`, { method: "POST", headers: agentHeaders(token, { "content-type": "application/json" }), body: JSON.stringify(snapshot) });
     } catch {}
 }
 
 async function postToolResult(endpoint: string, token: string, clientId: string, body: { requestId: string; result?: unknown; error?: string }) {
-    await fetch(`${endpoint}/canvas/result?token=${encodeURIComponent(token)}&clientId=${encodeURIComponent(clientId)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    await fetch(`${endpoint}/canvas/result?clientId=${encodeURIComponent(clientId)}`, { method: "POST", headers: agentHeaders(token, { "content-type": "application/json" }), body: JSON.stringify(body) });
 }
 
 function agentMessageToChatMessage(item: AgentChatItem) {
@@ -1042,11 +1042,16 @@ function formatBytes(bytes: number) {
 }
 
 async function fetchAgentJson<T>(endpoint: string, token: string, path: string, init?: RequestInit) {
-    const url = `${endpoint}${path}${path.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`;
-    const res = await fetch(url, init);
+    const res = await fetch(`${endpoint}${path}`, { ...init, headers: agentHeaders(token, init?.headers) });
     const data = (await res.json().catch(() => ({}))) as T & { error?: string; msg?: string };
     if (!res.ok) throw new Error(data.error || data.msg || "C-ai Agent 请求失败");
     return data;
+}
+
+function agentHeaders(token: string, headers?: HeadersInit) {
+    const next = new Headers(headers);
+    next.set("x-canvas-agent-token", token);
+    return next;
 }
 
 function normalizeHistoryMessages(messages: AgentChatItem[]) {
