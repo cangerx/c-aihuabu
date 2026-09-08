@@ -168,7 +168,7 @@ export const useConfigStore = create<ConfigStore>()(
             config: defaultConfig,
             webdav: defaultWebdavSyncConfig,
             isConfigOpen: false,
-            configDialogTab: "channels",
+            configDialogTab: "models",
             shouldPromptContinue: false,
             updateConfig: (key, value) =>
                 set((state) => ({
@@ -277,11 +277,9 @@ export function modelOptionName(value: string) {
     return decodeChannelModel(value)?.model || value;
 }
 
-export function modelOptionLabel(config: AiConfig, value: string) {
+export function modelOptionLabel(_config: AiConfig, value: string) {
     const decoded = decodeChannelModel(value);
-    if (!decoded) return value;
-    const channel = config.channels.find((item) => item.id === decoded.channelId);
-    return channel ? `${decoded.model}（${channel.name}）` : decoded.model;
+    return decoded ? decoded.model : value;
 }
 
 export function modelOptionsFromChannels(channels: ModelChannel[]) {
