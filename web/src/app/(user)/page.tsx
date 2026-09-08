@@ -144,50 +144,59 @@ export default function IndexPage() {
 
                 {/* 中央品牌区 */}
                 <div className="relative mx-auto flex min-h-[92vh] max-w-3xl flex-col items-center justify-center px-6 text-center">
-                    <motion.div custom={0.05} variants={fadeUp} initial="hidden" animate="visible">
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+                    >
                         <h1 className="text-7xl font-black tracking-tight text-stone-950 sm:text-8xl dark:text-white">
                             C-AI 画布
                         </h1>
                     </motion.div>
 
                     {/* 动态轮换标语，丝滑垂直翻转 */}
-                    <motion.div custom={0.2} variants={fadeUp} initial="hidden" animate="visible" className="mt-4 flex h-12 items-center justify-center overflow-hidden">
+                    <div className="mt-5 flex h-14 items-center justify-center overflow-hidden">
                         <AnimatePresence mode="wait">
                             <motion.div
                                 key={sloganIndex}
-                                initial={{ y: 22, opacity: 0, filter: "blur(3px)" }}
+                                initial={{ y: 24, opacity: 0, filter: "blur(4px)" }}
                                 animate={{ y: 0, opacity: 1, filter: "blur(0px)" }}
-                                exit={{ y: -22, opacity: 0, filter: "blur(3px)" }}
+                                exit={{ y: -24, opacity: 0, filter: "blur(4px)" }}
                                 transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-                                className="flex items-center justify-center gap-1.5 font-serif text-2xl tracking-wide sm:text-3xl"
+                                className="flex items-center justify-center gap-2 font-serif text-3xl tracking-wide sm:text-4xl"
                             >
-                                <span className="italic text-stone-700 dark:text-stone-300">
+                                <span className="italic text-stone-800 dark:text-stone-200">
                                     {rotatingSlogans[sloganIndex].prefix}，
                                 </span>
-                                <span className="bg-gradient-to-r from-emerald-600 via-teal-500 to-cyan-500 bg-clip-text font-sans font-bold not-italic text-transparent dark:from-emerald-400 dark:via-teal-300 dark:to-cyan-400">
+                                <span className="bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400 bg-clip-text font-sans font-extrabold not-italic text-transparent">
                                     {rotatingSlogans[sloganIndex].highlight}
                                 </span>
                             </motion.div>
                         </AnimatePresence>
-                    </motion.div>
+                    </div>
 
                     {/* 动态联动副标题 */}
-                    <motion.div custom={0.35} variants={fadeUp} initial="hidden" animate="visible" className="mt-2 flex h-8 items-center justify-center overflow-hidden">
+                    <div className="mt-2 flex h-8 items-center justify-center overflow-hidden">
                         <AnimatePresence mode="wait">
                             <motion.p
                                 key={sloganIndex}
-                                initial={{ opacity: 0, y: 10 }}
+                                initial={{ opacity: 0, y: 8 }}
                                 animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -10 }}
+                                exit={{ opacity: 0, y: -8 }}
                                 transition={{ duration: 0.35 }}
-                                className="text-base text-stone-500 dark:text-stone-400"
+                                className="text-base font-medium text-stone-500 dark:text-stone-400"
                             >
                                 {rotatingSlogans[sloganIndex].hint}
                             </motion.p>
                         </AnimatePresence>
-                    </motion.div>
+                    </div>
 
-                    <motion.div custom={0.5} variants={fadeUp} initial="hidden" animate="visible" className="mt-10">
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.8, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                        className="mt-10"
+                    >
                         <Link
                             href="/canvas"
                             className="group inline-flex h-14 items-center gap-2.5 rounded-full bg-stone-950 px-9 text-lg font-semibold text-white shadow-[0_16px_40px_rgba(0,0,0,0.2)] transition-all duration-300 hover:scale-105 hover:bg-black dark:bg-white dark:text-stone-950 dark:hover:bg-stone-100"
