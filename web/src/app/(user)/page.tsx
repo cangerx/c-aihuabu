@@ -1,5 +1,5 @@
-import type { AnchorHTMLAttributes, ReactNode } from "react";
-import { motion } from "motion/react";
+import { useEffect, useState, type AnchorHTMLAttributes, type ReactNode } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import type { Variants } from "motion/react";
 import {
     Check,
@@ -16,6 +16,14 @@ import { DOCS_URL } from "@/constant/env";
 function Link({ href, ...props }: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) {
     return <a href={href} {...props} />;
 }
+
+// 动态轮换标语与功能亮点
+const rotatingSlogans = [
+    { prefix: "让灵感", highlight: "连续生长", hint: "多模态自由连线推演画布" },
+    { prefix: "让分镜", highlight: "自动成片", hint: "剧本故事一键智能拆解" },
+    { prefix: "让构思", highlight: "自由连线", hint: "跨模态节点自由编排与对焦" },
+    { prefix: "让画面", highlight: "鲜活落地", hint: "主流前沿视觉大模型原生驱动" },
+];
 
 // 首屏入场动画
 const fadeUp: Variants = {
@@ -51,6 +59,15 @@ function Float({ children, className, duration = 6, delay = 0, rotate = 0 }: { c
 }
 
 export default function IndexPage() {
+    const [sloganIndex, setSloganIndex] = useState(0);
+
+    useEffect(() => {
+        const timer = setInterval(() => {
+            setSloganIndex((prev) => (prev + 1) % rotatingSlogans.length);
+        }, 3000);
+        return () => clearInterval(timer);
+    }, []);
+
     return (
         <main className="relative h-full overflow-y-auto bg-white text-stone-900 selection:bg-emerald-500 selection:text-white dark:bg-[#0E1015] dark:text-stone-100">
             <style>{`
@@ -132,12 +149,44 @@ export default function IndexPage() {
                             C-AI 画布
                         </h1>
                     </motion.div>
-                    <motion.p custom={0.2} variants={fadeUp} initial="hidden" animate="visible" className="mt-2 font-serif text-2xl italic tracking-wide text-emerald-600 sm:text-3xl dark:text-emerald-400">
-                        让灵感，连续生长
-                    </motion.p>
-                    <motion.p custom={0.35} variants={fadeUp} initial="hidden" animate="visible" className="mt-5 text-lg text-stone-500 dark:text-stone-400">
-                        多模态 AI 创作画布
-                    </motion.p>
+
+                    {/* 动态轮换标语，丝滑垂直翻转 */}
+                    <motion.div custom={0.2} variants={fadeUp} initial="hidden" animate="visible" className="mt-4 flex h-12 items-center justify-center overflow-hidden">
+                        <AnimatePresence mode="wait">
+                            <motion.div
+                                key={sloganIndex}
+                                initial={{ y: 22, opacity: 0, filter: "blur(3px)" }}
+                                animate={{ y: 0, opacity: 1, filter: "blur(0px)" }}
+                                exit={{ y: -22, opacity: 0, filter: "blur(3px)" }}
+                                transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+                                className="flex items-center justify-center gap-1.5 font-serif text-2xl tracking-wide sm:text-3xl"
+                            >
+                                <span className="italic text-stone-700 dark:text-stone-300">
+                                    {rotatingSlogans[sloganIndex].prefix}，
+                                </span>
+                                <span className="bg-gradient-to-r from-emerald-600 via-teal-500 to-cyan-500 bg-clip-text font-sans font-bold not-italic text-transparent dark:from-emerald-400 dark:via-teal-300 dark:to-cyan-400">
+                                    {rotatingSlogans[sloganIndex].highlight}
+                                </span>
+                            </motion.div>
+                        </AnimatePresence>
+                    </motion.div>
+
+                    {/* 动态联动副标题 */}
+                    <motion.div custom={0.35} variants={fadeUp} initial="hidden" animate="visible" className="mt-2 flex h-8 items-center justify-center overflow-hidden">
+                        <AnimatePresence mode="wait">
+                            <motion.p
+                                key={sloganIndex}
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -10 }}
+                                transition={{ duration: 0.35 }}
+                                className="text-base text-stone-500 dark:text-stone-400"
+                            >
+                                {rotatingSlogans[sloganIndex].hint}
+                            </motion.p>
+                        </AnimatePresence>
+                    </motion.div>
+
                     <motion.div custom={0.5} variants={fadeUp} initial="hidden" animate="visible" className="mt-10">
                         <Link
                             href="/canvas"
