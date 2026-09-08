@@ -1,7 +1,7 @@
+import { useState, type AnchorHTMLAttributes } from "react";
 import {
     ArrowRight,
     BookOpen,
-    CheckCircle2,
     Cpu,
     ExternalLink,
     FileText,
@@ -9,7 +9,6 @@ import {
     Image as ImageIcon,
     ImagePlus,
     Images,
-    Layers,
     Maximize2,
     MousePointer,
     Play,
@@ -19,9 +18,8 @@ import {
     Workflow,
     Zap,
 } from "lucide-react";
-import { type AnchorHTMLAttributes, type ReactNode } from "react";
 import { Button } from "antd";
-import { motion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import type { Variants } from "motion/react";
 
 import { DOCS_URL, GITHUB_URL } from "@/constant/env";
@@ -30,13 +28,13 @@ function Link({ href, ...props }: AnchorHTMLAttributes<HTMLAnchorElement> & { hr
     return <a href={href} {...props} />;
 }
 
-// container transition configuration
+// 动画变体配置
 const containerVariants: Variants = {
     hidden: { opacity: 0 },
     visible: {
         opacity: 1,
         transition: {
-            staggerChildren: 0.12,
+            staggerChildren: 0.1,
             delayChildren: 0.05,
         },
     },
@@ -48,142 +46,62 @@ const itemVariants: Variants = {
         opacity: 1,
         y: 0,
         transition: {
-            duration: 0.7,
+            duration: 0.8,
             ease: [0.16, 1, 0.3, 1],
         },
     },
 };
 
-const sentenceVariants: Variants = {
-    hidden: {},
-    visible: {
-        transition: {
-            staggerChildren: 0.04,
-            delayChildren: 1.2,
-        },
+// 交互式场景数据（对齐微信网关交互式场景 Tabs）
+const scenarios = [
+    {
+        id: "storyboard",
+        label: "短剧分镜拆解",
+        tag: "影视工业化",
+        title: "一键将故事文本转化为结构化分镜与镜头序列",
+        desc: "传统短剧创作需要在提示词、生图、生成视频多个工具之间反复复制粘贴。在 C-AI 画布中，文本大模型一键生成连续镜头卡片，自动派发图片与视频推演工作流，全流程井然有序。",
+        metric: "推演效率提升 300%",
     },
-};
-
-const letterVariants: Variants = {
-    hidden: { opacity: 0 },
-    visible: {
-        opacity: 1,
-        transition: { duration: 0.1 },
+    {
+        id: "continuity",
+        label: "角色视觉连续性",
+        tag: "多模态推演",
+        title: "以参考图与首尾帧为锚点，锁定角色特征与光影质感",
+        desc: "打破单次孤立生成的随机性，连线节点自动将上游角色形象、动作与风格作为参考输入，支持首尾帧过渡与全能参考模式，实现高保真连续推演。",
+        metric: "多镜头一致性保持",
     },
-};
+    {
+        id: "concept",
+        label: "无边界灵感推演",
+        tag: "自由连线图",
+        title: "无限展开的无界画布，容纳万千灵感分叉与版本推演",
+        desc: "没有固定的画幅与边界限制，无论是单个镜头推敲还是数十个推演分支横向对比，皆可通过有向折线自由连接、重组与自动对焦整理。",
+        metric: "毫秒级视口对齐",
+    },
+    {
+        id: "automation",
+        label: "双通道高可用调度",
+        tag: "生产级可靠",
+        title: "同域代理头清洗与浏览器端直连兜底，告别中断与超时",
+        desc: "独创双通道架构，同域代理清洗边缘节点请求头杜绝 CORS 与跨域混淆；上游故障或网络超时自动切换浏览器直连，保障全天候连续创作。",
+        metric: "99.9% 链路高可用",
+    },
+];
 
 const promptText = "赛博朋克风格的魔法猫咪，手握发光的能量法杖，正在调试复杂的代码全息屏幕，超写实摄影，电影质感";
 
-// 核心产品服务矩阵
-const capabilityServices = [
-    {
-        id: "canvas",
-        title: "无限连线画布",
-        subtitle: "多模态推演核心",
-        description: "自由摆放图片、文本、视频与音频节点，支持双向流光连线、脚本分镜一键拆解与自动对焦整理。",
-        href: "/canvas",
-        badge: "核心推荐",
-        icon: Maximize2,
-        colorClass: "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400 border-emerald-200/60 dark:border-emerald-800/40",
-        tags: ["分镜剧本拆解", "节点双向连线", "提示词魔法棒", "视口智能对焦"],
-    },
-    {
-        id: "image",
-        title: "AI 生图工作台",
-        subtitle: "多模型聚合出图",
-        description: "原生支持 GPT-Image-2、Gemini、Grok Imagine 与 StepFun 等模型，自适应宽高比与极速并发提交。",
-        href: "/image",
-        badge: "高频使用",
-        icon: ImagePlus,
-        colorClass: "bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400 border-blue-200/60 dark:border-blue-800/40",
-        tags: ["1K/2K/4K 规格", "多任务并发提交", "URL 先显后落盘", "原生比例自适应"],
-    },
-    {
-        id: "video",
-        title: "视频创作工坊",
-        subtitle: "多模态动态视效",
-        description: "支持文生视频、图生视频、首尾帧与全能参考模式；长任务 30 分钟后台轮询与实时进度追踪。",
-        href: "/video",
-        badge: "影视级",
-        icon: Video,
-        colorClass: "bg-purple-50 text-purple-600 dark:bg-purple-950/40 dark:text-purple-400 border-purple-200/60 dark:border-purple-800/40",
-        tags: ["Seedance 2.5 全能参考", "Videos-4 全系列", "断线续查与拉取", "自动提取首帧"],
-    },
-    {
-        id: "prompts",
-        title: "提示词灵感中心",
-        subtitle: "六大来源深度聚合",
-        description: "六大开源提示词仓库自动拉取与定时缓存，标签智能清洗与中文化映射，一键套用至生图与画布。",
-        href: "/prompts",
-        badge: "灵感库",
-        icon: FileText,
-        colorClass: "bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400 border-amber-200/60 dark:border-amber-800/40",
-        tags: ["多源自动同步", "标签智能中文化", "分类药丸过滤", "一键快捷引用"],
-    },
-    {
-        id: "assets",
-        title: "本地素材中心",
-        subtitle: "纯本地离线隐私",
-        description: "全工程基于浏览器 IndexedDB 驱动，无痕去元数据重编码，支持 WebDAV 跨端私有数据备份。",
-        href: "/assets",
-        badge: "数据安全",
-        icon: Images,
-        colorClass: "bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-300 border-stone-200 dark:border-stone-700",
-        tags: ["零云端隐私外泄", "去 EXIF 与元数据", "WebDAV 直连同步", "多节点高频复用"],
-    },
-];
-
-// 技术优势卡片（类似微信网关）
-const gatewayAdvantages = [
-    {
-        icon: Zap,
-        title: "双通道链路智能调度",
-        description: "同域代理请求头清洗防 CORS 与 Mixed Content 拦截；遇到代理异常或超时自动秒级回退浏览器直连兜底，保障请求顺畅。",
-    },
-    {
-        icon: ShieldCheck,
-        title: "100% 本地隐私自主",
-        description: "画布工程、历史生成记录与高清媒体全量落盘浏览器 IndexedDB，零云端隐私外泄；支持 WebDAV 协议私有云备份与多端同步。",
-    },
-    {
-        icon: Cpu,
-        title: "统一 OpenAI 协议网关",
-        description: "全面收敛接口协议，以标准 OpenAI 格式无缝兼容生图、视频、语音与多模态大模型，无需繁琐的私有渠道格式切换。",
-    },
-    {
-        icon: Workflow,
-        title: "工业化分镜剧本拆解",
-        description: "集成文本大模型一键生成分镜脚本卡片，自动化拆解为“提示词 -> 图 -> 视频”全链路推演工作流，赋能短剧与视觉工业化创作。",
-    },
-];
-
-// 核心指标数据
-const stats = [
-    { label: "数据隐私", value: "0 云端留痕", hint: "IndexedDB 本地持久化" },
-    { label: "模态矩阵", value: "文 / 图 / 视 / 音", hint: "全流程推演覆盖" },
-    { label: "调度链路", value: "双通道兜底", hint: "同域代理 + 直连自适应" },
-    { label: "画布交互", value: "毫秒级响应", hint: "无限自由连线推演" },
-];
-
 export default function IndexPage() {
+    const [activeScenarioIndex, setActiveScenarioIndex] = useState(0);
+    const activeScenario = scenarios[activeScenarioIndex];
+
     return (
-        <main className="relative h-full overflow-y-auto bg-background bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:20px_20px] text-stone-950 dark:bg-[radial-gradient(rgba(245,245,244,.1)_1px,transparent_1px)] dark:text-stone-100">
-            {/* 关键帧动画定义 */}
+        <main className="relative h-full overflow-y-auto bg-[#FAFAFA] text-stone-900 selection:bg-emerald-500 selection:text-white dark:bg-stone-950 dark:text-stone-100">
+            {/* 关键帧动画 */}
             <style>{`
-                @keyframes caret-blink {
-                    50% { opacity: 0; }
-                }
-                .animate-caret-blink {
-                    animation: caret-blink 1s step-end infinite;
-                }
-                @keyframes line-flow {
-                    to {
-                        stroke-dashoffset: -20;
-                    }
-                }
-                .animate-line-flow {
-                    animation: line-flow 8s linear infinite;
-                }
+                @keyframes caret-blink { 50% { opacity: 0; } }
+                .animate-caret-blink { animation: caret-blink 1s step-end infinite; }
+                @keyframes line-flow { to { stroke-dashoffset: -20; } }
+                .animate-line-flow { animation: line-flow 8s linear infinite; }
                 @keyframes aurora-glow {
                     0%, 100% { background-position: 0% 50%; }
                     50% { background-position: 100% 50%; }
@@ -194,411 +112,425 @@ export default function IndexPage() {
                 }
             `}</style>
 
-            {/* 顶部柔和的环境微光 */}
-            <div className="pointer-events-none absolute inset-x-0 top-0 h-[480px] overflow-hidden">
-                <div className="absolute left-1/2 -top-24 h-[360px] w-[800px] -translate-x-1/2 rounded-full bg-gradient-to-b from-emerald-400/10 via-blue-400/5 to-transparent blur-[120px] dark:from-emerald-500/10 dark:via-blue-500/5" />
+            {/* 顶部通透的背景微纹理 */}
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-[640px] overflow-hidden">
+                <div className="absolute left-1/2 -top-40 h-[480px] w-[1000px] -translate-x-1/2 rounded-full bg-gradient-to-b from-emerald-400/10 via-teal-400/5 to-transparent blur-[140px] dark:from-emerald-500/10 dark:via-teal-500/5" />
             </div>
 
-            <div className="relative mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8 lg:py-16">
-                {/* 1. Hero 区域：极简清爽的微信开发者平台风格 */}
-                <motion.section variants={containerVariants} initial="hidden" animate="visible" className="flex flex-col items-center pt-4 text-center sm:pt-8">
-                    {/* 徽标胶囊标签 */}
+            <div className="relative mx-auto max-w-[1224px] px-6 sm:px-8 lg:px-12">
+                {/* 1. Hero 首屏区：微信网关大尺度呼吸感 */}
+                <motion.section
+                    variants={containerVariants}
+                    initial="hidden"
+                    animate="visible"
+                    className="flex flex-col items-center pt-24 pb-20 text-center sm:pt-32 sm:pb-28 lg:pt-40 lg:pb-36"
+                >
+                    {/* 徽标胶囊 */}
                     <motion.div
                         variants={itemVariants}
-                        className="mb-6 inline-flex items-center gap-2 rounded-full border border-stone-200/80 bg-white/90 px-3.5 py-1.5 text-xs font-medium text-stone-700 shadow-[0_2px_8px_rgba(0,0,0,0.02)] backdrop-blur-md dark:border-stone-800 dark:bg-stone-900/80 dark:text-stone-300"
+                        className="mb-8 inline-flex items-center gap-2.5 rounded-full border border-stone-200/90 bg-white px-4 py-2 text-xs font-medium text-stone-700 shadow-[0_2px_12px_rgba(0,0,0,0.03)] dark:border-stone-800 dark:bg-stone-900/90 dark:text-stone-300"
                     >
-                        <span className="flex size-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]" />
+                        <span className="size-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
                         <span>C-AI 画布 · 开发者多模态创意工作台</span>
                     </motion.div>
 
-                    {/* 主标题 */}
+                    {/* 磅礴大标题（56px~72px 微信网关级视觉冲击） */}
                     <motion.h1
                         variants={itemVariants}
-                        className="max-w-4xl text-balance text-4xl font-semibold tracking-tight text-stone-900 sm:text-6xl lg:text-7xl dark:text-stone-50"
+                        className="max-w-4xl text-balance text-4xl font-bold tracking-tight text-stone-900 sm:text-6xl lg:text-7xl dark:text-white"
                     >
                         从单次生成 到{" "}
-                        <span className="bg-gradient-to-r from-emerald-600 via-teal-600 to-blue-600 bg-clip-text text-transparent dark:from-emerald-400 dark:via-teal-300 dark:to-blue-400">
+                        <span className="bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 bg-clip-text text-transparent dark:from-emerald-400 dark:via-teal-300 dark:to-emerald-400">
                             连续推演
                         </span>
                     </motion.h1>
 
-                    {/* 微信风格副标：通透、直接、专业 */}
+                    {/* 20px 纯净大副标 */}
                     <motion.p
                         variants={itemVariants}
-                        className="mt-6 max-w-2xl text-balance text-base text-stone-600 sm:text-lg sm:leading-relaxed dark:text-stone-400"
+                        className="mt-8 max-w-2xl text-balance text-lg font-normal leading-relaxed text-stone-500 sm:text-xl sm:leading-relaxed dark:text-stone-400"
                     >
-                        一站式连接无限画布、多模态生图与视频创作工坊。标准协议调度主流大模型，让创意推演更连贯，赋能影视分镜与视觉设计工业化生产。
+                        一站式连接无限画布、多模态生图与视频创作工坊。标准协议调度主流大模型，让视觉推演更连贯，赋能影视分镜与视觉工业化生产。
                     </motion.p>
 
-                    {/* CTA 按钮组 */}
-                    <motion.div variants={itemVariants} className="mt-8 flex flex-wrap items-center justify-center gap-3.5">
+                    {/* 微信网关同款大尺寸胶囊按钮组 */}
+                    <motion.div variants={itemVariants} className="mt-12 flex flex-wrap items-center justify-center gap-4">
                         <Button
                             type="primary"
                             size="large"
                             href="/canvas"
-                            className="group h-11 rounded-full px-6 text-sm font-medium shadow-sm transition hover:scale-[1.02]"
+                            className="group h-13 rounded-full bg-gradient-to-r from-emerald-600 to-emerald-500 px-8 text-base font-semibold text-white shadow-[0_4px_20px_rgba(16,185,129,0.3)] transition-all duration-300 hover:scale-[1.02] hover:from-emerald-500 hover:to-emerald-400 dark:shadow-[0_4px_20px_rgba(16,185,129,0.2)]"
                         >
-                            <span className="flex items-center gap-1.5">
+                            <span className="flex items-center gap-2">
                                 打开无限画布
-                                <ArrowRight className="size-4 transition-transform duration-200 group-hover:translate-x-0.5" />
+                                <ArrowRight className="size-4.5 transition-transform duration-200 group-hover:translate-x-1" />
                             </span>
-                        </Button>
-                        <Button
-                            size="large"
-                            href="#capabilities"
-                            className="h-11 rounded-full border-stone-200 bg-white px-6 text-sm font-medium text-stone-700 shadow-sm transition hover:bg-stone-50 hover:text-stone-950 dark:border-stone-800 dark:bg-stone-900 dark:text-stone-300 dark:hover:bg-stone-800"
-                        >
-                            探索核心能力
                         </Button>
                         <Button
                             size="large"
                             href={DOCS_URL}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="h-11 rounded-full border-stone-200 bg-white px-5 text-sm font-medium text-stone-600 shadow-sm transition hover:bg-stone-50 hover:text-stone-950 dark:border-stone-800 dark:bg-stone-900 dark:text-stone-400"
-                            icon={<BookOpen className="size-4" />}
+                            className="h-13 rounded-full border border-stone-200/90 bg-white px-7 text-base font-medium text-stone-800 shadow-sm transition hover:bg-stone-50 hover:text-stone-950 dark:border-stone-800 dark:bg-stone-900 dark:text-stone-200 dark:hover:bg-stone-800"
+                            icon={<BookOpen className="size-4.5 text-stone-500" />}
                         >
                             开发文档
                         </Button>
                     </motion.div>
-
-                    {/* 核心指标条（微信网关风格的数据栏） */}
-                    <motion.div
-                        variants={itemVariants}
-                        className="mt-14 w-full max-w-4xl rounded-2xl border border-stone-200/80 bg-white/70 p-4 shadow-[0_2px_16px_rgba(0,0,0,0.02)] backdrop-blur-md dark:border-stone-800 dark:bg-stone-900/60"
-                    >
-                        <div className="grid grid-cols-2 gap-4 divide-y divide-stone-100 sm:grid-cols-4 sm:divide-x sm:divide-y-0 dark:divide-stone-800">
-                            {stats.map((stat, i) => (
-                                <div key={i} className={`flex flex-col items-center justify-center ${i > 0 ? "pt-3 sm:pt-0" : ""}`}>
-                                    <span className="text-lg font-semibold tracking-tight text-stone-900 sm:text-xl dark:text-stone-100">
-                                        {stat.value}
-                                    </span>
-                                    <span className="mt-0.5 text-xs text-stone-500 dark:text-stone-400">
-                                        {stat.hint}
-                                    </span>
-                                </div>
-                            ))}
-                        </div>
-                    </motion.div>
                 </motion.section>
 
-                {/* 2. 核心产品与能力矩阵（Service Matrix - 微信开发者平台经典卡片布局） */}
-                <section id="capabilities" className="mt-20 scroll-mt-12 sm:mt-28">
-                    <div className="flex flex-col items-center text-center mb-12">
-                        <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
-                            <Layers className="size-3.5" />
-                            <span>核心产品矩阵</span>
-                        </div>
-                        <h2 className="mt-3 text-2xl font-semibold tracking-tight text-stone-900 sm:text-3xl dark:text-stone-100">
-                            一站式多模态创作与推演服务
+                {/* 2. 独家优势 Bento Grid（微信网关同款便当盒大网格：大数字、大格局、无杂乱） */}
+                <section className="mt-12 sm:mt-20">
+                    <div className="mb-10 text-center">
+                        <h2 className="text-2xl font-bold tracking-tight text-stone-900 sm:text-3xl dark:text-white">
+                            核心架构优势
                         </h2>
-                        <p className="mt-2.5 max-w-xl text-sm text-stone-500 dark:text-stone-400">
-                            覆盖从灵感整理、分镜拆解、图像生成到动态视频合成的全生命周期工具
+                        <p className="mt-2 text-sm text-stone-500 dark:text-stone-400">
+                            面向专业视觉推演与生成场景设计的高性能基础设施
                         </p>
                     </div>
 
-                    <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
-                        {capabilityServices.map((service, index) => {
-                            const IconComponent = service.icon;
-                            const isLarge = index === 0;
-                            return (
-                                <Link
-                                    key={service.id}
-                                    href={service.href}
-                                    className={`group relative flex flex-col justify-between rounded-2xl border border-stone-200/80 bg-white p-6 shadow-[0_2px_12px_rgba(0,0,0,0.02)] transition-all duration-300 hover:-translate-y-1 hover:border-emerald-500/40 hover:shadow-[0_12px_28px_rgba(0,0,0,0.06)] dark:border-stone-800 dark:bg-stone-900/70 dark:hover:border-emerald-500/30 ${
-                                        isLarge ? "md:col-span-2 lg:col-span-2" : ""
+                    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                        {/* Bento 1: 核心大卡片 */}
+                        <div className="flex flex-col justify-between rounded-3xl border border-stone-200/80 bg-white p-8 shadow-[0_4px_20px_rgba(0,0,0,0.02)] sm:p-10 dark:border-stone-800 dark:bg-stone-900 lg:col-span-2">
+                            <div>
+                                <div className="inline-flex size-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400">
+                                    <Maximize2 className="size-6" />
+                                </div>
+                                <h3 className="mt-6 text-2xl font-bold text-stone-900 dark:text-white">
+                                    无限画布自由推演
+                                </h3>
+                                <p className="mt-3 max-w-xl text-base leading-relaxed text-stone-500 dark:text-stone-400">
+                                    打破传统工具单次输入的界限。在无限扩展的平面中摆放节点，双向流光连线实时传输素材与参数，实现从剧本构思到批量渲染的连续演进。
+                                </p>
+                            </div>
+                            <div className="mt-8 flex items-center gap-2 text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+                                <span>支持文本 · 图片 · 视频 · 音频跨模态混排</span>
+                            </div>
+                        </div>
+
+                        {/* Bento 2: 大指标卡片 (0 云端泄露) */}
+                        <div className="flex flex-col justify-between rounded-3xl border border-stone-200/80 bg-white p-8 shadow-[0_4px_20px_rgba(0,0,0,0.02)] sm:p-10 dark:border-stone-800 dark:bg-stone-900">
+                            <div>
+                                <div className="inline-flex size-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400">
+                                    <ShieldCheck className="size-6" />
+                                </div>
+                                <div className="mt-6 flex items-baseline gap-1">
+                                    <span className="text-5xl font-extrabold tracking-tight text-stone-900 dark:text-white">0</span>
+                                    <span className="text-lg font-medium text-stone-500">云端留痕</span>
+                                </div>
+                                <h4 className="mt-2 text-base font-semibold text-stone-900 dark:text-white">
+                                    100% 本地隐私自主
+                                </h4>
+                                <p className="mt-2 text-sm leading-relaxed text-stone-500 dark:text-stone-400">
+                                    工程资产全量持久化在浏览器 IndexedDB 中，杜绝数据外泄风险；支持 WebDAV 协议私有化跨端备份。
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Bento 3: 大指标卡片 (100% 协议收敛) */}
+                        <div className="flex flex-col justify-between rounded-3xl border border-stone-200/80 bg-white p-8 shadow-[0_4px_20px_rgba(0,0,0,0.02)] sm:p-10 dark:border-stone-800 dark:bg-stone-900">
+                            <div>
+                                <div className="inline-flex size-12 items-center justify-center rounded-2xl bg-purple-50 text-purple-600 dark:bg-purple-950/50 dark:text-purple-400">
+                                    <Cpu className="size-6" />
+                                </div>
+                                <div className="mt-6 flex items-baseline gap-1">
+                                    <span className="text-5xl font-extrabold tracking-tight text-stone-900 dark:text-white">统一</span>
+                                    <span className="text-lg font-medium text-stone-500">OpenAI 契约</span>
+                                </div>
+                                <h4 className="mt-2 text-base font-semibold text-stone-900 dark:text-white">
+                                    标准多模态模型网关
+                                </h4>
+                                <p className="mt-2 text-sm leading-relaxed text-stone-500 dark:text-stone-400">
+                                    彻底消除碎片化私有接口差异。以统一协议调度 GPT-Image、Gemini、Grok、Seedance 及 Videos-4 前沿模型。
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Bento 4: 性能与调度大卡片 */}
+                        <div className="flex flex-col justify-between rounded-3xl border border-stone-200/80 bg-white p-8 shadow-[0_4px_20px_rgba(0,0,0,0.02)] sm:p-10 dark:border-stone-800 dark:bg-stone-900 lg:col-span-2">
+                            <div>
+                                <div className="inline-flex size-12 items-center justify-center rounded-2xl bg-amber-50 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400">
+                                    <Zap className="size-6" />
+                                </div>
+                                <h3 className="mt-6 text-2xl font-bold text-stone-900 dark:text-white">
+                                    双通道链路智能调度
+                                </h3>
+                                <p className="mt-3 max-w-xl text-base leading-relaxed text-stone-500 dark:text-stone-400">
+                                    同域 AI 代理自动清洗边缘请求头，杜绝 CORS 与 Mixed Content 拦截；在代理遭遇网络抖动或超时时，浏览器端无感自动直连兜底。
+                                </p>
+                            </div>
+                            <div className="mt-8 flex items-center gap-2 text-sm font-semibold text-amber-600 dark:text-amber-400">
+                                <span>毫秒级故障自愈 · 99.9% 请求成功率</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                {/* 3. 核心功能矩阵（1 主打大横卡 + 2x2 大方卡 - 微信网关标准版式） */}
+                <section className="mt-28 sm:mt-36">
+                    <div className="mb-12 text-center">
+                        <h2 className="text-2xl font-bold tracking-tight text-stone-900 sm:text-3xl dark:text-white">
+                            全流程产品功能矩阵
+                        </h2>
+                        <p className="mt-2 text-sm text-stone-500 dark:text-stone-400">
+                            打通多模态生成的关键环节，让每一次创作触手可及
+                        </p>
+                    </div>
+
+                    {/* 主打大横卡 (Hero Feature Card) */}
+                    <div className="rounded-3xl border border-stone-200/80 bg-white p-8 shadow-[0_4px_24px_rgba(0,0,0,0.03)] sm:p-12 dark:border-stone-800 dark:bg-stone-900">
+                        <div className="grid grid-cols-1 items-center gap-10 lg:grid-cols-12">
+                            {/* 左侧大幅可视化推演流水线 */}
+                            <div className="relative min-h-[300px] lg:col-span-7 flex items-center justify-center rounded-2xl bg-stone-50 p-6 dark:bg-stone-950/60 border border-stone-100 dark:border-stone-800">
+                                <svg className="absolute inset-0 size-full pointer-events-none hidden sm:block">
+                                    <path d="M 120 150 C 180 150, 200 150, 260 150" fill="none" stroke="rgba(16, 185, 129, 0.4)" strokeWidth="2" strokeDasharray="4,8" className="animate-line-flow" />
+                                    <path d="M 380 150 C 440 150, 460 150, 520 150" fill="none" stroke="rgba(168, 85, 247, 0.4)" strokeWidth="2" strokeDasharray="4,8" className="animate-line-flow" />
+                                </svg>
+                                <div className="relative flex flex-wrap items-center justify-center gap-4 z-10 w-full">
+                                    <div className="w-44 rounded-xl border border-stone-200 bg-white p-3.5 shadow-sm dark:border-stone-800 dark:bg-stone-900">
+                                        <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                                            <FileText className="size-3.5" />
+                                            <span>提示词分镜</span>
+                                        </div>
+                                        <div className="mt-2 text-[11px] text-stone-500 font-mono line-clamp-2">/prompt 赛博魔法猫咪...</div>
+                                    </div>
+                                    <div className="w-44 rounded-xl border border-stone-200 bg-white p-3.5 shadow-sm dark:border-stone-800 dark:bg-stone-900">
+                                        <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400">
+                                            <ImageIcon className="size-3.5" />
+                                            <span>生图节点</span>
+                                        </div>
+                                        <div className="mt-2 text-[11px] text-stone-500 font-mono">1024x1024 · 渲染完毕</div>
+                                    </div>
+                                    <div className="w-44 rounded-xl border border-stone-200 bg-white p-3.5 shadow-sm dark:border-stone-800 dark:bg-stone-900">
+                                        <div className="flex items-center gap-1.5 text-xs font-semibold text-purple-600 dark:text-purple-400">
+                                            <Video className="size-3.5" />
+                                            <span>视频节点</span>
+                                        </div>
+                                        <div className="mt-2 text-[11px] text-stone-500 font-mono">Seedance 2.5 · 5.0s</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* 右侧大标题与价值阐述 */}
+                            <div className="lg:col-span-5">
+                                <span className="text-xs font-semibold tracking-wider text-emerald-600 uppercase dark:text-emerald-400">
+                                    核心引擎
+                                </span>
+                                <h3 className="mt-3 text-2xl font-bold text-stone-900 sm:text-3xl dark:text-white">
+                                    工业化分镜推演管线
+                                </h3>
+                                <p className="mt-4 text-base leading-relaxed text-stone-500 dark:text-stone-400">
+                                    通过文本大模型快速生成分镜脚本，一键拆分为完整的“分镜文本 ➔ 图片节点 ➔ 视频节点”流水线，实现多镜头连续生成与推演。
+                                </p>
+                                <div className="mt-8">
+                                    <Button type="primary" href="/canvas" className="h-11 rounded-full px-6 font-medium">
+                                        立即开启推演
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* 下方 2x2 大方卡（大字号、精简文案、无碎标签） */}
+                    <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
+                        {/* 卡片 1：生图 */}
+                        <div className="flex flex-col justify-between rounded-3xl border border-stone-200/80 bg-white p-8 sm:p-12 shadow-[0_4px_20px_rgba(0,0,0,0.02)] dark:border-stone-800 dark:bg-stone-900">
+                            <div>
+                                <div className="inline-flex size-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400">
+                                    <ImagePlus className="size-5.5" />
+                                </div>
+                                <h3 className="mt-6 text-xl font-bold text-stone-900 dark:text-white">
+                                    全模态生图工作台
+                                </h3>
+                                <p className="mt-3 text-sm leading-relaxed text-stone-500 dark:text-stone-400">
+                                    原生支持 GPT-Image-2、Gemini、Grok Imagine 与 StepFun 模型。尺寸自适应匹配各模型官方规格，多任务并发提交，结果即刻展示并后台无感落盘。
+                                </p>
+                            </div>
+                            <div className="mt-8">
+                                <Link href="/image" className="inline-flex items-center gap-1.5 text-xs font-semibold text-stone-900 hover:text-emerald-600 dark:text-stone-200 dark:hover:text-emerald-400">
+                                    <span>进入生图工作台</span>
+                                    <ArrowRight className="size-3.5" />
+                                </Link>
+                            </div>
+                        </div>
+
+                        {/* 卡片 2：视频 */}
+                        <div className="flex flex-col justify-between rounded-3xl border border-stone-200/80 bg-white p-8 sm:p-12 shadow-[0_4px_20px_rgba(0,0,0,0.02)] dark:border-stone-800 dark:bg-stone-900">
+                            <div>
+                                <div className="inline-flex size-11 items-center justify-center rounded-xl bg-purple-50 text-purple-600 dark:bg-purple-950/50 dark:text-purple-400">
+                                    <Video className="size-5.5" />
+                                </div>
+                                <h3 className="mt-6 text-xl font-bold text-stone-900 dark:text-white">
+                                    电影级视频创作工坊
+                                </h3>
+                                <p className="mt-3 text-sm leading-relaxed text-stone-500 dark:text-stone-400">
+                                    全面适配 Seedance 2.5 全能参考与 Videos-4 系列模型。支持文生、图生与首尾帧平滑过渡，长任务后台 30 分钟不间断轮询，实时回传真实进度。
+                                </p>
+                            </div>
+                            <div className="mt-8">
+                                <Link href="/video" className="inline-flex items-center gap-1.5 text-xs font-semibold text-stone-900 hover:text-emerald-600 dark:text-stone-200 dark:hover:text-emerald-400">
+                                    <span>进入视频创作台</span>
+                                    <ArrowRight className="size-3.5" />
+                                </Link>
+                            </div>
+                        </div>
+
+                        {/* 卡片 3：提示词 */}
+                        <div className="flex flex-col justify-between rounded-3xl border border-stone-200/80 bg-white p-8 sm:p-12 shadow-[0_4px_20px_rgba(0,0,0,0.02)] dark:border-stone-800 dark:bg-stone-900">
+                            <div>
+                                <div className="inline-flex size-11 items-center justify-center rounded-xl bg-amber-50 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400">
+                                    <FileText className="size-5.5" />
+                                </div>
+                                <h3 className="mt-6 text-xl font-bold text-stone-900 dark:text-white">
+                                    开源提示词灵感中心
+                                </h3>
+                                <p className="mt-3 text-sm leading-relaxed text-stone-500 dark:text-stone-400">
+                                    深度集成六大多源开源提示词仓库，智能清洗无效标签并中文化映射。支持自定义数据源周期性拉取，一键快速引用至画布与生图面板。
+                                </p>
+                            </div>
+                            <div className="mt-8">
+                                <Link href="/prompts" className="inline-flex items-center gap-1.5 text-xs font-semibold text-stone-900 hover:text-emerald-600 dark:text-stone-200 dark:hover:text-emerald-400">
+                                    <span>浏览提示词库</span>
+                                    <ArrowRight className="size-3.5" />
+                                </Link>
+                            </div>
+                        </div>
+
+                        {/* 卡片 4：素材 */}
+                        <div className="flex flex-col justify-between rounded-3xl border border-stone-200/80 bg-white p-8 sm:p-12 shadow-[0_4px_20px_rgba(0,0,0,0.02)] dark:border-stone-800 dark:bg-stone-900">
+                            <div>
+                                <div className="inline-flex size-11 items-center justify-center rounded-xl bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-300">
+                                    <Images className="size-5.5" />
+                                </div>
+                                <h3 className="mt-6 text-xl font-bold text-stone-900 dark:text-white">
+                                    本地数字资产存储
+                                </h3>
+                                <p className="mt-3 text-sm leading-relaxed text-stone-500 dark:text-stone-400">
+                                    纯本地离线驱动，素材与记录不传第三方云端。支持画布内一键 Canvas 去元数据无痕重编码，并通过 WebDAV 实现私有环境安全同步。
+                                </p>
+                            </div>
+                            <div className="mt-8">
+                                <Link href="/assets" className="inline-flex items-center gap-1.5 text-xs font-semibold text-stone-900 hover:text-emerald-600 dark:text-stone-200 dark:hover:text-emerald-400">
+                                    <span>管理我的素材</span>
+                                    <ArrowRight className="size-3.5" />
+                                </Link>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                {/* 4. 交互式应用场景选项卡（微信网关同款交互：痛点与方案大卡片） */}
+                <section className="mt-28 sm:mt-36">
+                    <div className="mb-10 text-center">
+                        <h2 className="text-2xl font-bold tracking-tight text-stone-900 sm:text-3xl dark:text-white">
+                            业务场景与解决方案
+                        </h2>
+                        <p className="mt-2 text-sm text-stone-500 dark:text-stone-400">
+                            深入实际内容创作场景，解决视觉生成中的核心痛点
+                        </p>
+                    </div>
+
+                    {/* 场景选项卡导航栏 */}
+                    <div className="flex justify-center">
+                        <div className="inline-flex max-w-full overflow-x-auto rounded-full border border-stone-200/80 bg-white p-1.5 shadow-sm dark:border-stone-800 dark:bg-stone-900">
+                            {scenarios.map((sc, i) => (
+                                <button
+                                    key={sc.id}
+                                    type="button"
+                                    onClick={() => setActiveScenarioIndex(i)}
+                                    className={`rounded-full px-5 py-2 text-xs font-semibold transition-all duration-200 whitespace-nowrap ${
+                                        activeScenarioIndex === i
+                                            ? "bg-emerald-600 text-white shadow-sm"
+                                            : "text-stone-600 hover:text-stone-900 dark:text-stone-400 dark:hover:text-white"
                                     }`}
                                 >
-                                    <div>
-                                        <div className="flex items-center justify-between gap-3">
-                                            <div className={`flex size-11 items-center justify-center rounded-xl border ${service.colorClass}`}>
-                                                <IconComponent className="size-5" />
-                                            </div>
-                                            <span className="rounded-full bg-stone-100 px-2.5 py-0.5 text-xs font-medium text-stone-600 dark:bg-stone-800 dark:text-stone-300">
-                                                {service.badge}
-                                            </span>
-                                        </div>
+                                    {sc.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
 
-                                        <div className="mt-5">
-                                            <h3 className="text-lg font-semibold text-stone-900 transition-colors group-hover:text-emerald-600 dark:text-stone-100 dark:group-hover:text-emerald-400">
-                                                {service.title}
-                                            </h3>
-                                            <p className="mt-2 text-xs leading-relaxed text-stone-500 dark:text-stone-400">
-                                                {service.description}
-                                            </p>
-                                        </div>
-
-                                        <div className="mt-5 flex flex-wrap gap-1.5">
-                                            {service.tags.map((tag, tIndex) => (
-                                                <span
-                                                    key={tIndex}
-                                                    className="inline-flex items-center gap-1 rounded-md bg-stone-50 px-2 py-1 text-[11px] font-medium text-stone-600 border border-stone-100 dark:bg-stone-800/60 dark:text-stone-400 dark:border-stone-700/50"
-                                                >
-                                                    <CheckCircle2 className="size-3 text-emerald-500" />
-                                                    {tag}
-                                                </span>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    <div className="mt-6 flex items-center gap-1 text-xs font-medium text-stone-900 group-hover:text-emerald-600 dark:text-stone-200 dark:group-hover:text-emerald-400">
-                                        <span>立即体验</span>
-                                        <ArrowRight className="size-3.5 transition-transform duration-200 group-hover:translate-x-1" />
-                                    </div>
-                                </Link>
-                            );
-                        })}
+                    {/* 场景大卡片展示区 */}
+                    <div className="mt-8 min-h-[260px] rounded-3xl border border-stone-200/80 bg-white p-8 sm:p-14 shadow-[0_4px_24px_rgba(0,0,0,0.02)] dark:border-stone-800 dark:bg-stone-900">
+                        <AnimatePresence mode="wait">
+                            <motion.div
+                                key={activeScenario.id}
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -10 }}
+                                transition={{ duration: 0.3 }}
+                                className="grid grid-cols-1 items-center gap-8 lg:grid-cols-12"
+                            >
+                                <div className="lg:col-span-8">
+                                    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+                                        {activeScenario.tag}
+                                    </span>
+                                    <h3 className="mt-4 text-2xl font-bold tracking-tight text-stone-900 sm:text-3xl dark:text-white">
+                                        {activeScenario.title}
+                                    </h3>
+                                    <p className="mt-4 text-base leading-relaxed text-stone-500 dark:text-stone-400">
+                                        {activeScenario.desc}
+                                    </p>
+                                </div>
+                                <div className="flex flex-col items-start lg:items-end justify-center lg:col-span-4 border-t lg:border-t-0 lg:border-l border-stone-100 dark:border-stone-800 pt-6 lg:pt-0 lg:pl-10">
+                                    <span className="text-xs font-medium text-stone-400 uppercase tracking-wider">预期收益</span>
+                                    <span className="mt-1 text-2xl font-extrabold text-emerald-600 dark:text-emerald-400">
+                                        {activeScenario.metric}
+                                    </span>
+                                    <Button type="primary" href="/canvas" className="mt-6 rounded-full px-6">
+                                        进入场景体验
+                                    </Button>
+                                </div>
+                            </motion.div>
+                        </AnimatePresence>
                     </div>
                 </section>
 
-                {/* 3. 架构优势与技术特性（微信网关风格布局） */}
-                <section className="mt-20 sm:mt-28">
-                    <div className="rounded-3xl border border-stone-200/80 bg-white/80 p-8 shadow-[0_2px_16px_rgba(0,0,0,0.02)] backdrop-blur-md sm:p-12 dark:border-stone-800 dark:bg-stone-900/60">
-                        <div className="max-w-2xl">
-                            <div className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">
-                                <ShieldCheck className="size-3.5" />
-                                <span>安全 · 高可用 · 标准协议</span>
-                            </div>
-                            <h2 className="mt-3 text-2xl font-semibold tracking-tight text-stone-900 sm:text-3xl dark:text-stone-100">
-                                面向生产级场景的技术架构与保障
-                            </h2>
-                            <p className="mt-2.5 text-sm text-stone-500 dark:text-stone-400">
-                                融合前端离线存储、双通道高可用调度与统一大模型协议，保障创作链路稳定顺畅
-                            </p>
-                        </div>
-
-                        <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-                            {gatewayAdvantages.map((adv, idx) => {
-                                const Icon = adv.icon;
-                                return (
-                                    <div
-                                        key={idx}
-                                        className="flex flex-col rounded-2xl border border-stone-100 bg-stone-50/70 p-5 transition-colors hover:border-stone-200 dark:border-stone-800/80 dark:bg-stone-950/40 dark:hover:border-stone-700"
-                                    >
-                                        <div className="flex size-10 items-center justify-center rounded-xl bg-white shadow-xs dark:bg-stone-800">
-                                            <Icon className="size-5 text-stone-800 dark:text-stone-200" />
-                                        </div>
-                                        <h3 className="mt-4 text-sm font-semibold text-stone-900 dark:text-stone-100">
-                                            {adv.title}
-                                        </h3>
-                                        <p className="mt-2 text-xs leading-relaxed text-stone-500 dark:text-stone-400">
-                                            {adv.description}
-                                        </p>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                </section>
-
-                {/* 4. 动态连线推演工作流演示（Live Workflow Showcase） */}
-                <section className="mt-20 sm:mt-28">
-                    <div className="flex flex-col items-center text-center mb-10">
-                        <div className="inline-flex items-center gap-1.5 rounded-full bg-purple-50 px-3 py-1 text-xs font-semibold text-purple-700 dark:bg-purple-950/50 dark:text-purple-300">
-                            <Sparkles className="size-3.5" />
-                            <span>连线推演工作流演示</span>
-                        </div>
-                        <h2 className="mt-3 text-2xl font-semibold tracking-tight text-stone-900 sm:text-3xl dark:text-stone-100">
-                            从灵感提示词到影视级视频渲染
+                {/* 5. 底部试用大横幅与极简 Footer（微信网关风格） */}
+                <section className="mt-28 mb-16 sm:mt-36">
+                    <div className="rounded-3xl bg-gradient-to-b from-stone-900 to-stone-950 px-8 py-16 text-center text-white sm:px-16 sm:py-20 dark:from-stone-900/90 dark:to-stone-950">
+                        <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
+                            即刻开启新一代多模态创作推演
                         </h2>
-                        <p className="mt-2.5 max-w-xl text-sm text-stone-500 dark:text-stone-400">
-                            节点间通过有向折线实时传输数据与媒体，实现全流程可视化协作
+                        <p className="mx-auto mt-4 max-w-xl text-base text-stone-400">
+                            从灵感火花到完整影视分镜，C-AI 画布全方位赋能专业创作者。
                         </p>
-                    </div>
-
-                    <div className="relative mx-auto w-full max-w-5xl rounded-3xl border border-stone-200/80 bg-stone-50/50 p-6 sm:p-8 shadow-[0_4px_24px_rgba(0,0,0,0.03)] backdrop-blur-md dark:border-stone-800 dark:bg-stone-950/40">
-                        <div className="relative min-h-[380px] lg:h-[400px] flex flex-col lg:block gap-6 lg:gap-0 items-center justify-center">
-                            {/* SVG 连线流光 */}
-                            <svg className="absolute inset-0 w-full h-full pointer-events-none hidden lg:block">
-                                <motion.path
-                                    d="M 288 120 C 340 120, 360 250, 420 250"
-                                    fill="none"
-                                    stroke="rgba(120, 113, 108, 0.15)"
-                                    strokeWidth="1.8"
-                                    initial={{ pathLength: 0 }}
-                                    animate={{ pathLength: 1 }}
-                                    transition={{ delay: 0.5, duration: 1, ease: "easeOut" }}
-                                />
-                                <motion.path
-                                    d="M 288 120 C 340 120, 360 250, 420 250"
-                                    fill="none"
-                                    stroke="rgba(16, 185, 129, 0.5)"
-                                    strokeWidth="1.8"
-                                    strokeDasharray="4,16"
-                                    className="animate-line-flow"
-                                    initial={{ pathLength: 0 }}
-                                    animate={{ pathLength: 1 }}
-                                    transition={{ delay: 0.5, duration: 1, ease: "easeOut" }}
-                                />
-
-                                <motion.path
-                                    d="M 640 250 C 700 250, 720 120, 768 120"
-                                    fill="none"
-                                    stroke="rgba(120, 113, 108, 0.15)"
-                                    strokeWidth="1.8"
-                                    initial={{ pathLength: 0 }}
-                                    animate={{ pathLength: 1 }}
-                                    transition={{ delay: 0.8, duration: 1, ease: "easeOut" }}
-                                />
-                                <motion.path
-                                    d="M 640 250 C 700 250, 720 120, 768 120"
-                                    fill="none"
-                                    stroke="rgba(168, 85, 247, 0.5)"
-                                    strokeWidth="1.8"
-                                    strokeDasharray="4,16"
-                                    className="animate-line-flow"
-                                    initial={{ pathLength: 0 }}
-                                    animate={{ pathLength: 1 }}
-                                    transition={{ delay: 0.8, duration: 1, ease: "easeOut" }}
-                                />
-
-                                <motion.circle cx="420" cy="250" r="4" fill="#10b981" initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 1, duration: 0.4 }} />
-                                <motion.circle cx="768" cy="120" r="4" fill="#a855f7" initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 1.3, duration: 0.4 }} />
-                            </svg>
-
-                            {/* 节点 1：提示词卡片 */}
-                            <motion.div
-                                className="w-full sm:w-72 rounded-2xl border border-stone-200/90 bg-white p-4 shadow-sm dark:border-stone-800 dark:bg-stone-900 lg:absolute lg:left-0 lg:top-[8%]"
-                                animate={{ y: [0, -3, 0] }}
-                                transition={{ duration: 7, repeat: Infinity, ease: "easeInOut" }}
-                            >
-                                <div className="flex items-center justify-between mb-2.5 border-b border-stone-100 pb-2 dark:border-stone-800">
-                                    <div className="flex items-center gap-1.5 text-xs font-semibold text-stone-700 dark:text-stone-300">
-                                        <FileText className="size-3.5 text-emerald-500" />
-                                        <span>提示词分镜</span>
-                                    </div>
-                                    <span className="text-[10px] rounded-full bg-emerald-50 text-emerald-600 px-2 py-0.5 font-medium dark:bg-emerald-950/50 dark:text-emerald-400">已就绪</span>
-                                </div>
-                                <div className="text-xs leading-relaxed text-stone-700 dark:text-stone-300 bg-stone-50 dark:bg-stone-950/50 p-2.5 rounded-xl border border-stone-100 dark:border-stone-800 min-h-[64px]">
-                                    <span className="font-mono text-emerald-600 font-semibold dark:text-emerald-400">/prompt</span>{" "}
-                                    <motion.span variants={sentenceVariants} initial="hidden" animate="visible">
-                                        {promptText.split("").map((char, index) => (
-                                            <motion.span key={index} variants={letterVariants}>
-                                                {char}
-                                            </motion.span>
-                                        ))}
-                                    </motion.span>
-                                    <span className="inline-block w-1 h-3 ml-0.5 bg-emerald-500 animate-caret-blink" />
-                                </div>
-                            </motion.div>
-
-                            {/* 节点 2：生图卡片 */}
-                            <motion.div
-                                className="w-full sm:w-[230px] rounded-2xl border border-stone-200/90 bg-white p-3.5 shadow-sm dark:border-stone-800 dark:bg-stone-900 lg:absolute lg:left-1/2 lg:top-[42%] lg:-translate-x-1/2"
-                                animate={{ y: [0, 3, 0] }}
-                                transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
-                            >
-                                <div className="flex items-center justify-between mb-2 border-b border-stone-100 pb-1.5 dark:border-stone-800">
-                                    <div className="flex items-center gap-1.5 text-xs font-semibold text-stone-700 dark:text-stone-300">
-                                        <ImageIcon className="size-3.5 text-blue-500" />
-                                        <span>生图节点</span>
-                                    </div>
-                                    <div className="text-[10px] text-stone-400">Flux.1</div>
-                                </div>
-                                <div className="relative aspect-[4/3] w-full overflow-hidden rounded-lg bg-stone-900">
-                                    <div className="absolute inset-0 bg-gradient-to-tr from-purple-600 via-blue-600 to-emerald-400 opacity-80 mix-blend-color-dodge animate-aurora-glow" />
-                                    <div className="absolute inset-0 bg-black/10 backdrop-blur-[0.5px]" />
-                                    <div className="absolute inset-x-2 bottom-2 flex flex-col justify-end p-1.5 rounded bg-black/40 backdrop-blur-sm">
-                                        <span className="text-[10px] font-mono font-medium text-white truncate">#001_魔法猫咪.png</span>
-                                        <span className="text-[8px] text-stone-300">1024 x 1024 px · 1:1</span>
-                                    </div>
-                                </div>
-                                <div className="flex items-center justify-between mt-2 text-[10px] text-stone-500">
-                                    <span>图片参考已连接</span>
-                                    <span className="text-emerald-500 font-medium">生成完成 100%</span>
-                                </div>
-                            </motion.div>
-
-                            {/* 节点 3：视频卡片 */}
-                            <motion.div
-                                className="w-full sm:w-72 rounded-2xl border border-stone-200/90 bg-white p-4 shadow-sm dark:border-stone-800 dark:bg-stone-900 lg:absolute lg:right-0 lg:top-[10%]"
-                                animate={{ y: [0, -4, 0] }}
-                                transition={{ duration: 7.5, repeat: Infinity, ease: "easeInOut" }}
-                            >
-                                <div className="flex items-center justify-between mb-2.5 border-b border-stone-100 pb-2 dark:border-stone-800">
-                                    <div className="flex items-center gap-1.5 text-xs font-semibold text-stone-700 dark:text-stone-300">
-                                        <Video className="size-3.5 text-purple-500" />
-                                        <span>视频合成节点</span>
-                                    </div>
-                                    <div className="text-[10px] text-stone-400">Seedance 2.5</div>
-                                </div>
-                                <div className="relative aspect-[16/10] w-full overflow-hidden rounded-lg bg-stone-950">
-                                    <div className="absolute inset-0 bg-gradient-to-br from-indigo-950 via-stone-900 to-purple-950 opacity-90" />
-                                    <div className="absolute inset-0 flex items-center justify-center">
-                                        <div className="flex size-9 items-center justify-center rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-white">
-                                            <Play className="size-3 fill-white ml-0.5" />
-                                        </div>
-                                    </div>
-                                    <motion.div 
-                                        className="absolute right-3 bottom-3 text-white pointer-events-none drop-shadow-md hidden sm:block"
-                                        animate={{ x: [-15, 0, -15], y: [15, 0, 15] }}
-                                        transition={{ duration: 3.5, repeat: Infinity, ease: "easeInOut" }}
-                                    >
-                                        <MousePointer className="size-3.5 fill-white text-stone-900" />
-                                    </motion.div>
-                                </div>
-                                <div className="mt-2.5">
-                                    <div className="flex items-center justify-between text-[10px] text-stone-500 mb-1">
-                                        <span>动态视频渲染 (5.0s)</span>
-                                        <span className="text-purple-600 dark:text-purple-400 font-medium">连续推演中...</span>
-                                    </div>
-                                    <div className="h-1 w-full bg-stone-100 dark:bg-stone-800 rounded-full overflow-hidden">
-                                        <motion.div
-                                            className="h-full bg-gradient-to-r from-purple-500 to-emerald-500"
-                                            animate={{ width: ["25%", "80%", "25%"] }}
-                                            transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
-                                        />
-                                    </div>
-                                </div>
-                            </motion.div>
-                        </div>
-                    </div>
-                </section>
-
-                {/* 5. 底部 CTA 与清爽 Footer（微信开发者平台风格） */}
-                <section className="mt-20 border-t border-stone-200/80 pt-16 sm:mt-28 dark:border-stone-800">
-                    <div className="rounded-3xl bg-gradient-to-b from-stone-900 to-stone-950 px-6 py-12 text-center text-white sm:px-12 sm:py-16 dark:from-stone-900/90 dark:to-stone-950">
-                        <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-                            准备好开启新一代多模态创作推演了吗？
-                        </h2>
-                        <p className="mx-auto mt-3 max-w-xl text-sm text-stone-400">
-                            无论单个镜头创作还是整套短剧镜头推演，C-AI 画布让一切井然有序。
-                        </p>
-                        <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
+                        <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
                             <Button
                                 type="primary"
                                 size="large"
                                 href="/canvas"
-                                className="h-11 rounded-full px-7 text-sm font-medium shadow-sm transition hover:scale-105"
+                                className="h-12 rounded-full bg-emerald-600 px-8 text-sm font-semibold hover:bg-emerald-500"
                             >
-                                立即进入画布
+                                免费使用画布
                             </Button>
                             <Button
                                 size="large"
                                 href={GITHUB_URL}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="h-11 rounded-full border-stone-700 bg-stone-800/80 px-6 text-sm font-medium text-stone-300 hover:bg-stone-700 hover:text-white"
+                                className="h-12 rounded-full border-stone-700 bg-stone-800/80 px-7 text-sm font-medium text-stone-300 hover:bg-stone-700 hover:text-white"
                                 icon={<Github className="size-4" />}
                             >
-                                GitHub 开源仓库
+                                GitHub 仓库
                             </Button>
                         </div>
                     </div>
 
-                    {/* Footer 链接与版权信息 */}
-                    <footer className="mt-12 flex flex-col items-center justify-between gap-4 pb-8 sm:flex-row text-xs text-stone-500 dark:text-stone-400">
-                        <div className="flex items-center gap-2">
+                    {/* 极简清爽 Footer */}
+                    <footer className="mt-16 flex flex-col items-center justify-between gap-4 pb-8 sm:flex-row text-xs text-stone-400">
+                        <div>
                             <span className="font-semibold text-stone-700 dark:text-stone-300">C-AI 画布</span>
-                            <span>·</span>
-                            <span>开源多模态创意工作台</span>
+                            <span className="mx-2">·</span>
+                            <span>新一代多模态连线推演平台</span>
                         </div>
-                        <div className="flex flex-wrap items-center gap-5">
-                            <a href="/canvas" className="transition hover:text-stone-950 dark:hover:text-stone-200">我的画布</a>
-                            <a href="/image" className="transition hover:text-stone-950 dark:hover:text-stone-200">生图工作台</a>
-                            <a href="/video" className="transition hover:text-stone-950 dark:hover:text-stone-200">视频创作台</a>
-                            <a href="/prompts" className="transition hover:text-stone-950 dark:hover:text-stone-200">提示词库</a>
-                            <a href={DOCS_URL} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 transition hover:text-stone-950 dark:hover:text-stone-200">
+                        <div className="flex items-center gap-6">
+                            <a href="/canvas" className="hover:text-stone-900 dark:hover:text-white transition-colors">画布</a>
+                            <a href="/image" className="hover:text-stone-900 dark:hover:text-white transition-colors">生图</a>
+                            <a href="/video" className="hover:text-stone-900 dark:hover:text-white transition-colors">视频</a>
+                            <a href="/prompts" className="hover:text-stone-900 dark:hover:text-white transition-colors">提示词</a>
+                            <a href={DOCS_URL} target="_blank" rel="noopener noreferrer" className="hover:text-stone-900 dark:hover:text-white transition-colors inline-flex items-center gap-1">
                                 <span>开发文档</span>
                                 <ExternalLink className="size-3" />
                             </a>
