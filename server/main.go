@@ -77,6 +77,7 @@ func main() {
 	admin.POST("/channels", h.SaveAIChannel)
 	admin.DELETE("/channels/:id", h.DeleteAIChannel)
 	admin.POST("/channels/:id/fetch-models", h.FetchAIChannelModels)
+	admin.POST("/channels/:id/probe", h.ProbeAIChannel)
 	log.Printf("business server listening on %s", cfg.Addr)
 	log.Fatal(router.Run(cfg.Addr))
 }

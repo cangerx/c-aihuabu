@@ -650,6 +650,53 @@ func (h Handler) FetchAIChannelModels(c *gin.Context) {
 	}
 	OK(c, models)
 }
+
+func (h Handler) ProbeAIChannel(c *gin.Context) {
+	row, err := h.Service.Repo.AIChannelByID(c.Param("id"))
+	if err != nil {
+		Fail(c, 404, errors.New("渠道不存在"))
+		return
+	}
+	var input struct{ Model, MediaType string }
+	if err := c.ShouldBindJSON(&input); err != nil || input.Model == "" {
+		Fail(c, 400, errors.New("请选择模型和测试类型"))
+		return
+	}
+	path, body := "/chat/completions", map[string]any{"model": input.Model, "messages": []any{map[string]string{"role": "user", "content": "回复 OK"}}, "max_tokens": 8}
+	if input.MediaType == "image" {
+		path, body = "/images/generations", map[string]any{"model": input.Model, "prompt": "一只简洁的蓝色圆形图标", "size": "256x256", "n": 1}
+	}
+	base := strings.TrimRight(row.BaseURL, "/")
+	started := time.Now()
+	reqBody, _ := json.Marshal(body)
+	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, base+path, strings.NewReader(string(reqBody)))
+	if err != nil {
+		Fail(c, 400, err)
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+row.APIKey)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		Fail(c, 502, errors.New("无法连接上游接口"))
+		return
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	result := gin.H{"ok": resp.StatusCode >= 200 && resp.StatusCode < 300, "status": resp.StatusCode, "durationMs": time.Since(started).Milliseconds(), "model": input.Model, "mediaType": input.MediaType}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		detail := strings.TrimSpace(string(data))
+		if len(detail) > 300 {
+			detail = detail[:300]
+		}
+		result["error"] = detail
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		c.JSON(502, gin.H{"code": 502, "data": result, "msg": "模型探测失败"})
+		return
+	}
+	OK(c, result)
+}
 func (h Handler) InternalAIChannel(c *gin.Context) {
 	if c.ClientIP() != "127.0.0.1" && c.ClientIP() != "::1" {
 		c.Status(http.StatusForbidden)

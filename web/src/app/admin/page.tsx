@@ -1,7 +1,7 @@
 import { Activity, AlertTriangle, AudioLines, Building2, CheckCircle2, Coins, CreditCard, Crown, Gauge, Globe2, ImageIcon, KeyRound, LockKeyhole, LogOut, MessageSquareText, Package, ReceiptText, RefreshCw, Settings2, ShieldAlert, ShieldCheck, Sparkles, UserRoundPlus, Users, Video, WalletCards, XCircle } from "lucide-react";
 import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Alert, App, Avatar, Button, Dropdown, Progress, Tag } from "antd";
+import { Alert, App, Avatar, Button, Dropdown, Modal, Progress, Select, Tag } from "antd";
 import { ModalForm, PageContainer, ProCard, ProForm, ProFormDigit, ProFormRadio, ProFormSelect, ProFormSwitch, ProFormText, ProFormTextArea, ProLayout, ProTable, type ActionType, type ProColumns, type ProFormInstance } from "@ant-design/pro-components";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 
@@ -209,6 +209,8 @@ function ChannelsPage() {
     const { message } = App.useApp();
     const actionRef = useRef<ActionType>(null);
     const [editing, setEditing] = useState<(AIChannel & { apiKey?: string }) | null>(null);
+    const [probing, setProbing] = useState<{ channel: AIChannel; type: "text" | "image" } | null>(null);
+    const [probeModel, setProbeModel] = useState("");
     const fetchModels = async (channel: AIChannel) => {
         try {
             const models = await memberRequest<string[]>(`/api/admin/channels/${channel.id}/fetch-models`, { method: "POST" });
@@ -225,7 +227,7 @@ function ChannelsPage() {
         { title: "密钥", dataIndex: "apiKeyConfigured", hideInSearch: true, render: (_, row) => <Tag color={row.apiKeyConfigured ? "green" : "red"}>{row.apiKeyConfigured ? "已配置" : "未配置"}</Tag> },
         { title: "模型", dataIndex: "models", hideInSearch: true, render: (_, row) => <div><div className="font-medium">{row.models.length} 个</div><div className="max-w-52 truncate text-xs text-[var(--ant-color-text-tertiary)]">{row.models.slice(0, 3).join(" · ") || "尚未拉取"}</div></div> },
         { title: "状态", dataIndex: "enabled", hideInSearch: true, render: (_, row) => <Tag color={row.enabled ? "green" : "default"}>{row.enabled ? "启用" : "停用"}</Tag> },
-        { title: "操作", valueType: "option", render: (_, row) => [<Button key="fetch" type="link" disabled={!row.apiKeyConfigured} onClick={() => void fetchModels(row)}>{row.models.length ? "重新拉取" : "拉取模型"}</Button>, <Button key="edit" type="link" onClick={() => setEditing(row)}>编辑</Button>, <Button key="delete" danger type="link" onClick={async () => { await memberRequest(`/api/admin/channels/${row.id}`, { method: "DELETE" }); message.success("渠道已删除"); actionRef.current?.reload(); }}>删除</Button>] },
+        { title: "操作", valueType: "option", render: (_, row) => [<Button key="fetch" type="link" disabled={!row.apiKeyConfigured} onClick={() => void fetchModels(row)}>{row.models.length ? "重新拉取" : "拉取模型"}</Button>, <Button key="text" type="link" disabled={!row.models.length || !row.apiKeyConfigured} onClick={() => { setProbeModel(row.models[0] || ""); setProbing({ channel: row, type: "text" }); }}>测文本</Button>, <Button key="image" type="link" disabled={!row.models.length || !row.apiKeyConfigured} onClick={() => { setProbeModel(row.models[0] || ""); setProbing({ channel: row, type: "image" }); }}>测图片</Button>, <Button key="edit" type="link" onClick={() => setEditing(row)}>编辑</Button>, <Button key="delete" danger type="link" onClick={async () => { await memberRequest(`/api/admin/channels/${row.id}`, { method: "DELETE" }); message.success("渠道已删除"); actionRef.current?.reload(); }}>删除</Button>] },
     ];
     return <PageContainer title="模型渠道" subTitle="保存渠道后自动拉取模型；密钥只保存在服务端" extra={<Button type="primary" icon={<KeyRound className="size-4" />} onClick={() => setEditing({ id: "", name: "", baseUrl: "", models: [], enabled: true, apiKeyConfigured: false })}>新增渠道</Button>}>
         <div className="mb-4 grid gap-3 md:grid-cols-3"><div className="rounded-lg border border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] px-4 py-3"><div className="text-xs text-[var(--ant-color-text-secondary)]">1. 填写连接信息</div><div className="mt-1 font-medium">名称、Base URL 与 API Key</div></div><div className="rounded-lg border border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] px-4 py-3"><div className="text-xs text-[var(--ant-color-text-secondary)]">2. 保存并拉取模型</div><div className="mt-1 font-medium">自动匹配 `/models` 与 `/v1/models`</div></div><div className="rounded-lg border border-[var(--ant-color-border-secondary)] bg-[var(--ant-color-bg-container)] px-4 py-3"><div className="text-xs text-[var(--ant-color-text-secondary)]">3. 配置模型计价</div><div className="mt-1 font-medium">仅已计价模型可用于扣费</div></div></div>
@@ -241,6 +243,10 @@ function ChannelsPage() {
             <ProFormText name="apiKey" label={editing?.apiKeyConfigured ? "API Key（已配置，留空保持不变）" : "API Key"} fieldProps={{ type: "password", autoComplete: "new-password" }} rules={editing?.apiKeyConfigured ? [] : [{ required: true, message: "请输入 API Key" }]} />
             <ProFormSwitch name="enabled" label="立即启用" tooltip="启用后拉取到的模型会同步到用户端可选模型列表" />
         </ModalForm>
+        <Modal title={probing?.type === "image" ? "图片模型探测" : "文本模型探测"} open={Boolean(probing)} okText="开始测试" cancelText="取消" confirmLoading={false} onCancel={() => setProbing(null)} onOk={async () => { if (!probing || !probeModel) return; const started = Date.now(); try { const result = await memberRequest<{ status: number; durationMs: number }>(`/api/admin/channels/${probing.channel.id}/probe`, { method: "POST", body: JSON.stringify({ model: probeModel, mediaType: probing.type }) }); message.success(`探测成功 · HTTP ${result.status} · ${result.durationMs || Date.now() - started}ms`); setProbing(null); } catch (error) { message.error(error instanceof Error ? error.message : "模型探测失败"); } }}>
+            <div className="mb-2 text-sm text-[var(--ant-color-text-secondary)]">仅发送最小测试请求，不保存生成内容。</div>
+            <Select className="w-full" showSearch value={probeModel} onChange={setProbeModel} options={probing?.channel.models.map((model) => ({ label: model, value: model })) || []} />
+        </Modal>
     </PageContainer>;
 }
 
