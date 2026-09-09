@@ -382,7 +382,7 @@ function GeneralSettingsPage() {
 function LedgerPage() {
     const columns: ProColumns<PointLedger>[] = [
         { title: "时间", dataIndex: "createdAt", valueType: "dateTime" },
-        { title: "用户 ID", dataIndex: "userId", ellipsis: true },
+        { title: "用户 ID", dataIndex: "userId", render: (value) => <span className="font-mono text-xs text-[var(--ant-color-text-secondary)]">{shortUserId(String(value))}</span> },
         { title: "类型", dataIndex: "type" },
         { title: "变动", dataIndex: "amount", render: (_, row) => <span className={row.amount >= 0 ? "text-emerald-600" : "text-red-500"}>{row.amount >= 0 ? "+" : ""}{row.amount}</span> },
         { title: "变动后余额", dataIndex: "balanceAfter" },
