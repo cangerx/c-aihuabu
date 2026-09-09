@@ -145,6 +145,7 @@ function UsersPage() {
     const actionRef = useRef<ActionType>(null);
     const [adjusting, setAdjusting] = useState<MemberUser | null>(null);
     const columns: ProColumns<MemberUser>[] = [
+        { title: "用户 ID", dataIndex: "id", width: 90, hideInSearch: true, render: (value) => <span className="font-mono text-xs text-[var(--ant-color-text-secondary)]">{shortUserId(String(value))}</span> },
         { title: "用户", dataIndex: "nickname", render: (_, row) => <div><div className="font-medium">{row.nickname}</div><div className="text-xs text-stone-400">{row.email}</div></div> },
         { title: "角色", dataIndex: "role", hideInSearch: true, render: (_, row) => <Tag color={row.role === "admin" ? "gold" : "default"}>{row.role === "admin" ? "管理员" : "会员"}</Tag> },
         { title: "积分余额", dataIndex: "points", hideInSearch: true, render: (_, row) => <span className="font-semibold text-amber-600">{row.points}</span> },
@@ -172,6 +173,12 @@ function UsersPage() {
             </ModalForm>
         </PageContainer>
     );
+}
+
+function shortUserId(id: string) {
+    let hash = 7;
+    for (const char of id) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+    return String(hash % 100000).padStart(5, "0");
 }
 
 function PackagesPage() {
