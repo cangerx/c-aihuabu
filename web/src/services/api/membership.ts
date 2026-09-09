@@ -21,6 +21,7 @@ export type GeneralSettings = { registrationEnabled: boolean; registrationGiftPo
 export type AIChannel = { id: string; name: string; baseUrl: string; models: string[]; enabled: boolean; apiKeyConfigured: boolean };
 export type PointLedger = { id: string; userId: string; type: string; amount: number; balanceAfter: number; remark: string; createdAt: string };
 export type AIUsageLog = { id: string; channelId: string; model: string; path: string; status: number; error: string; durationMs: number; createdAt: string };
+export type GenerationRecord = { id: string; mediaType: string; model: string; prompt: string; configJson?: string; status: string; points: number; error?: string; assetKey?: string; assetUrl?: string; createdAt: string };
 
 type Envelope<T> = { code: number; data: T; msg: string };
 
@@ -48,4 +49,6 @@ export function getMember() { return memberRequest<MemberUser>("/api/users/me");
 export function getMemberLedger() { return memberRequest<PointLedger[]>("/api/wallet/ledger"); }
 export function getPointPackages() { return memberRequest<PointPackage[]>("/api/packages"); }
 export function getPaymentOptions() { return memberRequest<PaymentOptions>("/api/payment/options"); }
+export function saveGenerationRecord(record: Omit<GenerationRecord, "id" | "createdAt">) { return memberRequest<GenerationRecord>("/api/generations/records", { method: "POST", body: JSON.stringify(record) }); }
+export function getGenerationRecords() { return memberRequest<GenerationRecord[]>("/api/generations/records"); }
 export function createRechargeOrder(packageId: string, payMethod: "WECHAT" | "ALIPAY") { return memberRequest<{ orderNo: string; qrCode: string }>("/api/orders", { method: "POST", body: JSON.stringify({ packageId, payMethod }) }); }

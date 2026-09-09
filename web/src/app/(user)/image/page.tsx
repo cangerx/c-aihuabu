@@ -17,6 +17,7 @@ import { useThemeStore } from "@/stores/use-theme-store";
 import { nanoid } from "nanoid";
 import { formatBytes, formatDuration, getDataUrlByteSize } from "@/lib/image-utils";
 import { requestEdit, requestGeneration } from "@/services/api/image";
+import { saveGenerationRecord } from "@/services/api/membership";
 import { deleteStoredImages, persistImageUrl, persistImageUrlInBackground, prepareImageForDisplay, proxiedImageDisplayUrl, resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { useAssetStore } from "@/stores/use-asset-store";
 import type { ReferenceImage } from "@/types/image";
@@ -446,6 +447,7 @@ export default function ImagePage() {
                 bytes: display.bytes || getDataUrlByteSize(image.dataUrl),
                 mimeType: display.mimeType,
             };
+            void saveGenerationRecord({ mediaType: "image", model: snapshot.config.model, prompt: snapshot.text, configJson: JSON.stringify({ size: snapshot.config.size, quality: snapshot.config.quality, imageSteps: snapshot.config.imageSteps }), status: "success", points: 0, assetKey: display.storageKey, assetUrl: "" }).catch(() => undefined);
             if (!logId || !deletedLogIdsRef.current.has(logId)) setResults((value) => updateResultAt(value, index, { status: "success", image: nextImage }));
             return nextImage;
         } catch (error) {

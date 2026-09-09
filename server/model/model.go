@@ -97,3 +97,19 @@ type AIUsageLog struct {
 	Points     int64     `json:"points"`
 	CreatedAt  time.Time `gorm:"index" json:"createdAt"`
 }
+
+type GenerationRecord struct {
+	ID          string     `gorm:"primaryKey;size:36" json:"id"`
+	UserID      string     `gorm:"index;size:36;not null" json:"userId"`
+	MediaType   string     `gorm:"index;size:20;not null" json:"mediaType"`
+	Model       string     `gorm:"index;size:191;not null" json:"model"`
+	Prompt      string     `gorm:"type:text;not null" json:"prompt"`
+	ConfigJSON  string     `gorm:"type:text" json:"configJson"`
+	Status      string     `gorm:"index;size:20;not null" json:"status"`
+	Points      int64      `json:"points"`
+	Error       string     `gorm:"size:500" json:"error"`
+	AssetKey    string     `gorm:"size:255" json:"assetKey"`
+	AssetURL    string     `gorm:"size:1000" json:"assetUrl"`
+	CreatedAt   time.Time  `gorm:"index" json:"createdAt"`
+	CompletedAt *time.Time `json:"completedAt,omitempty"`
+}

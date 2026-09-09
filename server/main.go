@@ -30,7 +30,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.User{}, &model.PointLedger{}, &model.PointPackage{}, &model.RechargeOrder{}, &model.GenerationPrice{}, &model.SystemSetting{}, &model.AIChannel{}, &model.AIUsageLog{}); err != nil {
+	if err := db.AutoMigrate(&model.User{}, &model.PointLedger{}, &model.PointPackage{}, &model.RechargeOrder{}, &model.GenerationPrice{}, &model.SystemSetting{}, &model.AIChannel{}, &model.AIUsageLog{}, &model.GenerationRecord{}); err != nil {
 		log.Fatal(err)
 	}
 	if err := db.Exec("DROP INDEX IF EXISTS idx_ledger_reference").Error; err != nil {
@@ -59,6 +59,8 @@ func main() {
 	authed.GET("/wallet/ledger", h.Ledger)
 	authed.GET("/packages", h.Packages)
 	authed.POST("/orders", h.CreateOrder)
+	authed.POST("/generations/records", h.CreateGenerationRecord)
+	authed.GET("/generations/records", h.ListGenerationRecords)
 	api.POST("/payment/notify/tianque", h.PaymentNotify)
 	admin := authed.Group("/admin")
 	admin.Use(middleware.Admin())

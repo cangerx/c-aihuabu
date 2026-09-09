@@ -184,6 +184,36 @@ func (h Handler) CreateOrder(c *gin.Context) {
 	OK(c, gin.H{"orderNo": order.OrderNo, "qrCode": qr, "providerOrderNo": providerNo, "providerResponse": raw})
 }
 
+func (h Handler) CreateGenerationRecord(c *gin.Context) {
+	var input struct {
+		MediaType, Model, Prompt, ConfigJSON, Status, Error, AssetKey, AssetURL string
+		Points                                                                  int64
+	}
+	if err := c.ShouldBindJSON(&input); err != nil || strings.TrimSpace(input.Model) == "" || strings.TrimSpace(input.Prompt) == "" {
+		Fail(c, 400, errors.New("缺少生成记录信息"))
+		return
+	}
+	status := input.Status
+	if status == "" {
+		status = "success"
+	}
+	row := model.GenerationRecord{ID: service.NewID(), UserID: c.GetString(middleware.UserIDKey), MediaType: strings.TrimSpace(input.MediaType), Model: strings.TrimSpace(input.Model), Prompt: input.Prompt, ConfigJSON: truncateLog(input.ConfigJSON), Status: status, Points: input.Points, Error: truncateLog(input.Error), AssetKey: input.AssetKey, AssetURL: input.AssetURL}
+	if err := h.Service.Repo.CreateGenerationRecord(&row); err != nil {
+		Fail(c, 500, err)
+		return
+	}
+	OK(c, row)
+}
+
+func (h Handler) ListGenerationRecords(c *gin.Context) {
+	rows, err := h.Service.Repo.ListGenerationRecords(c.GetString(middleware.UserIDKey), atoi(c.Query("limit")))
+	if err != nil {
+		Fail(c, 500, err)
+		return
+	}
+	OK(c, rows)
+}
+
 func (h Handler) PaymentNotify(c *gin.Context) {
 	h.refreshPaymentConfig()
 	var payload map[string]any

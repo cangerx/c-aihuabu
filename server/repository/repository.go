@@ -23,6 +23,18 @@ func (r Repository) ListAIUsageLogs(limit int) ([]model.AIUsageLog, error) {
 
 func (r Repository) CreateAIUsageLog(row *model.AIUsageLog) error { return r.DB.Create(row).Error }
 
+func (r Repository) CreateGenerationRecord(row *model.GenerationRecord) error {
+	return r.DB.Create(row).Error
+}
+func (r Repository) ListGenerationRecords(userID string, limit int) ([]model.GenerationRecord, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	var rows []model.GenerationRecord
+	err := r.DB.Where("user_id = ?", userID).Order("created_at desc").Limit(limit).Find(&rows).Error
+	return rows, err
+}
+
 func (r Repository) PriceForModel(name, mediaType string) (model.GenerationPrice, error) {
 	var row model.GenerationPrice
 	err := r.DB.Where("model = ? AND media_type = ? AND enabled = ?", name, mediaType, true).First(&row).Error
