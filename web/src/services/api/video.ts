@@ -753,12 +753,8 @@ async function withDirectFallback<T>(proxied: Promise<T>, direct: () => Promise<
 }
 
 function shouldRetryDirect(error: unknown) {
-    if (!axios.isAxiosError(error)) return false;
-    const url = String(error.config?.url || "");
-    if (!url.startsWith("/api/proxy")) return false;
-    if (!error.response) return true;
-    const status = error.response.status;
-    return status === 403 || status === 408 || status === 502 || status === 504 || (status >= 520 && status <= 524) || isProxyHtmlError(error);
+    // 平台渠道密钥仅由服务端持有，禁止浏览器直连或回退到上游地址。
+    return false;
 }
 
 function isProxyHtmlError(error: unknown) {
