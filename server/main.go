@@ -63,6 +63,7 @@ func main() {
 	admin.GET("/users", h.AdminUsers)
 	admin.GET("/ledger", h.AdminLedger)
 	admin.POST("/users/:id/points", h.AdjustPoints)
+	admin.PATCH("/users/:id/status", h.SetUserStatus)
 	admin.GET("/packages", h.Packages)
 	admin.POST("/packages", h.SavePackage)
 	admin.GET("/prices", h.Prices)

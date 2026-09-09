@@ -295,4 +295,8 @@ func (r Repository) AdjustPoints(userID string, amount int64, entry model.PointL
 	return user, err
 }
 
+func (r Repository) SetUserStatus(userID, status string) error {
+	return r.DB.Model(&model.User{}).Where("id = ?", userID).Update("status", status).Error
+}
+
 func IsNotFound(err error) bool { return errors.Is(err, gorm.ErrRecordNotFound) }

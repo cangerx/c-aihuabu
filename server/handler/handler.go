@@ -782,3 +782,19 @@ func (h Handler) AdjustPoints(c *gin.Context) {
 	}
 	OK(c, user)
 }
+
+func (h Handler) SetUserStatus(c *gin.Context) {
+	userID := strings.TrimSpace(c.Param("id"))
+	var input struct {
+		Status string `json:"status"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil || (input.Status != "active" && input.Status != "disabled") {
+		Fail(c, 400, errors.New("状态参数无效"))
+		return
+	}
+	if err := h.Service.Repo.SetUserStatus(userID, input.Status); err != nil {
+		Fail(c, 400, err)
+		return
+	}
+	OK(c, gin.H{"status": input.Status})
+}

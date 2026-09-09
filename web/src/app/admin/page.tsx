@@ -150,7 +150,7 @@ function UsersPage() {
         { title: "积分余额", dataIndex: "points", hideInSearch: true, render: (_, row) => <span className="font-semibold text-amber-600">{row.points}</span> },
         { title: "状态", dataIndex: "status", hideInSearch: true, render: (_, row) => <Tag color={row.status === "active" ? "green" : "red"}>{row.status === "active" ? "正常" : "禁用"}</Tag> },
         { title: "注册时间", dataIndex: "createdAt", valueType: "dateTime", hideInSearch: true },
-        { title: "操作", valueType: "option", render: (_, row) => <Button type="link" onClick={() => setAdjusting(row)}>积分调账</Button> },
+        { title: "操作", valueType: "option", render: (_, row) => [<Button key="points" type="link" onClick={() => setAdjusting(row)}>积分调账</Button>, <Button key="status" type="link" danger={row.status === "active"} onClick={async () => { await memberRequest(`/api/admin/users/${row.id}/status`, { method: "PATCH", body: JSON.stringify({ status: row.status === "active" ? "disabled" : "active" }) }); message.success(row.status === "active" ? "用户已禁用" : "用户已启用"); actionRef.current?.reload(); }}>{row.status === "active" ? "禁用" : "启用"}</Button>] },
     ];
     return (
         <PageContainer title="用户管理" subTitle="查看会员状态并执行可审计的积分调整">
