@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,7 +35,7 @@ func (s Service) Register(email, password, nickname string) (model.User, string,
 	if err != nil {
 		return model.User{}, "", err
 	}
-	user := model.User{ID: NewID(), Email: email, Nickname: strings.TrimSpace(nickname), PasswordHash: string(hash), Role: "user", Status: "active"}
+	user := model.User{ID: NewUserID(), Email: email, Nickname: strings.TrimSpace(nickname), PasswordHash: string(hash), Role: "user", Status: "active"}
 	if err := s.Repo.CreateUser(&user); err != nil {
 		return model.User{}, "", errors.New("该邮箱已注册")
 	}
@@ -86,4 +87,14 @@ func NewID() string {
 	bytes := make([]byte, 16)
 	_, _ = rand.Read(bytes)
 	return hex.EncodeToString(bytes)
+}
+
+// NewUserID returns a compact numeric identifier for display and support workflows.
+func NewUserID() string {
+	bytes := make([]byte, 4)
+	if _, err := rand.Read(bytes); err != nil {
+		return "10000"
+	}
+	n := (uint32(bytes[0])<<24 | uint32(bytes[1])<<16 | uint32(bytes[2])<<8 | uint32(bytes[3])) % 90000
+	return strconv.FormatUint(uint64(n+10000), 10)
 }

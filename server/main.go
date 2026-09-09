@@ -94,5 +94,5 @@ func bootstrapAdmin(repo repository.Repository, cfg config.Config) error {
 	if err != nil {
 		return err
 	}
-	return repo.CreateUser(&model.User{ID: service.NewID(), Email: cfg.AdminEmail, Nickname: "管理员", PasswordHash: string(hash), Role: "admin", Status: "active"})
+	return repo.CreateUser(&model.User{ID: service.NewUserID(), Email: cfg.AdminEmail, Nickname: "管理员", PasswordHash: string(hash), Role: "admin", Status: "active"})
 }

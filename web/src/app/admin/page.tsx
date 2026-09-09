@@ -176,6 +176,7 @@ function UsersPage() {
 }
 
 function shortUserId(id: string) {
+    if (/^\d{5}$/.test(id)) return id;
     let hash = 7;
     for (const char of id) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
     return String(hash % 100000).padStart(5, "0");
