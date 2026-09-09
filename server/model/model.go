@@ -21,7 +21,7 @@ type PointLedger struct {
 	Amount         int64     `gorm:"not null" json:"amount"`
 	BalanceAfter   int64     `gorm:"not null" json:"balanceAfter"`
 	ReferenceType  string    `gorm:"size:32" json:"referenceType"`
-	ReferenceID    string    `gorm:"uniqueIndex:idx_ledger_reference;size:64" json:"referenceId"`
+	ReferenceID    string    `gorm:"size:64" json:"referenceId"`
 	IdempotencyKey string    `gorm:"uniqueIndex;size:100" json:"idempotencyKey"`
 	Remark         string    `gorm:"size:255" json:"remark"`
 	OperatorID     string    `gorm:"size:36" json:"operatorId"`

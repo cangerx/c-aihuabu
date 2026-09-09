@@ -33,6 +33,9 @@ func main() {
 	if err := db.AutoMigrate(&model.User{}, &model.PointLedger{}, &model.PointPackage{}, &model.RechargeOrder{}, &model.GenerationPrice{}, &model.SystemSetting{}, &model.AIChannel{}, &model.AIUsageLog{}); err != nil {
 		log.Fatal(err)
 	}
+	if err := db.Exec("DROP INDEX IF EXISTS idx_ledger_reference").Error; err != nil {
+		log.Fatal(err)
+	}
 	repo := repository.Repository{DB: db}
 	if err := bootstrapAdmin(repo, cfg); err != nil {
 		log.Fatal(err)
