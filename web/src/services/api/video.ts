@@ -83,8 +83,7 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
     debugLog("video", "创建视频任务", {
         model: selectedModel,
         resolvedModel: requestConfig.model,
-        baseUrl: requestConfig.baseUrl,
-        proxy: requestConfig.aiProxyEnabled !== false,
+        proxy: true,
         videoMode: options?.videoMode || "text-to-video",
         references: references.length,
         videoReferences: videoReferences.length,

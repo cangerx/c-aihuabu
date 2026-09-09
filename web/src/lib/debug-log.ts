@@ -173,6 +173,7 @@ function sanitizeValue(value: unknown, depth: number): unknown {
     if (typeof value === "string") {
         if (value.startsWith("data:")) return `[data-url ${value.length} chars]`;
         if (/^Bearer\s+/i.test(value)) return "[redacted]";
+        if (/^https?:\/\//i.test(value)) return sanitizeRequestUrl(value) || "[url]";
         if (value.length > 400) return `${truncate(value, 200)}…(${value.length})`;
         return value;
     }
