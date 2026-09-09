@@ -23,6 +23,12 @@ func (r Repository) ListAIUsageLogs(limit int) ([]model.AIUsageLog, error) {
 
 func (r Repository) CreateAIUsageLog(row *model.AIUsageLog) error { return r.DB.Create(row).Error }
 
+func (r Repository) PriceForModel(name, mediaType string) (model.GenerationPrice, error) {
+	var row model.GenerationPrice
+	err := r.DB.Where("model = ? AND media_type = ? AND enabled = ?", name, mediaType, true).First(&row).Error
+	return row, err
+}
+
 type DashboardStats struct {
 	Users       int64 `json:"users"`
 	TotalPoints int64 `json:"totalPoints"`

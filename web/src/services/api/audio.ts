@@ -11,9 +11,13 @@ function aiApiUrl(config: AiConfig, path: string) {
 }
 
 function aiHeaders(config: AiConfig) {
+    const token = typeof localStorage !== "undefined" ? localStorage.getItem("c-aihuabu:member-token") || "" : "";
     return {
         Authorization: `Bearer ${config.apiKey}`,
         "Content-Type": "application/json",
+        ...(token ? { "X-C-AI-User-Token": token } : {}),
+        "X-C-AI-Model": config.model || config.audioModel,
+        "X-C-AI-Media-Type": "audio",
     };
 }
 

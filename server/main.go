@@ -49,6 +49,7 @@ func main() {
 	api.GET("/payment/options", h.PaymentOptions)
 	router.GET("/internal/ai-channel", h.InternalAIChannel)
 	router.POST("/internal/ai-usage", h.InternalAIUsage)
+	router.POST("/internal/ai-charge", h.InternalAICharge)
 	authed := api.Group("")
 	authed.Use(middleware.Auth(svc))
 	authed.GET("/users/me", h.Me)

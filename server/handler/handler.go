@@ -686,9 +686,9 @@ func (h Handler) InternalAIUsage(c *gin.Context) {
 		return
 	}
 	var input struct {
-		ChannelID, Model, Path, Error string
-		Status                        int
-		DurationMs                    int64
+		ChannelID, UserID, Model, Path, Error string
+		Status                                int
+		DurationMs, Points                    int64
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.Status(http.StatusBadRequest)
@@ -698,11 +698,44 @@ func (h Handler) InternalAIUsage(c *gin.Context) {
 		c.Status(http.StatusNoContent)
 		return
 	}
-	if err := h.Service.Repo.CreateAIUsageLog(&model.AIUsageLog{ID: service.NewID(), ChannelID: input.ChannelID, Model: input.Model, Path: input.Path, Status: input.Status, Error: truncateLog(input.Error), DurationMs: input.DurationMs}); err != nil {
+	if err := h.Service.Repo.CreateAIUsageLog(&model.AIUsageLog{ID: service.NewID(), ChannelID: input.ChannelID, UserID: input.UserID, Model: input.Model, Path: input.Path, Status: input.Status, Error: truncateLog(input.Error), DurationMs: input.DurationMs, Points: input.Points}); err != nil {
 		c.Status(http.StatusInternalServerError)
 		return
 	}
 	c.Status(http.StatusNoContent)
+}
+
+func (h Handler) InternalAICharge(c *gin.Context) {
+	if c.ClientIP() != "127.0.0.1" && c.ClientIP() != "::1" {
+		c.Status(http.StatusForbidden)
+		return
+	}
+	token := strings.TrimSpace(strings.TrimPrefix(c.GetHeader("X-C-AI-User-Token"), "Bearer "))
+	userID, _, err := h.Service.ParseToken(token)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "请先登录后再生成"})
+		return
+	}
+	var input struct{ Model, MediaType, IdempotencyKey, Action string }
+	if err := c.ShouldBindJSON(&input); err != nil || strings.TrimSpace(input.Model) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少模型信息"})
+		return
+	}
+	price, err := h.Service.Repo.PriceForModel(strings.TrimSpace(input.Model), strings.TrimSpace(input.MediaType))
+	if err != nil {
+		c.JSON(http.StatusPaymentRequired, gin.H{"error": "该模型尚未配置积分价格"})
+		return
+	}
+	amount, kind, prefix, remark := -price.Points, "generation_spend", "charge:", "模型生成扣费"
+	if input.Action == "refund" {
+		amount, kind, prefix, remark = price.Points, "generation_refund", "refund:", "生成失败退回积分"
+	}
+	_, err = h.Service.Repo.AdjustPoints(userID, amount, model.PointLedger{ID: service.NewID(), Type: kind, IdempotencyKey: prefix + strings.TrimSpace(input.IdempotencyKey), Remark: remark})
+	if err != nil {
+		c.JSON(http.StatusPaymentRequired, gin.H{"error": err.Error()})
+		return
+	}
+	OK(c, gin.H{"points": price.Points, "userId": userID})
 }
 
 func truncateLog(value string) string {

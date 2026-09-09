@@ -375,9 +375,13 @@ function aiApiUrl(config: AiConfig, path: string) {
 }
 
 function aiHeaders(config: AiConfig, contentType?: string) {
+    const token = typeof localStorage !== "undefined" ? localStorage.getItem("c-aihuabu:member-token") || "" : "";
     return {
         Authorization: `Bearer ${config.apiKey}`,
         ...(contentType ? { "Content-Type": contentType } : {}),
+        ...(token ? { "X-C-AI-User-Token": token } : {}),
+        "X-C-AI-Model": modelOptionName(config.model),
+        "X-C-AI-Media-Type": "image",
     };
 }
 
@@ -401,12 +405,14 @@ function geminiApiUrl(config: Pick<AiConfig, "baseUrl" | "model"> & Partial<Pick
 }
 
 function geminiHeaders(config: Pick<AiConfig, "apiKey" | "baseUrl">): Record<string, string> {
+    const token = typeof localStorage !== "undefined" ? localStorage.getItem("c-aihuabu:member-token") || "" : "";
     if (config.baseUrl.toLowerCase().includes("generativelanguage.googleapis.com")) {
-        return { "x-goog-api-key": config.apiKey, "Content-Type": "application/json" };
+        return { "x-goog-api-key": config.apiKey, "Content-Type": "application/json", ...(token ? { "X-C-AI-User-Token": token } : {}) };
     }
     return {
         Authorization: `Bearer ${config.apiKey}`,
         "Content-Type": "application/json",
+        ...(token ? { "X-C-AI-User-Token": token } : {}),
     };
 }
 

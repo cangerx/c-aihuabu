@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -94,8 +95,29 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	copyRequestHeaders(req.Header, r.Header)
+	modelName, mediaType := r.Header.Get("X-C-AI-Model"), r.Header.Get("X-C-AI-Media-Type")
+	mediaType = requestMediaType(target.Path, mediaType)
+	memberToken := r.Header.Get("X-C-AI-User-Token")
+	chargeKey := r.Header.Get("X-Request-Id")
+	if chargeKey == "" {
+		chargeKey = fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	billable := isBillableRequest(r.Method, target.Path) && modelName != "" && mediaType != ""
+	if billable {
+		if err := chargeUser(memberToken, modelName, mediaType, chargeKey, "charge"); err != nil {
+			http.Error(w, err.Error(), http.StatusPaymentRequired)
+			return
+		}
+	}
+	req.Header.Del("X-C-AI-User-Token")
+	req.Header.Del("X-C-AI-Model")
+	req.Header.Del("X-C-AI-Media-Type")
+	req.Header.Del("X-Request-Id")
 	apiKey, err := resolveAPIKey(r.Context(), target.String())
 	if err != nil {
+		if billable {
+			_ = chargeUser(memberToken, modelName, mediaType, chargeKey, "refund")
+		}
 		http.Error(w, "model channel is not configured", http.StatusBadGateway)
 		return
 	}
@@ -119,6 +141,9 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 	recordAIUsage(target, resp.StatusCode, time.Since(startedAt), "")
+	if resp.StatusCode >= 400 && billable {
+		_ = chargeUser(memberToken, modelName, mediaType, chargeKey, "refund")
+	}
 
 	copyResponseHeaders(w.Header(), resp.Header)
 	writeCors(w, r)
@@ -126,6 +151,56 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	if err := copyResponseBody(w, resp.Body); err != nil {
 		log.Printf("copy response failed: %v", err)
 	}
+}
+
+func requestMediaType(path, fallback string) string {
+	switch {
+	case strings.Contains(path, "/images/"):
+		return "image"
+	case strings.Contains(path, "/videos"):
+		return "video"
+	case strings.Contains(path, "/audio/"):
+		return "audio"
+	case strings.Contains(path, "/chat/") || strings.HasSuffix(path, "/responses"):
+		return "text"
+	}
+	return fallback
+}
+
+func isBillableRequest(method, path string) bool {
+	if method != http.MethodPost {
+		return false
+	}
+	return strings.Contains(path, "/images/generations") || strings.Contains(path, "/images/edits") || strings.Contains(path, "/videos") || strings.Contains(path, "/audio/speech") || strings.Contains(path, "/chat/completions") || strings.HasSuffix(path, "/responses") || strings.Contains(path, ":generateContent")
+}
+
+func chargeUser(token, modelName, mediaType, key, action string) error {
+	body, _ := json.Marshal(map[string]string{"model": modelName, "mediaType": mediaType, "idempotencyKey": key, "action": action})
+	req, err := http.NewRequest(http.MethodPost, "http://127.0.0.1:8788/internal/ai-charge", strings.NewReader(string(body)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-C-AI-User-Token", token)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return errors.New("积分服务不可用，请稍后重试")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusOK {
+		return nil
+	}
+	var payload struct {
+		Error string `json:"error"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&payload)
+	if payload.Error != "" {
+		return errors.New(payload.Error)
+	}
+	return errors.New("积分校验失败")
 }
 
 func recordAIUsage(target *url.URL, status int, duration time.Duration, message string) {

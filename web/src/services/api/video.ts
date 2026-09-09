@@ -33,9 +33,13 @@ function aiApiUrl(config: AiConfig, path: string) {
 }
 
 function aiHeaders(config: AiConfig, contentType?: string) {
+    const token = typeof localStorage !== "undefined" ? localStorage.getItem("c-aihuabu:member-token") || "" : "";
     return {
         Authorization: `Bearer ${config.apiKey}`,
         ...(contentType ? { "Content-Type": contentType } : {}),
+        ...(token ? { "X-C-AI-User-Token": token } : {}),
+        "X-C-AI-Model": modelOptionName(config.model),
+        "X-C-AI-Media-Type": "video",
     };
 }
 
