@@ -20,6 +20,7 @@ export type PaymentOptions = { enabled: boolean; methods: ("WECHAT" | "ALIPAY")[
 export type GeneralSettings = { registrationEnabled: boolean; registrationGiftPoints: number; tokenTtlHours: number; defaultImagePoints: number; defaultVideoPoints: number; defaultTextPoints: number; defaultAudioPoints: number; maintenanceMode: boolean };
 export type AIChannel = { id: string; name: string; baseUrl: string; models: string[]; enabled: boolean; apiKeyConfigured: boolean };
 export type PointLedger = { id: string; type: string; amount: number; balanceAfter: number; remark: string; createdAt: string };
+export type AIUsageLog = { id: string; channelId: string; model: string; path: string; status: number; error: string; durationMs: number; createdAt: string };
 
 type Envelope<T> = { code: number; data: T; msg: string };
 

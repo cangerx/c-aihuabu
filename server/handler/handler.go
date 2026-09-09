@@ -671,6 +671,48 @@ func (h Handler) InternalAIChannel(c *gin.Context) {
 	c.Status(http.StatusNotFound)
 }
 
+func (h Handler) AdminUsageLogs(c *gin.Context) {
+	rows, err := h.Service.Repo.ListAIUsageLogs(atoi(c.Query("limit")))
+	if err != nil {
+		Fail(c, 500, err)
+		return
+	}
+	OK(c, rows)
+}
+
+func (h Handler) InternalAIUsage(c *gin.Context) {
+	if c.ClientIP() != "127.0.0.1" && c.ClientIP() != "::1" {
+		c.Status(http.StatusForbidden)
+		return
+	}
+	var input struct {
+		ChannelID, Model, Path, Error string
+		Status                        int
+		DurationMs                    int64
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.Status(http.StatusBadRequest)
+		return
+	}
+	if input.Path == "" {
+		c.Status(http.StatusNoContent)
+		return
+	}
+	if err := h.Service.Repo.CreateAIUsageLog(&model.AIUsageLog{ID: service.NewID(), ChannelID: input.ChannelID, Model: input.Model, Path: input.Path, Status: input.Status, Error: truncateLog(input.Error), DurationMs: input.DurationMs}); err != nil {
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func truncateLog(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) > 500 {
+		return value[:500]
+	}
+	return value
+}
+
 func aiChannelTargetMatches(base, target string) bool {
 	if target == base || strings.HasPrefix(target, base+"/") {
 		return true

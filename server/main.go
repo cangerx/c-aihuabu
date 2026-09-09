@@ -30,7 +30,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.User{}, &model.PointLedger{}, &model.PointPackage{}, &model.RechargeOrder{}, &model.GenerationPrice{}, &model.SystemSetting{}, &model.AIChannel{}); err != nil {
+	if err := db.AutoMigrate(&model.User{}, &model.PointLedger{}, &model.PointPackage{}, &model.RechargeOrder{}, &model.GenerationPrice{}, &model.SystemSetting{}, &model.AIChannel{}, &model.AIUsageLog{}); err != nil {
 		log.Fatal(err)
 	}
 	repo := repository.Repository{DB: db}
@@ -48,6 +48,7 @@ func main() {
 	api.GET("/models", h.PublicModels)
 	api.GET("/payment/options", h.PaymentOptions)
 	router.GET("/internal/ai-channel", h.InternalAIChannel)
+	router.POST("/internal/ai-usage", h.InternalAIUsage)
 	authed := api.Group("")
 	authed.Use(middleware.Auth(svc))
 	authed.GET("/users/me", h.Me)
@@ -70,6 +71,7 @@ func main() {
 	admin.GET("/settings/general", h.AdminGeneralSettings)
 	admin.PUT("/settings/general", h.SaveGeneralSettings)
 	admin.GET("/channels", h.AdminAIChannels)
+	admin.GET("/usage-logs", h.AdminUsageLogs)
 	admin.POST("/channels", h.SaveAIChannel)
 	admin.DELETE("/channels/:id", h.DeleteAIChannel)
 	admin.POST("/channels/:id/fetch-models", h.FetchAIChannelModels)

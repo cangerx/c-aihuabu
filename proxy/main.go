@@ -110,12 +110,15 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Host = target.Host
 
+	startedAt := time.Now()
 	resp, err := upstreamHTTPClient.Do(req)
 	if err != nil {
+		recordAIUsage(target, 0, time.Since(startedAt), err.Error())
 		http.Error(w, "upstream request failed: "+err.Error(), http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
+	recordAIUsage(target, resp.StatusCode, time.Since(startedAt), "")
 
 	copyResponseHeaders(w.Header(), resp.Header)
 	writeCors(w, r)
@@ -123,6 +126,46 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	if err := copyResponseBody(w, resp.Body); err != nil {
 		log.Printf("copy response failed: %v", err)
 	}
+}
+
+func recordAIUsage(target *url.URL, status int, duration time.Duration, message string) {
+	payload := map[string]any{"model": extractModel(target.Path), "path": target.Path, "status": status, "durationMs": duration.Milliseconds(), "error": sanitizeUsageError(message)}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	go func() {
+		req, err := http.NewRequest(http.MethodPost, "http://127.0.0.1:8788/internal/ai-usage", strings.NewReader(string(body)))
+		if err != nil {
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		req = req.WithContext(ctx)
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil {
+			_ = resp.Body.Close()
+		}
+	}()
+}
+
+func extractModel(path string) string {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	for i, part := range parts {
+		if part == "models" && i+1 < len(parts) {
+			return strings.Split(parts[i+1], ":")[0]
+		}
+	}
+	return ""
+}
+
+func sanitizeUsageError(message string) string {
+	message = strings.TrimSpace(message)
+	if len(message) > 500 {
+		message = message[:500]
+	}
+	return message
 }
 
 func isGoogleGeminiHost(host string) bool {

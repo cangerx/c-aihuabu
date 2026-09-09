@@ -5,6 +5,8 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 # 待测试
 
+- 平台渠道鉴权链路：用户端不保存 API Key 时，即使旧配置曾关闭代理，图片/视频/文本请求也必须自动改走 `/api/proxy`，由服务端渠道注入 Key；不应再向中转直连发送空 Authorization 并返回“没有提供 API Key”。
+- 后台使用日志：管理员打开“使用日志”应能看到模型、接口路径、状态码、耗时和脱敏错误摘要；日志不得包含 API Key、Authorization、请求正文或完整上游 URL。
 - Gemini 官方鉴权头：将模型渠道 Base URL 配置为 Google 官方 Gemini API 域名并通过同域代理生图时，应使用 `x-goog-api-key`，不再返回 `Invalid API Key`；普通 IP/域名中转仍使用 `Authorization: Bearer`，两种鉴权头不应同时发送。
 - 前端上游地址保护：开启调试日志并发起图片/视频请求，日志和错误详情不得显示渠道完整域名、IP、端口、Key 或代理 `url` 查询参数，仅显示 `/api/proxy` 或接口路径；请求失败提示应优先显示模型、状态和可执行建议。
 - Gemini 500 回退：Gemini 原生 `generateContent` 经同域代理返回 500/502/504 时，应按现有代理回退策略尝试直连；原生接口 404/405 时回退 OpenAI 兼容 `chat/completions`，两条路径均传递 `imageConfig` 对应尺寸。

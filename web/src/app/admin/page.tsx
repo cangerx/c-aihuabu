@@ -6,7 +6,7 @@ import { ModalForm, PageContainer, ProCard, ProForm, ProFormDigit, ProFormRadio,
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
-import { memberRequest, type AIChannel, type DashboardStats, type GenerationPrice, type MemberUser, type PointLedger, type PointPackage, type PaymentSettings, type GeneralSettings } from "@/services/api/membership";
+import { memberRequest, type AIChannel, type AIUsageLog, type DashboardStats, type GenerationPrice, type MemberUser, type PointLedger, type PointPackage, type PaymentSettings, type GeneralSettings } from "@/services/api/membership";
 import { useMemberStore } from "@/stores/use-member-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 
@@ -16,6 +16,7 @@ const menus = [
     { path: "/admin/packages", name: "积分套餐", icon: <Package className="size-4" /> },
     { path: "/admin/prices", name: "模型计价", icon: <Sparkles className="size-4" /> },
     { path: "/admin/channels", name: "模型渠道", icon: <KeyRound className="size-4" /> },
+    { path: "/admin/usage-logs", name: "使用日志", icon: <Activity className="size-4" /> },
     { path: "/admin/orders", name: "充值订单", icon: <ReceiptText className="size-4" /> },
     { path: "/admin/ledger", name: "积分流水", icon: <WalletCards className="size-4" /> },
     { path: "/admin/settings/payment", name: "支付配置", icon: <Settings2 className="size-4" /> },
@@ -62,11 +63,24 @@ function AdminContent({ path }: { path: string }) {
     if (path === "/admin/packages") return <PackagesPage />;
     if (path === "/admin/prices") return <PricesPage />;
     if (path === "/admin/channels") return <ChannelsPage />;
+    if (path === "/admin/usage-logs") return <UsageLogsPage />;
     if (path === "/admin/orders") return <EmptyModule title="充值订单" description="支付渠道接入后，这里展示待支付、已支付和已关闭订单。" />;
     if (path === "/admin/ledger") return <LedgerPage />;
     if (path === "/admin/settings/payment") return <PaymentSettingsPage />;
     if (path === "/admin/settings/general") return <GeneralSettingsPage />;
     return <DashboardPage />;
+}
+
+function UsageLogsPage() {
+    const columns: ProColumns<AIUsageLog>[] = [
+        { title: "时间", dataIndex: "createdAt", render: (value) => new Date(String(value)).toLocaleString("zh-CN", { hour12: false }) },
+        { title: "模型", dataIndex: "model", render: (value) => value || "-" },
+        { title: "接口", dataIndex: "path", ellipsis: true },
+        { title: "状态", dataIndex: "status", render: (value) => <Tag color={Number(value) >= 200 && Number(value) < 400 ? "green" : "red"}>{String(value || "网络失败")}</Tag> },
+        { title: "耗时", dataIndex: "durationMs", render: (value) => `${Number(value || 0)} ms` },
+        { title: "错误摘要", dataIndex: "error", ellipsis: true },
+    ];
+    return <PageContainer title="使用日志" subTitle="记录模型请求路径、状态与耗时；不会保存 API Key、请求正文或完整上游地址"><ProTable<AIUsageLog> rowKey="id" columns={columns} search={false} request={async () => ({ data: await memberRequest<AIUsageLog[]>("/api/admin/usage-logs?limit=200"), success: true })} /></PageContainer>;
 }
 
 function DashboardPage() {

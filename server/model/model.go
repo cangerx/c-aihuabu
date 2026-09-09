@@ -84,3 +84,14 @@ type AIChannel struct {
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
+
+type AIUsageLog struct {
+	ID         string    `gorm:"primaryKey;size:36" json:"id"`
+	ChannelID  string    `gorm:"index;size:36" json:"channelId"`
+	Model      string    `gorm:"index;size:191" json:"model"`
+	Path       string    `gorm:"size:120" json:"path"`
+	Status     int       `json:"status"`
+	Error      string    `gorm:"size:500" json:"error"`
+	DurationMs int64     `json:"durationMs"`
+	CreatedAt  time.Time `gorm:"index" json:"createdAt"`
+}

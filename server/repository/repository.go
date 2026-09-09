@@ -12,6 +12,17 @@ import (
 
 type Repository struct{ DB *gorm.DB }
 
+func (r Repository) ListAIUsageLogs(limit int) ([]model.AIUsageLog, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	var rows []model.AIUsageLog
+	err := r.DB.Order("created_at desc").Limit(limit).Find(&rows).Error
+	return rows, err
+}
+
+func (r Repository) CreateAIUsageLog(row *model.AIUsageLog) error { return r.DB.Create(row).Error }
+
 type DashboardStats struct {
 	Users       int64 `json:"users"`
 	TotalPoints int64 `json:"totalPoints"`

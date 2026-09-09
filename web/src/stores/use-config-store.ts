@@ -385,10 +385,13 @@ function normalizeArkPlanBaseUrl(baseUrl: string) {
 
 export function buildProxiedUrl(targetUrl: string, enabled = useConfigStore.getState().config.aiProxyEnabled) {
     const url = targetUrl.trim();
-    if (!enabled || !/^https?:\/\//i.test(url)) return targetUrl;
+    const hasClientKey = Boolean(useConfigStore.getState().config.apiKey.trim());
+    if ((!enabled && hasClientKey) || !/^https?:\/\//i.test(url)) return targetUrl;
     return `/api/proxy?url=${encodeURIComponent(url)}`;
 }
 
 export function buildAiApiUrl(baseUrl: string, path: string, proxyEnabled?: boolean) {
-    return buildProxiedUrl(buildApiUrl(baseUrl, path), proxyEnabled);
+    // 平台渠道密钥仅保存在服务端；客户端没有 Key 时必须经同域代理注入鉴权。
+    const hasClientKey = Boolean(useConfigStore.getState().config.apiKey.trim());
+    return buildProxiedUrl(buildApiUrl(baseUrl, path), proxyEnabled !== false || !hasClientKey);
 }
